@@ -3,9 +3,12 @@ import { TRACI } from "./constants.ts";
 import { TraCIError, FatalTraCIError } from "./errors.ts";
 import { TraCIReader, type TraciValue } from "./reader.ts";
 import {
+  encodeCompoundHeader,
   encodeMessage,
   encodeRawDouble,
+  encodeTypedInt32,
   encodeTypedString,
+  encodeTypedStringList,
   readGetDataHeader,
   readResponseCommandLength,
   readStatus,
@@ -379,6 +382,20 @@ export class TraCIConnection {
     return this.expectNumber(await this.getVariable(TRACI.CMD_GET_SIM_VARIABLE, TRACI.VAR_ARRIVED_VEHICLES_NUMBER, ""));
   }
 
+  /** IDs of vehicles that finished their route in the last step. */
+  async getArrivedVehicleIds(): Promise<string[]> {
+    return this.expectStringList(
+      await this.getVariable(TRACI.CMD_GET_SIM_VARIABLE, TRACI.VAR_ARRIVED_VEHICLES_IDS, ""),
+    );
+  }
+
+  /** IDs of vehicles waiting for insertion (depart blocked). */
+  async getPendingVehicleIds(): Promise<string[]> {
+    return this.expectStringList(
+      await this.getVariable(TRACI.CMD_GET_SIM_VARIABLE, TRACI.VAR_PENDING_VEHICLES, ""),
+    );
+  }
+
   async getMinExpectedVehicleCount(): Promise<number> {
     return this.expectNumber(await this.getVariable(TRACI.CMD_GET_SIM_VARIABLE, TRACI.VAR_MIN_EXPECTED_VEHICLES, ""));
   }
@@ -487,6 +504,114 @@ export class TraCIConnection {
       objId: tlsId,
       payload: encodeTypedString(state),
     });
+  }
+
+  // ------------------------------------------------------------------
+  // Route domain
+  // ------------------------------------------------------------------
+
+  /** Adds (or replaces) a named route consisting of the given edges. */
+  async addRoute(routeId: string, edges: string[]): Promise<void> {
+    if (edges.length === 0) {
+      throw new TraCIError("Cannot add an empty route");
+    }
+    await this.request({
+      cmdId: TRACI.CMD_SET_ROUTE_VARIABLE,
+      varId: TRACI.ROUTE_ADD,
+      objId: routeId,
+      payload: encodeTypedStringList(edges),
+    });
+  }
+
+  async getRouteEdges(routeId: string): Promise<string[]> {
+    return this.expectStringList(
+      await this.getVariable(TRACI.CMD_GET_ROUTE_VARIABLE, TRACI.VAR_EDGES, routeId),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Vehicle lifecycle (add/remove)
+  // ------------------------------------------------------------------
+
+  /**
+   * Adds a vehicle with full parameters (ADD_FULL), mirroring the reference
+   * client's vehicle.add: compound of 14 members (12 strings + 2 ints).
+   * `depart` "now" inserts as soon as possible.
+   */
+  async addVehicle(params: {
+    vehicleId: string;
+    routeId: string;
+    typeId: string;
+    depart?: string;
+    departLane?: string;
+    departPos?: string;
+    departSpeed?: string;
+  }): Promise<void> {
+    const payload = Buffer.concat([
+      encodeCompoundHeader(14),
+      encodeTypedString(params.routeId),
+      encodeTypedString(params.typeId),
+      encodeTypedString(params.depart ?? "now"),
+      encodeTypedString(params.departLane ?? "first"),
+      encodeTypedString(params.departPos ?? "base"),
+      encodeTypedString(params.departSpeed ?? "0"),
+      encodeTypedString("current"), // arrivalLane
+      encodeTypedString("max"), // arrivalPos
+      encodeTypedString("current"), // arrivalSpeed
+      encodeTypedString(""), // fromTaz
+      encodeTypedString(""), // toTaz
+      encodeTypedString(""), // line
+      encodeTypedInt32(0), // personCapacity
+      encodeTypedInt32(0), // personNumber
+    ]);
+    await this.request({
+      cmdId: TRACI.CMD_SET_VEHICLE_VARIABLE,
+      varId: TRACI.ADD_FULL,
+      objId: params.vehicleId,
+      payload,
+    });
+  }
+
+  /** Removes a vehicle from the simulation (default: vaporized). */
+  async removeVehicle(vehicleId: string, reason = TRACI.REMOVE_VAPORIZED): Promise<void> {
+    await this.request({
+      cmdId: TRACI.CMD_SET_VEHICLE_VARIABLE,
+      varId: TRACI.REMOVE,
+      objId: vehicleId,
+      payload: Buffer.from([TRACI.TYPE_BYTE, reason]),
+    });
+  }
+
+  /** Replaces the vehicle's route with a new edge list. */
+  async setVehicleRoute(vehicleId: string, edges: string[]): Promise<void> {
+    if (edges.length === 0) {
+      throw new TraCIError("Cannot set an empty route");
+    }
+    await this.request({
+      cmdId: TRACI.CMD_SET_VEHICLE_VARIABLE,
+      varId: TRACI.VAR_ROUTE,
+      objId: vehicleId,
+      payload: encodeTypedStringList(edges),
+    });
+  }
+
+  async getVehicleRouteId(vehicleId: string): Promise<string> {
+    return this.expectString(
+      await this.getVariable(TRACI.CMD_GET_VEHICLE_VARIABLE, TRACI.VAR_ROUTE_ID, vehicleId),
+    );
+  }
+
+  /** Index of the vehicle's current edge within its route (-1 off-route). */
+  async getVehicleRouteIndex(vehicleId: string): Promise<number> {
+    return this.expectNumber(
+      await this.getVariable(TRACI.CMD_GET_VEHICLE_VARIABLE, TRACI.VAR_ROUTE_INDEX, vehicleId),
+    );
+  }
+
+  async getVehicleWaitingTime(vehicleId: string): Promise<number> {
+    return this.expectNumber(
+      await this.getVariable(TRACI.CMD_GET_VEHICLE_VARIABLE, TRACI.VAR_WAITING_TIME, vehicleId),
+    );
   }
 
   // ------------------------------------------------------------------

@@ -5,15 +5,18 @@ import { AppError } from "./errors.ts";
 import type { Logger } from "./logger.ts";
 import { simulationRoutes } from "./modules/simulation/routes.ts";
 import { trafficRoutes } from "./modules/traffic/routes.ts";
+import { emergencyRoutes } from "./modules/emergency/routes.ts";
 import { websocketRoutes } from "./modules/websocket/routes.ts";
 import type { SimulationManager } from "./modules/simulation/simulation-manager.ts";
 import type { TrafficService } from "./modules/traffic/traffic-service.ts";
+import type { EmergencyService } from "./modules/emergency/emergency-service.ts";
 
 export interface AppDependencies {
   config: AppConfig;
   logger: Logger;
   manager: SimulationManager;
   trafficService: TrafficService;
+  emergencyService: EmergencyService;
   wsBus: import("./modules/websocket/ws-bus.ts").WsBus;
 }
 
@@ -70,6 +73,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
 
   await app.register(simulationRoutes, { manager: deps.manager });
   await app.register(trafficRoutes, { trafficService: deps.trafficService });
+  await app.register(emergencyRoutes, { emergencyService: deps.emergencyService });
   await app.register(websocketRoutes, { bus: deps.wsBus });
 
   return app;

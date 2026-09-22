@@ -3,8 +3,12 @@ import { createLogger, parseLogLevel } from "./logger.ts";
 import { buildApp } from "./app.ts";
 import { SimulationManager } from "./modules/simulation/simulation-manager.ts";
 import { loadNetworkCatalog } from "./modules/simulation/network-loader.ts";
+import { RoadGraph } from "./modules/routing/road-graph.ts";
+import { RouteEngine } from "./modules/routing/route-engine.ts";
 import { TrafficCollector } from "./modules/traffic/collector.ts";
 import { TrafficService } from "./modules/traffic/traffic-service.ts";
+import { EmergencyService } from "./modules/emergency/emergency-service.ts";
+import { EmergencyRepository } from "./database/repositories/emergency-repository.ts";
 import { WsBus } from "./modules/websocket/ws-bus.ts";
 import { createDatabasePool } from "./database/db.ts";
 import { runMigrations } from "./database/migrate.ts";
@@ -31,8 +35,13 @@ async function main(): Promise<void> {
     signals: catalog.signals.length,
   });
 
-  // ---- simulation + traffic intelligence ----
+  // ---- routing (road graph + A* engine) ----
+  const roadGraph = new RoadGraph(catalog);
+  const routeEngine = new RouteEngine(roadGraph, catalog);
+
+  // ---- simulation + traffic intelligence + emergency ----
   const manager = new SimulationManager({ config, logger });
+  manager.setCatalog(catalog);
   const collector = new TrafficCollector({ catalog, thresholds: config.congestionThresholds });
   const wsBus = new WsBus(logger);
   const trafficService = new TrafficService({
@@ -43,13 +52,32 @@ async function main(): Promise<void> {
     collector,
     catalog,
     bus: wsBus,
+    roadGraph,
   });
   trafficService.startBroadcastLoop();
 
-  const app = await buildApp({ config, logger, manager, trafficService, wsBus });
+  const emergencyRepository = new EmergencyRepository(db);
+  const controlledJunctions = new Set(catalog.signals.map((signal) => signal.id));
+  const emergencyService = new EmergencyService({
+    config,
+    logger,
+    manager,
+    routeEngine,
+    repository: emergencyRepository,
+    bus: wsBus,
+    controlledJunctions,
+    getRunId: () => trafficService.getCurrentRunId(),
+  });
+
+  const app = await buildApp({ config, logger, manager, trafficService, emergencyService, wsBus });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("Shutting down", { signal });
+    try {
+      await emergencyService.dispose();
+    } catch (err) {
+      logger.warn("Error while disposing emergency service", { error: err });
+    }
     try {
       await trafficService.dispose();
     } catch (err) {

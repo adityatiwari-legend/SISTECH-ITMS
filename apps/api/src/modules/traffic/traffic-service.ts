@@ -21,6 +21,7 @@ import { NetworkRepository, type IntersectionRow } from "../../database/reposito
 import { RunRepository } from "../../database/repositories/run-repository.ts";
 import { TrafficRepository } from "../../database/repositories/traffic-repository.ts";
 import { LEVEL_ORDER, type CongestionLevel, type SegmentMetrics } from "./metrics.ts";
+import type { RoadGraph } from "../routing/road-graph.ts";
 
 /**
  * Traffic intelligence orchestration (Phases.md 2.x):
@@ -44,6 +45,7 @@ export class TrafficService {
   private readonly trafficRepo: TrafficRepository;
   private readonly bus: WsBus;
   private readonly catalog: NetworkCatalog;
+  private readonly roadGraph: RoadGraph;
 
   private segmentInfo: Array<{ id: string; roadId: string; from: string; to: string }>;
   private currentRunId: number | null = null;
@@ -64,6 +66,8 @@ export class TrafficService {
     collector: TrafficCollector;
     catalog: NetworkCatalog;
     bus: WsBus;
+    /** Live road graph whose edge weights are refreshed per step (routing). */
+    roadGraph: RoadGraph;
   }) {
     this.config = options.config;
     this.logger = options.logger;
@@ -72,6 +76,7 @@ export class TrafficService {
     this.collector = options.collector;
     this.catalog = options.catalog;
     this.bus = options.bus;
+    this.roadGraph = options.roadGraph;
     this.networkRepo = new NetworkRepository(options.db);
     this.runRepo = new RunRepository(options.db);
     this.trafficRepo = new TrafficRepository();
@@ -96,6 +101,11 @@ export class TrafficService {
   startBroadcastLoop(): void {
     if (this.broadcastTimer !== null) return;
     this.broadcastTimer = setInterval(() => this.broadcastIfNew(), this.config.trafficEventIntervalMs);
+  }
+
+  /** Current simulation run id, or null when no run is active. */
+  getCurrentRunId(): number | null {
+    return this.currentRunId;
   }
 
   stopBroadcastLoop(): void {
@@ -157,6 +167,24 @@ export class TrafficService {
       this.latest = state;
       this.tickCount += 1;
       this.revision += 1;
+      // Refresh routing weights with the freshest measured traffic. The
+      // collector's SegmentMetrics carry the same per-segment measurements
+      // the API surfaces use; map them onto the graph edge fields.
+      this.roadGraph.applyTrafficState(
+        state.segments.map((segment) => ({
+          segmentId: segment.segmentId,
+          roadId: "",
+          fromJunction: "",
+          toJunction: "",
+          vehicleCount: segment.vehicleCount,
+          avgSpeedMps: segment.avgSpeedMps,
+          queueLength: segment.queueLength,
+          occupancy: segment.occupancy,
+          vehiclesPerKm: segment.vehiclesPerKm,
+          flowRatePerHour: segment.flowRatePerHour,
+          congestion: segment.congestion,
+        })),
+      );
       if (this.tickCount % this.config.trafficPersistEveryTicks === 0) {
         this.enqueuePersist(state);
       }

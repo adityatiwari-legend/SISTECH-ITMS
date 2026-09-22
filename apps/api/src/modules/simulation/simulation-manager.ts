@@ -12,6 +12,7 @@ import { TraCIConnection } from "./traci/client.ts";
 import { FatalTraCIError } from "./traci/errors.ts";
 import { TRACI } from "./traci/constants.ts";
 import type { TraciValue } from "./traci/reader.ts";
+import type { NetworkCatalog } from "./network-loader.ts";
 import { findFreePort, startSumoProcess, type SumoProcessHandle } from "./sumo-process.ts";
 
 const CONNECT_RETRY_INTERVAL_MS = 500;
@@ -46,6 +47,7 @@ export class SimulationManager {
   private autoLoopActive = false;
   private lifecycleChain: Promise<unknown> = Promise.resolve();
   private stepInFlight: Promise<void> | null = null;
+  private catalog: NetworkCatalog | null = null;
   private stepListeners = new Set<(event: { simTimeSeconds: number }) => void>();
   private disconnectListeners = new Set<(event: { reason: string }) => void>();
   private startListeners = new Set<
@@ -139,6 +141,88 @@ export class SimulationManager {
   getTraCIClient(): TraCIConnection | null {
     if (this.client === null) return null;
     return this.status === "running" || this.status === "paused" ? this.client : null;
+  }
+
+  // ------------------------------------------------------------------
+  // Vehicle injection / lifecycle control (used by the emergency module)
+  // ------------------------------------------------------------------
+
+  private requireClient(): TraCIConnection {
+    const client = this.client;
+    if (client === null) {
+      throw new AppError(409, "simulation_not_running", "Not connected to SUMO.");
+    }
+    return client;
+  }
+
+  /** Adds a named route (edges must exist in the loaded network). */
+  async addVehicleRoute(routeId: string, edges: string[]): Promise<void> {
+    const client = this.requireClient();
+    try {
+      await client.addRoute(routeId, edges);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `SUMO rejected the route: ${message}`);
+    }
+  }
+
+  /** Adds a vehicle to the running simulation (insertion may be deferred by SUMO). */
+  async addVehicle(params: {
+    vehicleId: string;
+    routeId: string;
+    typeId: string;
+    departSpeed?: string;
+  }): Promise<void> {
+    const client = this.requireClient();
+    try {
+      await client.addVehicle(params);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `SUMO rejected the vehicle: ${message}`);
+    }
+  }
+
+  /** Removes a vehicle from the running simulation. */
+  async removeVehicle(vehicleId: string): Promise<void> {
+    const client = this.requireClient();
+    try {
+      await client.removeVehicle(vehicleId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `SUMO rejected the removal: ${message}`);
+    }
+  }
+
+  /** IDs of vehicles that finished their route in the last simulation step. */
+  async getArrivedVehicleIds(): Promise<string[]> {
+    const client = this.requireClient();
+    try {
+      return await client.getArrivedVehicleIds();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `Could not read arrived vehicles: ${message}`);
+    }
+  }
+
+  /** IDs of vehicles currently waiting for insertion. */
+  async getPendingVehicleIds(): Promise<string[]> {
+    const client = this.requireClient();
+    try {
+      return await client.getPendingVehicleIds();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `Could not read pending vehicles: ${message}`);
+    }
+  }
+
+  /** The network catalog used by this simulation (static topology). */
+  getCatalog(): NetworkCatalog | null {
+    return this.catalog;
+  }
+
+  /** Assigns the static network catalog (called once at wiring time). */
+  setCatalog(catalog: NetworkCatalog): void {
+    this.catalog = catalog;
   }
 
   // ------------------------------------------------------------------

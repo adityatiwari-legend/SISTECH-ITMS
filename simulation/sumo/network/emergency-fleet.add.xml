@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Emergency fleet vehicle types (loaded by all scenarios so that emergency
+  vehicles can be created dynamically via the API, Phases.md 3).
+
+  Type ids used by the backend EmergencyService:
+    emergency.ambulance  -> type "ambulance"
+    emergency.fireengine -> type "fire_engine"
+    emergency.police     -> type "police"
+-->
+<additional>
+    <vType id="emergency.ambulance" vClass="emergency" length="7.0" accel="3.0" decel="5.0" speedFactor="1.2" departLane="best"/>
+    <vType id="emergency.fireengine" vClass="emergency" length="9.0" accel="2.2" decel="4.5" speedFactor="1.1" departLane="best"/>
+    <vType id="emergency.police" vClass="authority" length="5.5" accel="3.2" decel="5.5" speedFactor="1.2" departLane="best"/>
+</additional>

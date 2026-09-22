@@ -1,18 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Emergency scenario: same normal traffic as the baseline plus one ambulance
-  driving from the EMS station zone (western stub W1) to the City Hospital
-  zone (eastern stub E2), crossing signalized intersections I1, I2, I3, I6.
-
-  Scenario files are kept separate from the baseline (Rules.md 10: never mix
-  baseline and ITMS runs without scenario identity).
+  Emergency scenario: normal traffic plus emergency infrastructure zones.
+  The ambulance itself is NOT predefined here: since Phase 3, emergency
+  vehicles are created dynamically through the API (POST /api/emergency),
+  which computes a route with A* and spawns the vehicle in SUMO.
 -->
 <routes>
     <vType id="car" vClass="passenger" length="5.0" accel="2.6" decel="4.5" departLane="best"/>
     <vType id="bus" vClass="bus" length="12.0" accel="1.0" decel="3.5" departLane="best"/>
     <vType id="truck" vClass="truck" length="9.0" accel="1.3" decel="3.5" departLane="best"/>
-    <vType id="emergency" vClass="ambulance" length="7.0" accel="3.0" decel="5.0"
-            speedFactor="1.2" departLane="best"/>
 
     <route id="r_east_row1" edges="w1_i1 i1_i2 i2_i3 i3_e1"/>
     <route id="r_west_row1" edges="e1_i3 i3_i2 i2_i1 i1_w1"/>
@@ -26,7 +22,6 @@
     <route id="r_south_right" edges="n3_i6 i6_i3 i3_s3"/>
     <route id="r_turn_diag_1" edges="s1_i1 i1_i2 i2_i5 i5_i6 i6_n3"/>
     <route id="r_turn_diag_2" edges="e1_i3 i3_i2 i2_i1 i1_i4 i4_w2"/>
-    <route id="r_ambulance_to_hospital" edges="w1_i1 i1_i2 i2_i3 i3_i6 i6_e2"/>
 
     <flow id="f_east_row1" type="car" route="r_east_row1" begin="0" end="600" vehsPerHour="600"/>
     <flow id="f_west_row1" type="car" route="r_west_row1" begin="0" end="600" vehsPerHour="500"/>
@@ -42,6 +37,4 @@
     <flow id="f_south_right" type="car" route="r_south_right" begin="0" end="600" vehsPerHour="150"/>
     <flow id="f_turn_diag_1" type="car" route="r_turn_diag_1" begin="0" end="600" vehsPerHour="100"/>
     <flow id="f_turn_diag_2" type="car" route="r_turn_diag_2" begin="0" end="600" vehsPerHour="80"/>
-
-    <vehicle id="amb1" type="emergency" route="r_ambulance_to_hospital" depart="30"/>
 </routes>

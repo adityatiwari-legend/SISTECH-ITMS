@@ -24,7 +24,7 @@ Memory.md keeps the coding agent aligned with the current implementation state w
 
 ## Current Phase
 
-Phase 2 — Traffic Intelligence Layer — implemented and verified.
+Phase 3 — Emergency Vehicle + Intelligent Routing — implemented and verified.
 
 ## Completed
 
@@ -35,8 +35,8 @@ Phase 2 — Traffic Intelligence Layer — implemented and verified.
 - [x] TraCI connection working (Node.js 24, TypeScript, raw TCP TraCI client)
 - [x] Traffic collector working (per-step snapshots: vehicles, signals, queues)
 - [x] PostgreSQL/PostGIS configured (Postgres 16 + PostGIS 3.4 via docker compose, host port 5433)
-- [ ] Emergency vehicle implemented (scenario + vType exist; emergency management is Phase 3)
-- [ ] A* routing implemented
+- [x] Emergency vehicle implemented (dynamic creation via API: ambulance, fire engine, police)
+- [x] A* routing implemented (deterministic, congestion-adjusted, unit-tested)
 - [ ] Traffic prediction dataset created
 - [ ] XGBoost trained
 - [ ] Prediction API implemented
@@ -68,7 +68,18 @@ Fastify API (apps/api, Node.js 24 + TypeScript, run via native type stripping)
    │    └── traffic-service         lock-step collection, throttled persistence,
    │                                 paced WebSocket broadcast, run identity
    │
-   ├── modules/websocket/           /ws endpoint + WsBus broadcast
+   ├── modules/routing/             (Phase 3)
+   │    ├── road-graph              junction/segment graph with live traffic weights
+   │    ├── astar                   deterministic A* (binary heap, tie-break by id)
+   │    └── route-engine            congestion-adjusted cost model + route validation
+   │
+   ├── modules/emergency/           (Phase 3)
+   │    └── emergency-service       create workflow (validate→route→persist→spawn),
+   │                                 per-step tracking, ETA per controlled junction,
+   │                                 arrival detection via SUMO arrived-vehicle list
+   │
+   ├── modules/websocket/           /ws endpoint + WsBus broadcast (traffic/vehicle/signal/
+   │                                 emergency:created, emergency:update, route:updated, alert)
    │
    └── database/                    (Phase 2)
         ├── db                      pg Pool wrapper (health, transactions)
@@ -86,9 +97,14 @@ Next.js Command Center (Phase 7)
 - `simulation/sumo/scenarios/baseline/`: 14 deterministic flows (cars, one bus
   flow, one truck flow) over a 6-intersection 3x2 signalized grid (I1..I6),
   600 s duration, boundary stubs W1/W2/E1/E2/S1/S2/S3/N1/N2/N3.
-- `simulation/sumo/scenarios/emergency/`: same traffic plus one ambulance
-  (vType `emergency`, vClass ambulance) departing at t=30 from the EMS
-  station (W1) to the City Hospital (E2).
+- `simulation/sumo/scenarios/emergency/`: same traffic as baseline. Since
+  Phase 3 the hardcoded ambulance (amb1) was REMOVED (documented in
+  Decisions): emergency vehicles are created dynamically via
+  POST /api/emergency, which routes with A* over live traffic and spawns
+  the vehicle in SUMO.
+- `simulation/sumo/network/emergency-fleet.add.xml` (loaded by both
+  scenarios): vTypes emergency.ambulance / emergency.fireengine /
+  emergency.police (vClasses emergency / authority per SUMO class list).
 - Facilities POIs: hospital_central (near E2), ems_station_west (near W1),
   fire_station_south (near S3) in `simulation/sumo/network/facilities.add.xml`.
 - Network built with netconvert from `itms.nod.xml` + `itms.edg.xml`
@@ -115,59 +131,76 @@ Not implemented yet (Phase 7 by plan).
 
 ## Last Completed Task
 
-Phase 2 — Traffic Intelligence Layer: the pipeline
-SUMO → TraCI → TrafficCollector → TrafficProcessor (deterministic metrics +
-congestion classification) → PostgreSQL/PostGIS → Traffic APIs → WebSocket
-events, verified with unit tests, real-SUMO + real-PostgreSQL integration
-tests, and a live server run.
+Phase 3 — Emergency Vehicle + Intelligent Routing: emergency events for
+ambulance/fire engine/police created via POST /api/emergency are routed with
+A* over congestion-adjusted travel times (live Phase 2 traffic), persisted
+(emergency_vehicles, emergency_events, routes, route_segments), spawned in
+SUMO with the computed route, tracked per step (position/speed/route index
+from the simulation snapshots), given ETAs to every upcoming controlled
+intersection and the destination, and arrival-detected via SUMO's
+arrived-vehicle list — verified with unit + integration tests and a live
+HTTP run (W1→E2 ambulance: route W1→I1→I2→I3→I6→E2, arrived at sim time ~195 s).
 
 ## Current Task
 
-None (Phase 2 done).
+None (Phase 3 done).
 
 ## Files Changed
 
-Phase 2 (this session):
-- apps/api/src/database/: db.ts (pg Pool wrapper), migrate.ts (runner), migrations/001_phase2.sql
-- apps/api/src/database/repositories/: network-repository.ts, run-repository.ts, traffic-repository.ts
-- apps/api/src/modules/traffic/: metrics.ts, collector.ts, traffic-service.ts, routes.ts
-- apps/api/src/modules/websocket/: ws-bus.ts, routes.ts
-- apps/api/src/modules/simulation/: network-loader.ts (new), simulation-manager.ts (extended: completed
-  status, onStep/onStarted/onStopped/onDisconnect listeners, getTraCIClient, TraCI onClosed wiring)
-- apps/api/src/modules/simulation/traci/: constants.ts (+ edge command/response, occupancy), client.ts (+ onClosed)
-- apps/api/src/config.ts (DATABASE_URL required, network path, traffic intervals, congestion thresholds)
-- apps/api/src/: app.ts (websocket plugin + traffic routes), main.ts (DB + migrations + wiring)
-- apps/api/test/: helpers.ts (test harness, DB helpers), metrics.test.ts, network-loader.test.ts,
-  config.test.ts, pipeline.integration.test.ts (new), api.integration.test.ts (rewritten with harness)
-- apps/api/.env.example (DB + traffic settings), apps/api/.env (local, gitignored)
-- docker-compose.yml (postgis alpine image, host port 5433), docker/.env (local, gitignored)
-- README.md (Phase 2 usage), packages/types/src/index.ts (traffic types)
+Phase 3 (this session):
+- apps/api/src/modules/routing/: road-graph.ts, astar.ts, route-engine.ts (new)
+- apps/api/src/modules/emergency/: emergency-service.ts, routes.ts (new)
+- apps/api/src/database/migrations/002_phase3.sql (new)
+- apps/api/src/database/repositories/emergency-repository.ts (new)
+- apps/api/src/modules/simulation/traci/: constants.ts (+ route/vehicle lifecycle/sim id vars),
+  codec.ts (+ string list, compound header, typed int encoders), client.ts (+ addRoute, getRouteEdges,
+  addVehicle, removeVehicle, setVehicleRoute, getVehicleRouteId/Index/WaitingTime, arrived/pending id reads)
+- apps/api/src/modules/simulation/simulation-manager.ts (+ addVehicleRoute/addVehicle/removeVehicle/
+  getArrivedVehicleIds/getPendingVehicleIds gateway, catalog accessor)
+- apps/api/src/modules/traffic/traffic-service.ts (+ getCurrentRunId, per-step road-graph weight refresh)
+- apps/api/src/: app.ts (+ emergency routes), main.ts (+ routing/emergency wiring)
+- packages/types/src/index.ts (+ emergency types, WS event types)
+- simulation/sumo/network/emergency-fleet.add.xml (new); both sumocfgs load it;
+  emergency.rou.xml: removed hardcoded amb1 + its route/vType (documented)
+- apps/api/test/: helpers.ts (+ routing/emergency harness wiring), routing.test.ts (new, 12),
+  emergency.integration.test.ts (new, 2), api.integration.test.ts (WS test extended to
+  emergency events), manager.integration.test.ts (emergency-scenario test updated for dynamic flow)
+- README.md (emergency API usage)
 
-Phase 1 (previous sessions): see git history / prior entries — apps/api
-simulation+traci modules, packages/types, simulation/sumo network+scenarios,
-root scaffolding.
+Phase 2: see previous entry; Phase 1: see git history / prior entries.
 
 ## Tests Run
 
 - `npm run typecheck` (apps/api + @itms/types) — pass
 - `npm run build:network` (netconvert) — pass
-- `npm test` (`node --test --test-concurrency=1 "test/*.test.ts"`) — 64/64 pass (~75 s):
+- `npm test` (`node --test --test-concurrency=1 "test/*.test.ts"`) — 78/78 pass (~90 s):
   - codec/reader unit tests (16)
-  - traffic metrics unit tests: count/speed/queue/density/flow calculations, congestion
-    classification levels + threshold configurability, city summary, input validation (11)
-  - network-loader unit tests: 16 junctions, 34 segments, 17 roads, 6 signals with 4 phases,
-    lane shapes, no geo-reference (5)
-  - config unit tests: DATABASE_URL required/validated, congestion threshold overrides +
-    monotonicity validation (6)
+  - traffic metrics unit tests (11)
+  - network-loader unit tests (5)
+  - config unit tests (6)
+  - routing unit tests: A* path choice by travel time, reroute on expensive direct edge,
+    unreachable goals, start==goal, unknown endpoints, determinism (tie-breaking), road graph
+    structure, W1→E2 route validity/connectivity, congestion cost raise + speed floor,
+    endpoint validation, disconnected-segment detection, all 30 grid pairs routable (12)
   - TraCI client integration vs real SUMO (7)
-  - simulation manager integration incl. missing-SUMO-binary path, pause/resume freeze (9)
-  - vehicle-reaction acceptance: vehicle stops after I2 forced to red (1)
-  - pipeline integration (real SUMO + real PostgreSQL, skipped clearly if DB unreachable) (3):
-    collection correctness vs live state, congestion from forced red, exact persistence match,
-    run identity (running→completed / disconnected→failed), vehicle registry, system:alert,
-    stale-after-stop behavior, registry endpoints empty-before-start (no fabricated data)
-  - API integration: Phase 1 contract preserved + Phase 2 traffic APIs + WebSocket event
-    delivery of all three event types with live payloads (4)
+  - simulation manager integration (9)
+  - vehicle-reaction acceptance (1)
+  - pipeline integration (real SUMO + PostgreSQL) (3)
+  - API integration: Phase 1 contract + Phase 2 traffic APIs + WS delivery of traffic/vehicle/
+    signal/emergency:created/route:updated events (4)
+  - emergency integration (real SUMO + PostgreSQL) (2): creation requires running sim (409),
+    201 with full detail, route validity (origin/destination/connectivity/network existence),
+    SUMO route equals computed route, vehicle appears with emergency vType, position updates,
+    ETAs for controlled junctions + destination (monotone), arrival detected, DB rows for
+    event/vehicle/route/route_segments; list/detail/404/400/422 errors; fire engine + police
+    creation
+- Live server check (real node process + dockerized PostGIS): start baseline → POST
+  /api/emergency ambulance W1→E2 → 201: route `W1→I1→I2→I3→I6→E2` (5 edges, 717 m,
+  est 110 s vs free-flow 52 s — congestion-adjusted), vehicle emv-baseline-1 created →
+  status active with live position/speed from SUMO → ETAs I1 16.9s, I2 29.8s, I3 42.7s,
+  I6 55.6s, E2 62.1s → ambulance traveled through SUMO → status arrived at sim time ~195 s →
+  DB: emergency_events(1, arrived, W1→E2, critical), emergency_vehicles(ambulance, arrived),
+  routes(astar, 5 edges, 717 m), route_segments(5 rows) → stop → idle.
 - Live server check (real node process + dockerized PostGIS): boot → idle/stale → start
   emergency → /api/traffic fresh (simTime 8, 15 vehicles, avg speed 9.2 m/s) → /api/traffic/roads
   17 → /api/traffic/intersections 16 → WS client received vehicle:update, signal:update,
@@ -203,17 +236,23 @@ root scaffolding.
 - WebSocket vehicle:update sends the full vehicle list per broadcast
   (bounded, ~10-20 KB at current fleet size); fine for Phase 2 scale,
   revisit if the fleet grows orders of magnitude.
+- ETA while the vehicle crosses an intersection (internal edge) falls back
+  to full-route ETAs (documented); refined per-edge progress tracking can be
+  added later if needed (Phase 6 recalculation will recompute anyway).
+- Emergency vehicle spawn can be deferred by SUMO when the departure edge is
+  blocked; the event stays "created" until insertion succeeds (exposed in
+  the API rather than faked as active).
 - Node type stripping requires erasable-only TypeScript syntax in this repo
   (no enums/namespaces); enforced via tsconfig `erasableSyntaxOnly`.
 
 ## Next Task
 
-Phase 3 — Emergency Vehicle + Intelligent Routing:
-1. Road graph from the network catalog (nodes = junctions, edges = segments, dynamic costs from live traffic).
-2. A* route engine (deterministic, unit-tested; cost = travel time + congestion).
-3. Emergency management: emergency_vehicles/emergency_events tables + POST/GET /api/emergency.
-4. Emergency vehicle control in SUMO: spawn at origin (EMS station), assign route, read position/speed, update route, detect arrival at hospital.
-5. ETA calculation to destination and each upcoming intersection.
+Phase 4 — AI Traffic Prediction:
+1. Generate training data with SUMO (multiple scenarios/traffic levels; use the Phase 2 collector + persistence to export features: timestamp, intersection_id, vehicle_count, average_speed, queue_length, density, flow_rate, signal_state/phase, hour, day_of_week).
+2. Dataset layout data/traffic/{raw,processed,training} with train/val/test splits (never train and test on the same run).
+3. Feature engineering + XGBoost model predicting traffic at +30/+60/+90/+120 s.
+4. Evaluation (MAE/RMSE/R², inference latency) on held-out data — report only measured numbers.
+5. Python prediction service (POST /predict) + Node.js client integration with fallback when the service is unavailable.
 
 ## Decisions
 
@@ -258,6 +297,34 @@ support is added.
 In-lockstep collection: the simulation manager awaits the traffic
 collector's reads after each step, so the API state is exactly at the last
 simulated step; persistence is throttled and serialized off the step loop.
+
+### Decision 12 (Phase 3)
+The hardcoded ambulance (amb1) was removed from the emergency scenario:
+emergency vehicles are created dynamically via POST /api/emergency, which
+computes an A* route over live traffic and spawns the vehicle. This makes
+baseline-vs-ITMS comparisons meaningful later (no always-present ambulance)
+and exercises the real Phase 3 workflow.
+
+### Decision 13 (Phase 3)
+Routing edge cost is congestion-adjusted travel time in seconds:
+effective speed = measured average speed (Phase 2) clamped to
+[freeFlow*0.1, freeFlow]; no measured data => free flow. Effective speed is
+capped at free flow so the straight-line/max-speed A* heuristic stays
+admissible. A* tie-breaking is deterministic (f, then junction id).
+
+### Decision 14 (Phase 3)
+Origin/destination are junction ids; the vehicle is inserted at the start
+of the first route edge (departPos base) — "origin junction" semantics.
+All 30 junction pairs of the 3x2 grid are routable (unit-tested).
+
+### Decision 15 (Phase 3)
+SUMO vClasses for emergency types: ambulance/fire engine = "emergency",
+police = "authority" (per SUMO's vehicle class list; "firetruck"/"police"
+are not valid vClasses).
+
+### Decision 16 (Phase 3)
+Arrival detection uses SUMO's authoritative arrived-vehicle id list
+(sim domain 0x7a) each step rather than inferring from edge position.
 
 ## Important Constraints
 

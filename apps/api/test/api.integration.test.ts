@@ -131,7 +131,8 @@ test("traffic APIs return consistent typed data before and during simulation", {
 // WebSocket events
 // ---------------------------------------------------------------------------
 
-test("websocket emits traffic, vehicle and signal updates", { timeout: 150_000, skip: (await isDatabaseAvailable()) ? false : "PostgreSQL test database not reachable" }, async () => {
+test("websocket emits traffic, vehicle, signal and emergency events", { timeout: 200_000, skip: (await isDatabaseAvailable()) ? false : "PostgreSQL test database not reachable" }, async () => {
+  await resetTestDatabase();
   await withHarness(async (harness) => {
     const { app, port } = harness;
     const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -150,8 +151,16 @@ test("websocket emits traffic, vehicle and signal updates", { timeout: 150_000, 
 
     await app.inject({ method: "POST", url: "/api/simulation/start", payload: { scenario: "baseline" } });
 
-    const deadline = Date.now() + 25_000;
-    const wanted = new Set(["traffic:update", "vehicle:update", "signal:update"]);
+    // Phase 3: also create an emergency so its events flow through /ws.
+    const emergency = await app.inject({
+      method: "POST",
+      url: "/api/emergency",
+      payload: { type: "ambulance", origin: "W1", destination: "E2", priority: "critical" },
+    });
+    assert.equal(emergency.statusCode, 201);
+
+    const deadline = Date.now() + 30_000;
+    const wanted = new Set(["traffic:update", "vehicle:update", "signal:update", "emergency:created", "route:updated"]);
     while (Date.now() < deadline && wanted.size > 0) {
       for (const event of received) {
         if (wanted.has(event.type)) {
@@ -161,7 +170,11 @@ test("websocket emits traffic, vehicle and signal updates", { timeout: 150_000, 
       await new Promise((r) => setTimeout(r, 200));
     }
     socket.close();
-    assert.deepEqual([...wanted], [], `all event types must arrive; received ${received.map((e) => e.type).join(",")}`);
+    assert.deepEqual(
+      [...wanted],
+      [],
+      `all event types must arrive; received ${received.map((e) => e.type).join(",")}`,
+    );
 
     // -- payload contents come from the live simulation --
     const trafficEvent = received.find((e) => e.type === "traffic:update") as WsEvent<TrafficStateResponse>;
@@ -171,6 +184,13 @@ test("websocket emits traffic, vehicle and signal updates", { timeout: 150_000, 
     assert.ok(Array.isArray(vehicleEvent.payload.vehicles));
     const signalEvent = received.find((e) => e.type === "signal:update") as WsEvent<{ signals: unknown[] }>;
     assert.equal((signalEvent.payload.signals as unknown[]).length, 6);
+
+    // -- emergency events carry the new event and route --
+    const createdEvent = received.find((e) => e.type === "emergency:created") as WsEvent<{ eventId: number; type: string }>;
+    assert.ok(createdEvent.payload.eventId >= 1);
+    assert.equal(createdEvent.payload.type, "ambulance");
+    const routeEvent = received.find((e) => e.type === "route:updated") as WsEvent<{ segments: string[] }>;
+    assert.ok(routeEvent.payload.segments.length >= 2);
   });
 });
 

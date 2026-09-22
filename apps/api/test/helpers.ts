@@ -124,8 +124,12 @@ import { createLogger } from "../src/logger.ts";
 import { buildApp } from "../src/app.ts";
 import { SimulationManager } from "../src/modules/simulation/simulation-manager.ts";
 import { loadNetworkCatalog } from "../src/modules/simulation/network-loader.ts";
+import { RoadGraph } from "../src/modules/routing/road-graph.ts";
+import { RouteEngine } from "../src/modules/routing/route-engine.ts";
 import { TrafficCollector } from "../src/modules/traffic/collector.ts";
 import { TrafficService } from "../src/modules/traffic/traffic-service.ts";
+import { EmergencyService } from "../src/modules/emergency/emergency-service.ts";
+import { EmergencyRepository } from "../src/database/repositories/emergency-repository.ts";
 import { WsBus } from "../src/modules/websocket/ws-bus.ts";
 import { createDatabasePool, type DatabasePool } from "../src/database/db.ts";
 import { runMigrations } from "../src/database/migrate.ts";
@@ -133,10 +137,14 @@ import { DEFAULT_CONGESTION_THRESHOLDS } from "../src/modules/traffic/metrics.ts
 import type { AppConfig } from "../src/config.ts";
 import type { FastifyInstance } from "fastify";
 import type { WsBus as WsBusType } from "../src/modules/websocket/ws-bus.ts";
+
 export interface TestAppHarness {
   app: FastifyInstance;
   manager: SimulationManager;
   trafficService: TrafficService;
+  emergencyService: EmergencyService;
+  routeEngine: RouteEngine;
+  roadGraph: RoadGraph;
   db: DatabasePool;
   wsBus: WsBusType;
   port: number;
@@ -175,11 +183,34 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
   const migrationsDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src", "database", "migrations");
   await runMigrations(db, migrationsDir, logger);
   const catalog = await loadNetworkCatalog(config.networkPath);
+  const roadGraph = new RoadGraph(catalog);
+  const routeEngine = new RouteEngine(roadGraph, catalog);
   const manager = new SimulationManager({ config, logger });
+  manager.setCatalog(catalog);
   const collector = new TrafficCollector({ catalog, thresholds: config.congestionThresholds });
   const wsBus = new WsBus(logger);
-  const trafficService = new TrafficService({ config, logger, manager, db, collector, catalog, bus: wsBus });
-  const app = await buildApp({ config, logger, manager, trafficService, wsBus });
+  const trafficService = new TrafficService({
+    config,
+    logger,
+    manager,
+    db,
+    collector,
+    catalog,
+    bus: wsBus,
+    roadGraph,
+  });
+  const controlledJunctions = new Set(catalog.signals.map((signal) => signal.id));
+  const emergencyService = new EmergencyService({
+    config,
+    logger,
+    manager,
+    routeEngine,
+    repository: new EmergencyRepository(db),
+    bus: wsBus,
+    controlledJunctions,
+    getRunId: () => trafficService.getCurrentRunId(),
+  });
+  const app = await buildApp({ config, logger, manager, trafficService, emergencyService, wsBus });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
   const port = typeof address === "object" && address !== null ? address.port : 0;
@@ -188,10 +219,14 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     app,
     manager,
     trafficService,
+    emergencyService,
+    routeEngine,
+    roadGraph,
     db,
     wsBus,
     port,
     close: async () => {
+      await emergencyService.dispose();
       await trafficService.dispose();
       await manager.stop();
       await app.close();

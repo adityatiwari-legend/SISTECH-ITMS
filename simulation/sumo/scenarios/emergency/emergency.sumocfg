@@ -3,7 +3,7 @@
     <input>
         <net-file value="../../network/itms.net.xml"/>
         <route-files value="emergency.rou.xml"/>
-        <additional-files value="../../network/facilities.add.xml"/>
+        <additional-files value="../../network/facilities.add.xml,../../network/emergency-fleet.add.xml"/>
     </input>
     <time>
         <begin value="0"/>

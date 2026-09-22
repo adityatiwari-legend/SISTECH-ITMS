@@ -80,12 +80,55 @@ export function encodeMessage(commands: TraciCommand[]): Buffer {
 }
 
 /** Typed payload: [TYPE_STRING][int32 length][utf8 bytes] */
-export function encodeTypedString(value: string): Buffer {
-  const bytes = encodeStringBytes(value);
+export function encodeTypedString(value: string): Buffer {  const bytes = encodeStringBytes(value);
   const out = Buffer.alloc(5);
   out.writeUInt8(TRACI.TYPE_STRING, 0);
   out.writeInt32BE(bytes.length, 1);
   return Buffer.concat([out, bytes]);
+}
+
+/**
+ * Typed payload: plain string list [TYPE_STRINGLIST][count][len+bytes...]
+ * NOTE: list members are bare length-prefixed strings WITHOUT a type marker
+ * (verified against the reference client's "l" pack format).
+ */
+export function encodeTypedStringList(values: string[]): Buffer {
+  const parts: Buffer[] = [];
+  parts.push(Buffer.from([TRACI.TYPE_STRINGLIST]));
+  const count = Buffer.alloc(4);
+  count.writeInt32BE(values.length, 0);
+  parts.push(count);
+  for (const value of values) {
+    const bytes = Buffer.from(value, "utf8");
+    const length = Buffer.alloc(4);
+    length.writeInt32BE(bytes.length, 0);
+    parts.push(length, bytes);
+  }
+  return Buffer.concat(parts);
+}
+
+/** Typed payload: [TYPE_INTEGER][int32 value]. */
+export function encodeTypedInt32(value: number): Buffer {
+  const out = Buffer.alloc(5);
+  out.writeUInt8(TRACI.TYPE_INTEGER, 0);
+  out.writeInt32BE(value, 1);
+  return out;
+}
+
+/** Typed payload: [TYPE_COMPOUND][int32 memberCount] (values follow). */
+export function encodeCompoundHeader(memberCount: number): Buffer {
+  const out = Buffer.alloc(5);
+  out.writeUInt8(TRACI.TYPE_COMPOUND, 0);
+  out.writeInt32BE(memberCount, 1);
+  return out;
+}
+
+/** Raw big-endian int32 without a type marker. */
+export function encodeInt32(value: number): Buffer {
+  const out = Buffer.alloc(4);
+  out.writeInt32BE(value, 0);
+  return out;
+
 }
 
 /** Raw big-endian double without a type marker (used by CMD_SIM_STEP). */

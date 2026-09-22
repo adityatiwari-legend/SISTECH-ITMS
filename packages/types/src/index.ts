@@ -175,7 +175,119 @@ export interface TrafficStateResponse {
 
 /** WebSocket event envelope. */
 export interface WsEvent<T> {
-  type: "traffic:update" | "vehicle:update" | "signal:update" | "system:alert";
+  type: "traffic:update" | "vehicle:update" | "signal:update" | "system:alert" | "emergency:created" | "emergency:update" | "route:updated";
   ts: string;
   payload: T;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — emergency vehicle + intelligent routing types
+// ---------------------------------------------------------------------------
+
+/** Supported emergency vehicle categories (Phases.md 3). */
+export type EmergencyType = "ambulance" | "fire_engine" | "police";
+
+/** Operator-assigned priority. Corridor priority rules use this in Phase 5+. */
+export type EmergencyPriority = "critical" | "high" | "normal";
+
+/** Lifecycle of an emergency event. */
+export type EmergencyStatus =
+  | "created" //  event exists, vehicle spawned/pending in SUMO, not yet inserted
+  | "active" //   vehicle is in the network and following the route
+  | "arrived" //  vehicle reached the destination
+  | "cancelled"
+  | "failed"; //  could not spawn/route, or simulation ended before arrival
+
+/** The emergency vehicle record (Phases.md 3.1). */
+export interface EmergencyVehicleRecord {
+  id: number;
+  /** SUMO vehicle id (assigned at creation). */
+  vehicleId: string;
+  type: EmergencyType;
+  priority: EmergencyPriority;
+  status: EmergencyStatus;
+  originJunction: string;
+  destinationJunction: string;
+  /** Live position in SUMO coordinates (null before insertion). */
+  positionX: number | null;
+  positionY: number | null;
+  /** Live speed in m/s (null before insertion). */
+  speedMps: number | null;
+  createdAtIso: string;
+  activatedAtIso: string | null;
+  arrivedAtIso: string | null;
+}
+
+/** One edge (directed segment) of a computed route. */
+export interface RouteSegmentInfo {
+  sequenceIndex: number;
+  segmentId: string;
+  fromJunction: string;
+  toJunction: string;
+  lengthM: number;
+  /** Cost used by A* for this edge (seconds, congestion-adjusted travel time). */
+  costSeconds: number;
+  congestion: CongestionLevel | null;
+}
+
+/** The computed route (Phases.md 3.6/3.7). */
+export interface RouteSummary {
+  id: number;
+  algorithm: "astar";
+  originJunction: string;
+  destinationJunction: string;
+  edgeCount: number;
+  totalLengthM: number;
+  /** Congestion-adjusted travel time estimate in seconds at routing time. */
+  estimatedTravelTimeS: number;
+  /** Free-flow travel time in seconds (for comparison). */
+  freeFlowTravelTimeS: number;
+  segments: RouteSegmentInfo[];
+}
+
+/** ETA for one upcoming controlled intersection or the destination. */
+export interface EmergencyEta {
+  junctionId: string;
+  /** Seconds from the current simulation time. */
+  etaSeconds: number;
+  distanceM: number;
+  /** True for the final destination entry. */
+  isDestination: boolean;
+}
+
+/** Full emergency event detail (GET /api/emergency/:id). */
+export interface EmergencyEventDetail {
+  id: number;
+  type: EmergencyType;
+  priority: EmergencyPriority;
+  status: EmergencyStatus;
+  originJunction: string;
+  destinationJunction: string;
+  createdAtIso: string;
+  activatedAtIso: string | null;
+  arrivedAtIso: string | null;
+  vehicle: EmergencyVehicleRecord | null;
+  route: RouteSummary | null;
+  /** ETAs recomputed from the current simulation state (null when inactive). */
+  etas: EmergencyEta[] | null;
+  /** Live info about the vehicle in the network (null when not active). */
+  live: {
+    simTimeSeconds: number;
+    positionX: number;
+    positionY: number;
+    speedMps: number;
+    roadId: string;
+    laneId: string;
+    /** Index of the current edge within the route (SUMO route index). */
+    routeIndex: number;
+    remainingDistanceM: number;
+  } | null;
+}
+
+/** Body of POST /api/emergency (validated). */
+export interface CreateEmergencyBody {
+  type: EmergencyType;
+  origin: string;
+  destination: string;
+  priority: EmergencyPriority;
 }

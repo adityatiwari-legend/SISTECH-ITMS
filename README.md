@@ -87,6 +87,26 @@ curl -X POST http://127.0.0.1:3000/api/simulation/start \
      -H "content-type: application/json" -d '{"scenario":"emergency"}'
 ```
 
+### Emergency management (Phase 3)
+
+```bash
+# Create an emergency: the backend computes an A* route over live traffic
+# and spawns the vehicle in SUMO. Requires a running simulation.
+curl -X POST http://127.0.0.1:3000/api/emergency \
+     -H "content-type: application/json" \
+     -d '{"type":"ambulance","origin":"W1","destination":"E2","priority":"critical"}'
+
+curl http://127.0.0.1:3000/api/emergency          # list events
+curl http://127.0.0.1:3000/api/emergency/1        # detail: route, live position, ETAs, arrival
+```
+
+Supported types: `ambulance`, `fire_engine`, `police`; priorities:
+`critical`, `high`, `normal`. Origin/destination are junction ids of the
+network (I1..I6 plus boundary stubs). The detail response contains the
+route (per-segment), the vehicle's live position/speed/route index, ETAs to
+every upcoming controlled intersection and the destination, and the
+detected arrival.
+
 ## Tests
 
 ```bash
@@ -106,4 +126,5 @@ See `DOCs/Memory.md` for the current implementation state and next steps.
 
 - Phase 1 — Digital Traffic World: complete.
 - Phase 2 — Traffic Intelligence Layer: complete.
-- Next: Phase 3 — Emergency Vehicle + Intelligent Routing.
+- Phase 3 — Emergency Vehicle + Intelligent Routing: complete.
+- Next: Phase 4 — AI Traffic Prediction.

@@ -45,10 +45,11 @@ async function withManager(
   config: AppConfig | undefined,
   autoRun: boolean,
   fn: (manager: SimulationManager) => Promise<void>,
+  scenario: "baseline" | "emergency" = "baseline",
 ) {
   const manager = testManager(config);
   try {
-    await manager.start("baseline", { autoRun });
+    await manager.start(scenario, { autoRun });
     await fn(manager);
   } finally {
     await manager.stop();
@@ -227,20 +228,19 @@ test("pause halts the paced loop, resume continues it", { timeout: 120_000 }, as
   }
 });
 
-test("emergency scenario exposes the ambulance vehicle type", { timeout: 120_000 }, async () => {
-  const manager = testManager();
-  try {
-    await manager.start("emergency", { autoRun: false });
+test("emergency scenario starts and runs normal traffic", { timeout: 120_000 }, async () => {
+  await withManager(undefined, false, async (manager) => {
+    // Since Phase 3 the emergency scenario carries normal traffic only:
+    // emergency vehicles are created dynamically via the API (covered by
+    // emergency.integration.test.ts).
     for (let i = 0; i < 40; i++) {
       await manager.stepOnce();
-      const ambulance = manager.getVehicles().find((v) => v.typeId === "emergency");
-      if (ambulance) {
-        assert.ok(ambulance.roadId.length > 0);
-        return;
-      }
     }
-    assert.fail("emergency vehicle did not appear within 40 steps");
-  } finally {
-    await manager.stop();
-  }
+    const status = manager.getStatusSnapshot();
+    assert.equal(status.status, "running");
+    assert.equal(status.scenario, "emergency");
+    assert.ok(status.vehicleCount > 0, "traffic must run in the emergency scenario");
+    const hasCar = manager.getVehicles().some((v) => v.typeId === "car");
+    assert.ok(hasCar, "scenario must contain normal car traffic");
+  }, "emergency");
 });
