@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Emergency infrastructure as map points of interest.
+
+  Placement per Phases.md 1.4:
+  - City Hospital adjacent to eastern stub E2 (emergency destination zone).
+  - EMS station adjacent to western stub W1 (emergency origin zone).
+  - Fire station adjacent to southern stub S3.
+-->
+<additional>
+    <poi id="hospital_central" type="hospital" x="635" y="340" color="1,0.25,0.25" layer="1"/>
+    <poi id="ems_station_west" type="ems_station" x="0" y="60" color="1,0.55,0" layer="1"/>
+    <poi id="fire_station_south" type="fire_station" x="545" y="0" color="1,0.35,0" layer="1"/>
+</additional>

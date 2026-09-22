@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+.env.local
+docker/.env
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# SUMO simulation artifacts (regenerable run output)
+simulation/sumo/out/
+data/raw/
+data/training/
+
+# OS
+Thumbs.db
+.DS_Store

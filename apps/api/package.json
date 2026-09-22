@@ -1,0 +1,26 @@
+{
+  "name": "@itms/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ITMS backend: simulation control via SUMO TraCI and REST APIs",
+  "engines": {
+    "node": ">=24.7.0"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/main.ts",
+    "start": "node --env-file-if-exists=.env src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1 \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@itms/types": "*",
+    "fastify": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.0",
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2"
+  }
+}

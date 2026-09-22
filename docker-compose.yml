@@ -1,0 +1,28 @@
+# PostgreSQL + PostGIS for ITMS (used from Phase 2 onward).
+
+# Required (set in docker/.env or the environment):
+#   POSTGRES_USER=itms
+#   POSTGRES_PASSWORD=...
+#   POSTGRES_DB=itms
+
+services:
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: itms-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in docker/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in docker/.env}
+    ports:
+      # Host port 5433: many dev machines run a native PostgreSQL on 5432.
+      - "5433:5432"
+    volumes:
+      - itms_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  itms_pgdata:

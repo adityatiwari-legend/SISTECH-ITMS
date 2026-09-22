@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Baseline scenario: normal traffic only, no emergency vehicle.
+
+  Traffic design (Phases.md 1.3): different routes and volumes on a 3x2
+  signalized grid. Departures are deterministic (evenly spaced flows, SUMO's
+  default fixed seed), so runs are reproducible.
+-->
+<routes>
+    <vType id="car" vClass="passenger" length="5.0" accel="2.6" decel="4.5" departLane="best"/>
+    <vType id="bus" vClass="bus" length="12.0" accel="1.0" decel="3.5" departLane="best"/>
+    <vType id="truck" vClass="truck" length="9.0" accel="1.3" decel="3.5" departLane="best"/>
+
+    <!-- Corridor routes -->
+    <route id="r_east_row1" edges="w1_i1 i1_i2 i2_i3 i3_e1"/>
+    <route id="r_west_row1" edges="e1_i3 i3_i2 i2_i1 i1_w1"/>
+    <route id="r_east_row2" edges="w2_i4 i4_i5 i5_i6 i6_e2"/>
+    <route id="r_west_row2" edges="e2_i6 i6_i5 i5_i4 i4_w2"/>
+    <route id="r_north_center" edges="s2_i2 i2_i5 i5_n2"/>
+    <route id="r_south_center" edges="n2_i5 i5_i2 i2_s2"/>
+    <route id="r_north_left" edges="s1_i1 i1_i4 i4_n1"/>
+    <route id="r_south_left" edges="n1_i4 i4_i1 i1_s1"/>
+    <route id="r_north_right" edges="s3_i3 i3_i6 i6_n3"/>
+    <route id="r_south_right" edges="n3_i6 i6_i3 i3_s3"/>
+    <route id="r_turn_diag_1" edges="s1_i1 i1_i2 i2_i5 i5_i6 i6_n3"/>
+    <route id="r_turn_diag_2" edges="e1_i3 i3_i2 i2_i1 i1_i4 i4_w2"/>
+
+    <!-- Row 1 (via I1, I2, I3): heaviest demand -->
+    <flow id="f_east_row1" type="car" route="r_east_row1" begin="0" end="600" vehsPerHour="600"/>
+    <flow id="f_west_row1" type="car" route="r_west_row1" begin="0" end="600" vehsPerHour="500"/>
+    <flow id="f_bus_row1" type="bus" route="r_east_row1" begin="0" end="600" vehsPerHour="30"/>
+
+    <!-- Row 2 (via I4, I5, I6) -->
+    <flow id="f_east_row2" type="car" route="r_east_row2" begin="0" end="600" vehsPerHour="400"/>
+    <flow id="f_west_row2" type="car" route="r_west_row2" begin="0" end="600" vehsPerHour="400"/>
+    <flow id="f_truck_row2" type="truck" route="r_west_row2" begin="0" end="600" vehsPerHour="20"/>
+
+    <!-- Center column (via I2, I5) -->
+    <flow id="f_north_center" type="car" route="r_north_center" begin="0" end="600" vehsPerHour="500"/>
+    <flow id="f_south_center" type="car" route="r_south_center" begin="0" end="600" vehsPerHour="500"/>
+
+    <!-- Outer columns (via I1/I4 and I3/I6) -->
+    <flow id="f_north_left" type="car" route="r_north_left" begin="0" end="600" vehsPerHour="200"/>
+    <flow id="f_south_left" type="car" route="r_south_left" begin="0" end="600" vehsPerHour="150"/>
+    <flow id="f_north_right" type="car" route="r_north_right" begin="0" end="600" vehsPerHour="200"/>
+    <flow id="f_south_right" type="car" route="r_south_right" begin="0" end="600" vehsPerHour="150"/>
+
+    <!-- Turning traffic through the middle of the grid -->
+    <flow id="f_turn_diag_1" type="car" route="r_turn_diag_1" begin="0" end="600" vehsPerHour="100"/>
+    <flow id="f_turn_diag_2" type="car" route="r_turn_diag_2" begin="0" end="600" vehsPerHour="80"/>
+</routes>

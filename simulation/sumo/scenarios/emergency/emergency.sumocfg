@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input>
+        <net-file value="../../network/itms.net.xml"/>
+        <route-files value="emergency.rou.xml"/>
+        <additional-files value="../../network/facilities.add.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+    </time>
+</configuration>

@@ -1,0 +1,23 @@
+{
+  "name": "itms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ITMS - Intelligent Traffic Management System with Predictive Rolling Green Corridor",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24.7.0"
+  },
+  "scripts": {
+    "build:network": "node simulation/sumo/scripts/build-network.mjs",
+    "dev:api": "npm run dev --workspace apps/api",
+    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace @itms/types",
+    "test:api": "npm run test --workspace apps/api"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.3.1",
+    "pg": "^8.23.0"
+  }
+}

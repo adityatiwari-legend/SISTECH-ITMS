@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ITMS digital traffic twin - edge (road) definitions.
+
+  Edge id convention: "{from}_{to}" in the direction of travel.
+  Internal roads: 2 lanes per direction, 50 km/h (13.89 m/s), 200 m long.
+  Boundary stubs: 2 lanes per direction, 50 km/h, 100 m long.
+-->
+<edges>
+    <!-- Internal roads, row 1 (I1-I2-I3) -->
+    <edge id="i1_i2" from="I1" to="I2" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i2_i1" from="I2" to="I1" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i2_i3" from="I2" to="I3" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i3_i2" from="I3" to="I2" numLanes="2" speed="13.89" priority="2"/>
+
+    <!-- Internal roads, row 2 (I4-I5-I6) -->
+    <edge id="i4_i5" from="I4" to="I5" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i5_i4" from="I5" to="I4" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i5_i6" from="I5" to="I6" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i6_i5" from="I6" to="I5" numLanes="2" speed="13.89" priority="2"/>
+
+    <!-- Internal roads, columns (I1-I4, I2-I5, I3-I6) -->
+    <edge id="i1_i4" from="I1" to="I4" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i4_i1" from="I4" to="I1" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i2_i5" from="I2" to="I5" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i5_i2" from="I5" to="I2" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i3_i6" from="I3" to="I6" numLanes="2" speed="13.89" priority="2"/>
+    <edge id="i6_i3" from="I6" to="I3" numLanes="2" speed="13.89" priority="2"/>
+
+    <!-- Western stubs -->
+    <edge id="w1_i1" from="W1" to="I1" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i1_w1" from="I1" to="W1" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="w2_i4" from="W2" to="I4" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i4_w2" from="I4" to="W2" numLanes="2" speed="13.89" priority="1"/>
+
+    <!-- Eastern stubs -->
+    <edge id="i3_e1" from="I3" to="E1" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="e1_i3" from="E1" to="I3" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i6_e2" from="I6" to="E2" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="e2_i6" from="E2" to="I6" numLanes="2" speed="13.89" priority="1"/>
+
+    <!-- Southern stubs -->
+    <edge id="s1_i1" from="S1" to="I1" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i1_s1" from="I1" to="S1" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="s2_i2" from="S2" to="I2" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i2_s2" from="I2" to="S2" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="s3_i3" from="S3" to="I3" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i3_s3" from="I3" to="S3" numLanes="2" speed="13.89" priority="1"/>
+
+    <!-- Northern stubs -->
+    <edge id="i4_n1" from="I4" to="N1" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="n1_i4" from="N1" to="I4" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i5_n2" from="I5" to="N2" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="n2_i5" from="N2" to="I5" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="i6_n3" from="I6" to="N3" numLanes="2" speed="13.89" priority="1"/>
+    <edge id="n3_i6" from="N3" to="I6" numLanes="2" speed="13.89" priority="1"/>
+</edges>

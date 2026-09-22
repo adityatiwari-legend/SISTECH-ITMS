@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ITMS digital traffic twin - node (junction) definitions.
+
+  Layout (3 x 2 signalized grid):
+
+      I4 == I5 == I6
+      |     |     |
+      I1 == I2 == I3
+
+  W*/E*/S*/N* are boundary stub nodes where traffic enters/leaves the network.
+  All coordinates are in meters. All values come from this source file and are
+  compiled into itms.net.xml by netconvert (see scripts/build-network.mjs).
+-->
+<nodes>
+    <!-- Signalized intersections -->
+    <node id="I1" x="100" y="100" type="traffic_light"/>
+    <node id="I2" x="300" y="100" type="traffic_light"/>
+    <node id="I3" x="500" y="100" type="traffic_light"/>
+    <node id="I4" x="100" y="300" type="traffic_light"/>
+    <node id="I5" x="300" y="300" type="traffic_light"/>
+    <node id="I6" x="500" y="300" type="traffic_light"/>
+
+    <!-- Western boundary stubs -->
+    <node id="W1" x="0" y="100" type="priority"/>
+    <node id="W2" x="0" y="300" type="priority"/>
+
+    <!-- Eastern boundary stubs -->
+    <node id="E1" x="600" y="100" type="priority"/>
+    <node id="E2" x="600" y="300" type="priority"/>
+
+    <!-- Southern boundary stubs -->
+    <node id="S1" x="100" y="0" type="priority"/>
+    <node id="S2" x="300" y="0" type="priority"/>
+    <node id="S3" x="500" y="0" type="priority"/>
+
+    <!-- Northern boundary stubs -->
+    <node id="N1" x="100" y="400" type="priority"/>
+    <node id="N2" x="300" y="400" type="priority"/>
+    <node id="N3" x="500" y="400" type="priority"/>
+</nodes>
