@@ -1,10 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { createLogger } from "../src/logger.ts";
 import { AppError } from "../src/errors.ts";
 import { SimulationManager } from "../src/modules/simulation/simulation-manager.ts";
 import { SCENARIO_PATHS } from "./helpers.ts";
 import type { AppConfig } from "../src/config.ts";
+
+const REPO_ROOT = resolve(import.meta.dirname ?? ".", "..", "..", "..");
 
 function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -12,6 +15,10 @@ function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     port: 3000,
     logLevel: "error",
     corsOrigin: ["*"],
+    demoProfile: "grid",
+    demoCity: "Bhopal",
+    demoCenter: { lat: 23.2615, lng: 77.4092 },
+    demoRadiusKm: 3,
     sumoBinary: process.env.SUMO_BINARY || "sumo",
     scenarioPaths: SCENARIO_PATHS,
     networkPath: process.env.ITMS_NETWORK || "network.net.xml",
@@ -61,6 +68,7 @@ function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       highQueue: 6,
       criticalQueue: 12,
     },
+    facilitiesPath: resolve(REPO_ROOT, "simulation", "sumo", "network", "facilities.add.xml"),
     ...overrides,
   };
 }

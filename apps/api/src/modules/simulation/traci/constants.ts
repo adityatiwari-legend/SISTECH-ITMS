@@ -78,6 +78,8 @@ export const TRACI = {
 
   // Vehicle domain variables
   VAR_SPEED: 0x40,
+  /** Vehicle heading in degrees (0 = north, clockwise; SUMO vehicle/lane/poi). */
+  VAR_ANGLE: 0x43,
   VAR_POSITION: 0x42,
   VAR_TYPE: 0x4f,
   VAR_ROAD_ID: 0x50,

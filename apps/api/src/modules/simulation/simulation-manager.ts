@@ -13,6 +13,7 @@ import { FatalTraCIError } from "./traci/errors.ts";
 import { TRACI } from "./traci/constants.ts";
 import type { TraciValue } from "./traci/reader.ts";
 import type { NetworkCatalog } from "./network-loader.ts";
+import { geoFromCatalog, type GeoTransformer } from "./geo.ts";
 import { findFreePort, startSumoProcess, type SumoProcessHandle } from "./sumo-process.ts";
 
 const CONNECT_RETRY_INTERVAL_MS = 500;
@@ -48,6 +49,8 @@ export class SimulationManager {
   private lifecycleChain: Promise<unknown> = Promise.resolve();
   private stepInFlight: Promise<void> | null = null;
   private catalog: NetworkCatalog | null = null;
+  /** Geographic transformer for the network (lat/lng when georeferenced). */
+  private geo: GeoTransformer = { geoReferenced: false, sumoToLatLng: () => null, latLngToSumo: () => null };
   /** Signal state/program changes issued this run (metrics). */
   private signalChangeCount = 0;
   /** Wall-clock pace: ms between paced steps (1000 = 1x real time). */
@@ -260,6 +263,7 @@ export class SimulationManager {
   /** Assigns the static network catalog (called once at wiring time). */
   setCatalog(catalog: NetworkCatalog): void {
     this.catalog = catalog;
+    this.geo = geoFromCatalog(catalog);
   }
 
   // ------------------------------------------------------------------
@@ -573,6 +577,7 @@ export class SimulationManager {
       typeId: "",
       positionX: 0,
       positionY: 0,
+      angle: 0,
       speed: 0,
       roadId: "",
       laneId: "",
@@ -582,6 +587,7 @@ export class SimulationManager {
     for (const _id of vehicleIds) {
       vehicleAppliers.push(
         (v, value) => { const p = expectPoint(value); v.positionX = p.x; v.positionY = p.y; },
+        (v, value) => { v.angle = expectNumber(value); },
         (v, value) => { v.speed = expectNumber(value); },
         (v, value) => { v.roadId = expectString(value); },
         (v, value) => { v.laneId = expectString(value); },
@@ -590,6 +596,7 @@ export class SimulationManager {
       );
       requests.push(
         { getCmdId: TRACI.CMD_GET_VEHICLE_VARIABLE, varId: TRACI.VAR_POSITION, objId: _id },
+        { getCmdId: TRACI.CMD_GET_VEHICLE_VARIABLE, varId: TRACI.VAR_ANGLE, objId: _id },
         { getCmdId: TRACI.CMD_GET_VEHICLE_VARIABLE, varId: TRACI.VAR_SPEED, objId: _id },
         { getCmdId: TRACI.CMD_GET_VEHICLE_VARIABLE, varId: TRACI.VAR_ROAD_ID, objId: _id },
         { getCmdId: TRACI.CMD_GET_VEHICLE_VARIABLE, varId: TRACI.VAR_LANE_ID, objId: _id },
@@ -624,15 +631,15 @@ export class SimulationManager {
 
     const values = await client.getValues(requests);
 
-    const signalOffset = vehicleIds.length * 6;
+    const signalOffset = vehicleIds.length * 7;
     const laneOffset = signalOffset + tlsIds.length * 5;
 
     vehicleIds.forEach((_, index) => {
       const vehicle = vehicles[index];
       if (vehicle === undefined) return;
-      for (let field = 0; field < 6; field++) {
-        const value = values[index * 6 + field];
-        const applier = vehicleAppliers[index * 6 + field];
+      for (let field = 0; field < 7; field++) {
+        const value = values[index * 7 + field];
+        const applier = vehicleAppliers[index * 7 + field];
         if (value !== undefined && applier !== undefined) applier(vehicle, value);
       }
     });
@@ -652,6 +659,19 @@ export class SimulationManager {
       }
       signal.queueLength = signal.controlledLanes.reduce((sum, laneId) => sum + (haltedByLane.get(laneId) ?? 0), 0);
     });
+
+    // Geographic attachment: convert SUMO meters to lat/lng once per vehicle
+    // when the network is georeferenced (city profile). All map consumers use
+    // these values directly; the synthetic grid profile leaves them unset.
+    if (this.geo.geoReferenced) {
+      for (const vehicle of vehicles) {
+        const latLng = this.geo.sumoToLatLng(vehicle.positionX, vehicle.positionY);
+        if (latLng !== null) {
+          vehicle.lat = Math.round(latLng.lat * 1e6) / 1e6;
+          vehicle.lng = Math.round(latLng.lng * 1e6) / 1e6;
+        }
+      }
+    }
 
     this.vehicles = vehicles;
   }

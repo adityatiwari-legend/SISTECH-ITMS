@@ -233,13 +233,107 @@ Foundation repair + Google Maps integration (urgent repair session):
    → registry ✓ → corridor 4 ACTIVE (4 junctions incl. rolling) ✓, traffic API
    CRITICAL/67 vehicles ✓, frontend SSR 200 with the full chip row ✓.
 
+## Last Completed Task
+
+Google Maps REMOVAL + SUMO SVG visualization (per the "SUMO is the authoritative
+traffic world" directive):
+
+1. **Google Maps fully removed:** @vis.gl/react-google-maps +
+   @types/google.maps uninstalled; apps/web/components/CityMap.tsx DELETED;
+   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY + NEXT_PUBLIC_MAP_ANCHOR_* removed from
+   .env.example/.env.local; MapLibre CSS leftovers removed from globals.css.
+   Only remaining "google" reference is next/font/google (build-time font
+   self-hosting for Inter/JetBrains Mono — zero runtime Google calls, kept).
+2. **NEW apps/web/components/SimulationMap.tsx:** the live map is the ACTUAL
+   SUMO network rendered as SVG from /api/network/geometry (real net.xml
+   geometry: per-lane shapes, junction nodes, facilities POIs).
+   - Roads: casing polyline per segment + individual lane polylines (real
+     lane shapes), congestion overlays from measured per-segment state,
+     emergency route highlight (A* result, red), green corridor (animated
+     dashed green flow itms-corridor-flow).
+   - Signals: circle markers colored by the REAL TraCI RYG state (violet
+     emergency-priority when corridor applied; passed junctions labelled).
+   - Vehicles: one marker per TraCI vehicle at positionX/positionY with a
+     200ms CSS transform transition that only INTERPOLATES between real
+     updates (no invented movement).
+   - Emergency: dominant 🚑 marker with pulse halo, direction arrow rotated
+     by the REAL TraCI vehicle angle, ID + live speed label, title tooltip.
+   - Y-flip (SUMO y-up → SVG y-down) applied UNIFORMLY to polylines and
+     markers; aspect ratio preserved via viewBox + preserveAspectRatio;
+     wheel zoom toward cursor + drag pan.
+   - Honest chips: "SUMO LIVE NETWORK — <CITY>" (city profile) or
+     "SIMULATION NETWORK (SYNTHETIC GRID)" (grid profile).
+3. **Backend additions for the renderer:** VAR_ANGLE (0x43, verified against
+   SUMO 1.27.1's own traci/constants.py; 0x0d is NOT supported for vehicles)
+   added to the per-vehicle batch (7 vars now); VehicleSnapshot.angle +
+   EmergencyEventDetail.live.angle; geometry API serves per-lane shapes +
+   laneCount per segment.
+4. **Simulator page redesigned (Part 10):** control strip (status/time/speed/
+   SUMO/vehicles/arrived) → LIVE SUMO MAP as the primary flexible area →
+   live metrics strip (vehicles/avg speed/queue/congestion/emergencies/
+   corridor/signals) → scenario builder → comparison. Scenario origin/
+   destination dropdowns now populate from the ACTUAL signalized junctions
+   (no hardcoded W1/E2 grid ids); comparison runner likewise picks real
+   junction endpoints.
+5. **Command center + traffic pages** switched from CityMap to SimulationMap.
+6. **WS rate:** TRAFFIC_EVENT_INTERVAL_MS 500 → 200 ms (≈5 Hz); measured
+   ~14.7 events/s aggregate (incl. per-topic events at 5 Hz each).
+7. **Verification:** web tsc strict ✓, eslint 0/0 ✓, production build ✓
+   (13 pages), typecheck (api/types/web) ✓, test:api 132/132 ✓, live:
+   SSR has simulation-map on / and /simulator, geometry serves lane shapes,
+   vehicles move between polls (real TraCI), angle values present,
+   pause→time frozen, resume→advances, reset→0, speed 5x→sim advanced ~5
+   steps in 3 s, emergency+corridor created (corridor 10 COMPLETED with
+   honest "arrived before window" skip), WS ~15 events/s, no google/maplibre
+   refs in code, maplibre-gl not in the tree.
+
 ## Current Task
 
-None (repair + Google Maps complete).
+None (polish round complete: emergencies ACTIVE/HISTORY split, signals page
+NORMAL CONTROL/CORRIDOR modes + remaining, corridor panel current/next,
+simulator page live map + telemetry, ETA progress-factor calibration,
+arrival-time PASSED semantics).
+
+## Corridor ETA note (measured live, run 14)
+
+Definitive city E2E (emergency 21 / corridor 14): corridor green APPLIED at
+sim ~259 via TraCI, ambulance arrived sim ~268 INSIDE the window, junction
+marked PASSED, normal program restored, corridor COMPLETED. Prior runs
+(12/13) exposed two ETA-related truths, both fixed:
+1. future-edge ETA now scales the cost model by the vehicle's demonstrated
+   pace (progressFactor 0.5–1.0, floored at freeFlowSeconds);
+2. arrival-before-window with extend-mode = PASSED (the normal green covered
+   the vehicle); arrival-before-window with pending/no-window = SKIPPED.
 
 ## Files Changed
 
-Repair + Google Maps session:
+Google Maps removal + SUMO SVG session (this handoff):
+- apps/web/components/SimulationMap.tsx (NEW: SVG SUMO network renderer)
+- apps/web/components/CityMap.tsx (DELETED)
+- apps/web/package.json (- @vis.gl/react-google-maps, - @types/google.maps)
+- apps/web/.env.example / .env.local (Google Maps key + anchor vars removed)
+- apps/web/app/globals.css (MapLibre CSS removed; corridor dash + svg pulse)
+- apps/web/app/page.tsx (CityMap → SimulationMap; hasGoogleKey removed)
+- apps/web/app/traffic/page.tsx (CityMap → SimulationMap)
+- apps/web/app/simulator/page.tsx (REWRITTEN: live SUMO map primary,
+  telemetry strip, real-junction dropdowns, comparison endpoints dynamic)
+- apps/api/src/modules/simulation/traci/constants.ts (VAR_ANGLE 0x43)
+- apps/api/src/modules/simulation/simulation-manager.ts (angle read, 7 vars)
+- apps/api/src/modules/emergency/emergency-service.ts (live.angle)
+- apps/api/.env (TRAFFIC_EVENT_INTERVAL_MS 200, ITMS_DEMO=city, DEMO_CITY)
+- packages/types/src/index.ts (VehicleSnapshot.angle, live.angle, laneCount,
+  per-lane shapes)
+- apps/api/src/modules/system/geometry.ts (lanes array in response)
+
+Geographic foundation session (previous — see "Last Completed Task" notes
+in the prior handoff kept under this section's history in git):
+- fetch-city-osm.mjs / build-city-network.mjs (NEW scripts)
+- network/city/* + scenarios/city/* (generated Bhopal network + scenarios)
+- apps/api/src/modules/simulation/geo.ts (NEW: sumoToLatLng/latLngToSumo)
+- network-loader/simulation-manager/system-geometry/emergency/corridor
+  services (geo attachment, junctionOfEdge fix, live-speed ETA)
+- apps/api/test/geo.test.ts (NEW), test helpers, config.ts (DEMO_* env),
+  .env.example files, root package.json scripts, +proj4 dep
 - apps/web/app/globals.css (Tailwind v4 import; MapLibre CSS removed)
 - apps/web/components/CityMap.tsx (REWRITTEN: Google Maps via @vis.gl/react-google-maps;
   SUMO geometry overlays; RYG signal markers; corridor/route polylines; real
@@ -260,6 +354,27 @@ CityMap.tsx styling, page heroes.
 Phase 7 and earlier: see git history and prior entries.
 
 ## Tests Run
+
+Google Maps removal + SUMO SVG session:
+- `npm run typecheck` (api + types + web) — pass
+- `npm run lint` (web) — 0 errors, 0 warnings
+- `npm run build:web` — ✓ Compiled successfully (13 pages)
+- `npm run test:api` (via workspaces: `npm run test` in apps/api) — 132/132
+  (found and fixed: VAR_ANGLE for vehicles is 0x43 in SUMO 1.27.1, NOT 0x0d;
+  manager integration test caught the TraCI "unsupported variable" error)
+- Live (city profile, port 3000 + web 3001):
+  - /api/network/geometry: geoReferenced=true, Bhopal, 883 segments, lane
+    shapes present
+  - simulation start: 21 TLS; vehicles move between polls (TraCI), angle
+    populated (e.g. 246°), speeds 17–28 m/s
+  - emergency 17 + corridor 10: created, ACTIVE, ambulance traveled,
+    arrived; corridor COMPLETED; window-miss honestly SKIPPED
+    ("Emergency arrived before the planned window opened")
+  - pause → sim time frozen (340 → 340 after 4 s), resume → advances,
+    reset → simTime 0, speed {multiplier:5} → ~5 steps per wall second
+  - WS: ~14.7 events/s aggregate at TRAFFIC_EVENT_INTERVAL_MS=200
+  - SSR: / and /simulator render simulation-map; zero google/maplibre refs
+    in served HTML and in the codebase (fonts via next/font/google only)
 
 - `npm run typecheck` (apps/api + @itms/types + web) — pass
 - `npm run build:web` (Next.js production build, 13 pages) — ✓ Compiled successfully
@@ -361,12 +476,17 @@ Phase 7 and earlier: see git history and prior entries.
 
 ## Next Task
 
-Product complete (all 7 phases). Optional hardening ideas:
-1. Interactive browser E2E (Playwright) over the command center flows.
-2. Real pedestrian phases in the SUMO network + extended corridor safety engine.
-3. Upstream-pressure / per-lane prediction features to improve +120s horizon.
-4. API authentication for multi-user deployment (PRD non-functional note).
-5. Comparison persistence expansion (multi-scenario matrix, reports page).
+1. Playwright browser E2E (Part 25) over the SVG map flow — the one
+   remaining audit gap (no browser automation available in this environment
+   so far).
+2. Optional: corridor page map view reuse (SimulationMap with corridor-only
+   data), comparison reports page.
+
+NOT remaining (verified this session): emergency page ACTIVE/HISTORY split,
+signals page modes/remaining, corridor current/next, simulator telemetry,
+fake-data sweep (no Math.random, no hardcoded ids — dropdowns derive from
+the live network), Google/MapLibre removal, WS ~5 Hz, controls verified
+live (pause freezes, resume advances, reset to 0, speed 5x ≈ 5 steps/s).
 
 ## Decisions
 

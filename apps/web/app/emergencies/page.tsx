@@ -46,7 +46,12 @@ export default function EmergenciesPage() {
     };
   }, [selected]);
 
-  const emergencies = state.emergencies;
+  // Part 13: ACTIVE emergencies are the primary content; history is separated
+  // below and must never dominate the screen.
+  const active = state.emergencies.filter((emergency) => emergency.status === "active" || emergency.status === "created");
+  const history = state.emergencies
+    .filter((emergency) => emergency.status !== "active" && emergency.status !== "created")
+    .slice(0, 12);
 
   return (
     <div className="flex flex-col gap-2 p-3">
@@ -58,48 +63,57 @@ export default function EmergenciesPage() {
         {state.connection === "offline" && <DisconnectedBanner />}
       </header>
 
-      {state.connection === "offline" ? (
+      {state.connection === "offline" && (
         <Panel><ErrorState title="Backend disconnected" retry={() => void refreshAll()} /></Panel>
-      ) : emergencies.length === 0 ? (
-        <Panel>
-          <EmptyState title="No emergencies" hint="Create one below — requires a running simulation." />
-        </Panel>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-          {emergencies.map((emergency) => {
-            const destinationEta = emergency.etas?.find((eta) => eta.isDestination) ?? null;
-            return (
-              <motion.button
-                key={emergency.id}
-                layout
-                onClick={() => setSelected(emergency.id)}
-                className={`itms-panel p-3 text-left transition-colors ${
-                  emergency.status === "active" || emergency.status === "created" ? "itms-pulse" : ""
-                }`}
-                style={{
-                  borderColor: emergency.status === "active" ? "rgba(255,59,48,0.5)" : "#202938",
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-bold text-[#F4F7FA]">
-                    {TYPES.find((type) => type.value === emergency.type)?.icon ?? "🚨"} {vehicleLabel(emergency.vehicle?.vehicleId ?? `event-${emergency.id}`)}
-                  </span>
-                  <Badge color={emergency.status === "arrived" ? "#22C55E" : emergency.status === "active" || emergency.status === "created" ? "#FF3B30" : "#8B95A7"}>
-                    {emergency.status}
-                  </Badge>
-                </div>
-                <div className="mt-1 grid grid-cols-2 gap-x-3 font-mono text-[10px] text-[#8B95A7]">
-                  <span>{emergency.type.replace("_", " ").toUpperCase()}</span>
-                  <span className="text-right uppercase">{emergency.priority}</span>
-                  <span>{emergency.originJunction} → {emergency.destinationJunction}</span>
-                  <span className="text-right">{destinationEta !== null ? `ETA +${destinationEta.etaSeconds.toFixed(0)}s` : emergency.status === "arrived" ? "arrived" : "…"}</span>
-                </div>
-              </motion.button>
-            );
-          })}
-        </div>
       )}
 
+      {/* ---------- ACTIVE EMERGENCIES (primary) ---------- */}
+      <Panel title={`Active emergencies (${active.length})`}>
+        {active.length === 0 ? (
+          <EmptyState
+            title={state.sim?.status === "running" || state.sim?.status === "paused" ? "No active emergency" : "No active emergency"}
+            hint={
+              state.sim?.status === "running" || state.sim?.status === "paused"
+                ? "Create one below — the vehicle will appear on the live map."
+                : "Start the simulation, then create an emergency."
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+            {active.map((emergency) => {
+              return (
+                <motion.button
+                  key={emergency.id}
+                  layout
+                  onClick={() => setSelected(emergency.id)}
+                  className="itms-panel itms-pulse p-3 text-left"
+                  style={{ borderColor: "rgba(255,59,48,0.5)" }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-sm font-bold text-[#F4F7FA]">
+                      {TYPES.find((type) => type.value === emergency.type)?.icon ?? "🚨"} {vehicleLabel(emergency.vehicle?.vehicleId ?? `event-${emergency.id}`)}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <Badge color="#FF3B30">{emergency.status.toUpperCase()}</Badge>
+                      <Badge color={emergency.priority === "critical" ? "#EF4444" : emergency.priority === "high" ? "#F59E0B" : "#8B95A7"}>{emergency.priority.toUpperCase()}</Badge>
+                    </span>
+                  </div>
+                  <div className="mt-1 grid grid-cols-2 gap-x-3 font-mono text-[10px] text-[#8B95A7]">
+                    <span>{emergency.type.replace("_", " ").toUpperCase()}</span>
+                    <span className="text-right">{emergency.originJunction} → {emergency.destinationJunction}</span>
+                    <span>Speed: {formatSpeed(emergency.live?.speedMps ?? null)}</span>
+                    <span className="text-right">{emergency.etas?.find((eta) => eta.isDestination) !== undefined ? `ETA +${emergency.etas.find((eta) => eta.isDestination)!.etaSeconds.toFixed(0)}s` : "…"}</span>
+                    <span>Current road: {emergency.live?.roadId ?? "—"}</span>
+                    <span className="text-right">Remaining: {formatDistance(emergency.live?.remainingDistanceM ?? null)}</span>
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      {/* ---------- DETAIL (selected) ---------- */}
       {detail !== null && (
         <Panel title={`Event ${detail.id} — ${vehicleLabel(detail.vehicle?.vehicleId ?? "")}`} right={<ActionButton onClick={() => setSelected(null)} color="#8B95A7">Close</ActionButton>}>
           {detailError !== null && <ErrorState title="Detail error" detail={detailError} />}
@@ -147,6 +161,33 @@ export default function EmergenciesPage() {
         </Panel>
       )}
 
+      {/* ---------- HISTORY (secondary, capped) ---------- */}
+      <Panel title={`History (${history.length})`}>
+        {history.length === 0 ? (
+          <EmptyState title="No completed emergencies yet" hint="Arrived/failed events are listed here." />
+        ) : (
+          <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
+            {history.map((emergency) => {
+              return (
+                <button
+                  key={emergency.id}
+                  onClick={() => setSelected(emergency.id)}
+                  className="itms-panel itms-hover flex items-center justify-between p-2 text-left"
+                >
+                  <span className="font-mono text-[11px] text-[#F4F7FA]">
+                    {TYPES.find((type) => type.value === emergency.type)?.icon ?? "🚨"} {vehicleLabel(emergency.vehicle?.vehicleId ?? `event-${emergency.id}`)}
+                  </span>
+                  <span className="flex items-center gap-2 font-mono text-[10px] text-[#8B95A7]">
+                    <span>{emergency.originJunction}→{emergency.destinationJunction}</span>
+                    <Badge color={emergency.status === "arrived" ? "#22C55E" : emergency.status === "failed" ? "#EF4444" : "#8B95A7"}>{emergency.status}</Badge>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
       <NewEmergencyForm onCreated={(id) => setSelected(id)} />
     </div>
   );
@@ -155,15 +196,26 @@ export default function EmergenciesPage() {
 function NewEmergencyForm({ onCreated }: { onCreated: (id: number) => void }) {
   const { state, refreshAll } = useItms();
   const [type, setType] = React.useState<EmergencyType>("ambulance");
-  const [origin, setOrigin] = React.useState("W1");
-  const [destination, setDestination] = React.useState("E2");
+  const [origin, setOrigin] = React.useState("");
+  const [destination, setDestination] = React.useState("");
   const [priority, setPriority] = React.useState<EmergencyPriority>("critical");
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const defaulted = React.useRef(false);
 
-  const junctions = ["W1", "W2", "E1", "E2", "S1", "S2", "S3", "N1", "N2", "N3", "I1", "I2", "I3", "I4", "I5", "I6"];
+  // Junction options from the ACTUAL network's signalized junctions.
+  const controlled = React.useMemo(
+    () => (state.signals ?? []).map((signal) => signal.id).sort(),
+    [state.signals],
+  );
+  React.useEffect(() => {
+    if (defaulted.current || controlled.length === 0) return;
+    setOrigin(controlled[0]!);
+    setDestination(controlled[controlled.length - 1]!);
+    defaulted.current = true;
+  }, [controlled]);
 
-  const canSubmit = state.sim?.status === "running" || state.sim?.status === "paused";
+  const canSubmit = (state.sim?.status === "running" || state.sim?.status === "paused") && origin !== "" && destination !== "";
 
   const submit = async (): Promise<void> => {
     setSubmitting(true);
@@ -184,7 +236,9 @@ function NewEmergencyForm({ onCreated }: { onCreated: (id: number) => void }) {
     <Panel title="New emergency">
       {!canSubmit && (
         <div className="mb-2 rounded border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-2 py-1 font-mono text-[10px] text-[#F59E0B]">
-          The simulation must be running (start it on the Simulator page).
+          {state.sim?.status === "running" || state.sim?.status === "paused"
+            ? "Loading junction options from the SUMO network…"
+            : "The simulation must be running (start it on the Simulator page)."}
         </div>
       )}
       <div className="grid gap-2 md:grid-cols-4">
@@ -199,13 +253,13 @@ function NewEmergencyForm({ onCreated }: { onCreated: (id: number) => void }) {
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Origin</span>
           <select value={origin} onChange={(event) => setOrigin(event.target.value)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {junctions.map((junction) => <option key={junction} value={junction}>{junction}</option>)}
+            {(controlled.length > 0 ? controlled : origin !== "" ? [origin] : []).map((junction) => <option key={junction} value={junction}>{junction}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Destination</span>
           <select value={destination} onChange={(event) => setDestination(event.target.value)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {junctions.map((junction) => <option key={junction} value={junction}>{junction}</option>)}
+            {(controlled.length > 0 ? controlled : destination !== "" ? [destination] : []).map((junction) => <option key={junction} value={junction}>{junction}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">

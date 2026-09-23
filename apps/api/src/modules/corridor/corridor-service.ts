@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   CongestionLevel,
   CorridorDetail,
   CorridorSignalPlanEntry,
@@ -28,7 +28,7 @@ import { planCorridor, type PlannerJunctionInputs } from "./corridor-planner.ts"
 /**
  * Green corridor orchestration (Phases.md 5).
  *
- * PLANNING → VALIDATING → ACTIVE → (REPLANNING) → COMPLETED / CANCELLED / FAILED
+ * PLANNING â†’ VALIDATING â†’ ACTIVE â†’ (REPLANNING) â†’ COMPLETED / CANCELLED / FAILED
  *
  * The executor runs after every simulation step while a corridor is ACTIVE:
  *  - junctions are applied just before the vehicle's ETA window opens
@@ -178,7 +178,7 @@ export class CorridorService {
     try {
       row = await this.repository.createCorridor({
         eventId,
-        originJunction: emergency.routeEdges.length > 0 ? junctionOfEdge(emergency.routeEdges[0]!) : emergency.originJunction,
+        originJunction: emergency.routeEdges.length > 0 ? junctionOfEdge(emergency.routeEdges[0]!, this.catalog) : emergency.originJunction,
         destinationJunction: emergency.destinationJunction,
         plannedAtSimTimeS: simTime,
         signals: planned.entries,
@@ -194,7 +194,7 @@ export class CorridorService {
       eventId,
       vehicleId: emergency.vehicleId,
       status: row.status,
-      originJunction: emergency.routeEdges.length > 0 ? junctionOfEdge(emergency.routeEdges[0]!) : emergency.originJunction,
+      originJunction: emergency.routeEdges.length > 0 ? junctionOfEdge(emergency.routeEdges[0]!, this.catalog) : emergency.originJunction,
       destinationJunction: emergency.destinationJunction,
       junctions: planned.entries.map((entry) => this.toRuntimeJunction(entry, emergency)),
       broadcastRevision: 1,
@@ -206,7 +206,7 @@ export class CorridorService {
       this.logger.info("Green corridor activated", {
         corridorId: row.id,
         eventId,
-        junctions: plannable.map((entry) => entry.junctionId).join("→"),
+        junctions: plannable.map((entry) => entry.junctionId).join("â†’"),
         skipped: validation.skipped.length,
       });
     } else {
@@ -225,7 +225,8 @@ export class CorridorService {
   }
 
   /** Builds the planner inputs from the live system state (no fabrication). */
-  private buildPlan(emergency: EmergencyRuntimeSnapshot, simTime: number) {    const controlled = new Set(this.catalog.signals.map((signal) => signal.id));
+  private buildPlan(emergency: EmergencyRuntimeSnapshot, simTime: number) {
+    const controlled = new Set(this.catalog.signals.map((signal) => signal.id));
     const signalsByJunction = new Map(this.manager.getSignals().map((signal) => [signal.id, signal] as const));
     const etas: EmergencyEta[] | null = this.emergencyService.getEtas(emergency.eventId);
     const etasByJunction = new Map<string, EmergencyEta>();
@@ -264,10 +265,10 @@ export class CorridorService {
     let sequence = 0;
     for (let index = startIndex; index < emergency.routeEdges.length; index++) {
       const segmentId = emergency.routeEdges[index]!;
-      const junctionId = junctionOfEdge(segmentId);
+      const junctionId = junctionOfEdge(segmentId, this.catalog);
       if (!controlled.has(junctionId)) continue;
       const eta = etasByJunction.get(junctionId);
-      if (eta === undefined) continue; // ETA unavailable → cannot plan
+      if (eta === undefined) continue; // ETA unavailable â†’ cannot plan
       const signal = signalsByJunction.get(junctionId);
       if (signal === undefined) continue;
       const linkIndices =
@@ -370,6 +371,24 @@ export class CorridorService {
     // Emergency finished → finish the corridor accordingly.
     const persistedStatus = await this.emergencyService.getPersistedStatus(corridor.eventId);
     if (persistedStatus === "arrived") {
+      for (const junction of corridor.junctions) {
+        if (junction.status === "APPLIED") {
+          // The green window was open when the vehicle arrived: the vehicle
+          // used it — mark it passed and restore the normal program.
+          await this.markPassed(corridor, junction);
+        } else if (junction.status === "PENDING" && junction.mode === "extend") {
+          // Extend window anchored at the normal switch point, but the
+          // vehicle arrived BEFORE the switch: it passed on the normal
+          // program's green (that green covered it). Honest outcome: PASSED.
+          await this.markPassed(corridor, junction);
+        } else if (junction.status === "PENDING") {
+          // Junctions still pending never opened their window before arrival:
+          // mark them honestly instead of leaving dangling PENDING state.
+          junction.status = "SKIPPED";
+          junction.skipReason = "Emergency arrived before the planned window opened.";
+          await this.repository.setSignalSkipped(corridor.corridorId, junction.sequenceIndex, junction.skipReason);
+        }
+      }
       await this.finishCorridor(corridor, "COMPLETED", null);
       return;
     }
@@ -429,7 +448,7 @@ export class CorridorService {
         }
       }
 
-      // Clearance step in progress → apply the corridor green when due.
+      // Clearance step in progress â†’ apply the corridor green when due.
       if (junction.clearanceAppliedAtS !== null) {
         if (simTime >= junction.clearanceAppliedAtS + this.config.corridorClearanceYellowS && junction.corridorState !== null) {
           await this.applyCorridorGreen(corridor, junction, simTime);
@@ -451,7 +470,7 @@ export class CorridorService {
       }
     }
 
-    // All non-skipped junctions passed → corridor completed.
+    // All non-skipped junctions passed â†’ corridor completed.
     const active = corridor.junctions.filter((junction) => junction.status !== "SKIPPED" && junction.status !== "NOOP");
     if (active.length > 0 && active.every((junction) => junction.status === "PASSED")) {
       await this.finishCorridor(corridor, "COMPLETED", null);
@@ -514,12 +533,12 @@ export class CorridorService {
       corridorId: corridor.corridorId,
       junction: junction.junctionId,
       eta: round1(etaSeconds),
-      window: `${round1(greenStart)}–${round1(junction.plannedGreenEndS!)}`,
+      window: `${round1(greenStart)}â€“${round1(junction.plannedGreenEndS!)}`,
     });
     return true;
   }
 
-  /** Applies the planned window: occupancy re-check → clearance → green. */
+  /** Applies the planned window: occupancy re-check â†’ clearance â†’ green. */
   private async applyWindow(corridor: CorridorRuntime, junction: CorridorJunctionRuntime, simTime: number): Promise<boolean> {
     const signal = this.manager.getSignal(junction.signalId);
     if (signal === null || junction.corridorState === null) return false;
@@ -734,7 +753,7 @@ export class CorridorService {
     corridor.status = "REPLANNING";
     const simTime = this.manager.getStatusSnapshot().simTimeSeconds;
     const newRouteSet = new Set(emergency.routeEdges);
-    const newJunctions = new Set(emergency.routeEdges.map((edge) => junctionOfEdge(edge)));
+    const newJunctions = new Set(emergency.routeEdges.map((edge) => junctionOfEdge(edge, this.catalog)));
 
     let changed = false;
 
@@ -763,7 +782,7 @@ export class CorridorService {
     let sequence = sequenceBase;
     for (let index = Math.max(0, emergency.live.routeIndex); index < emergency.routeEdges.length; index++) {
       const segmentId = emergency.routeEdges[index]!;
-      const junctionId = junctionOfEdge(segmentId);
+      const junctionId = junctionOfEdge(segmentId, this.catalog);
       const isControlled = this.catalog.signals.some((signal) => signal.id === junctionId);
       if (!isControlled || existing.has(segmentId)) continue;
       const linkIndices =
@@ -924,8 +943,15 @@ export class CorridorService {
   }
 }
 
-/** Junction id from a directed segment id ("i1_i2" → "I2"). */
-function junctionOfEdge(segmentId: string): string {
+/**
+ * Junction a directed segment approaches: the segment's `toJunction` from
+ * the network catalog (authoritative for any network naming: grid edges
+ * like "i1_i2" AND OSM-derived ids like "375220442#5"). Falls back to the
+ * grid naming convention when the catalog lookup misses.
+ */
+function junctionOfEdge(segmentId: string, catalog: NetworkCatalog): string {
+  const segment = catalog.segments.find((candidate) => candidate.id === segmentId);
+  if (segment !== undefined) return segment.toJunction;
   const parts = segmentId.split("_");
   const last = parts[parts.length - 1] ?? "";
   return last.toUpperCase();

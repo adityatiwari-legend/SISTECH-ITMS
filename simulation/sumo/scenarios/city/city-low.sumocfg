@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input>
+        <net-file value="../../network/city/itms-city.net.xml"/>
+        <route-files value="city-low.rou.xml"/>
+        <additional-files value="../../network/city/city-facilities.add.xml,../../network/emergency-fleet.add.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+    </time>
+</configuration>

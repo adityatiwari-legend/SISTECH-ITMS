@@ -138,8 +138,13 @@ export class EmergencyService {
     const emergency = this.active.get(eventId);
     if (emergency === undefined) return null;
     const liveVehicle = this.manager.getVehicles().find((v) => v.id === emergency.vehicleId) ?? null;
-    // The origin junction is the start of the route (first edge's from).
-    const originJunction = emergency.routeEdges[0]?.split("_")[0]?.toUpperCase() ?? "";
+    // The origin junction is the first approached junction: the first route
+    // edge's toJunction via the road graph (network-naming independent).
+    const firstEdge = this.routeEngine.getGraph().getEdge(emergency.routeEdges[0] ?? "");
+    const originJunction =
+      firstEdge !== null
+        ? firstEdge.toJunction
+        : emergency.routeEdges[0]?.split("_")[0]?.toUpperCase() ?? "";
     return {
       eventId: emergency.eventId,
       status: emergency.status,
@@ -223,7 +228,10 @@ export class EmergencyService {
     try {
       routeId = await this.repository.addRouteRevision({
         eventId: input.eventId,
-        originJunction: emergency.routeEdges[0]?.split("_")[0]?.toUpperCase() ?? "",
+        originJunction: (() => {
+          const firstEdge = this.routeEngine.getGraph().getEdge(emergency.routeEdges[0] ?? input.edges[0] ?? "");
+          return firstEdge !== null ? firstEdge.toJunction : emergency.destinationJunction;
+        })(),
         destinationJunction: emergency.destinationJunction,
         edges: input.edges.map((segmentId) => {
           const edge = this.routeEngine.getGraph().getEdge(segmentId);
@@ -670,6 +678,9 @@ export class EmergencyService {
   }
 
   private mapVehicle(vehicle: EmergencyVehicleRow, live: VehicleSnapshot | null): EmergencyVehicleRecord {
+    const liveLatLng = live?.lat !== undefined && live?.lng !== undefined
+      ? { lat: live.lat, lng: live.lng }
+      : null;
     return {
       id: vehicle.id,
       vehicleId: vehicle.vehicle_id,
@@ -680,6 +691,7 @@ export class EmergencyService {
       destinationJunction: vehicle.destination_junction,
       positionX: live?.positionX ?? vehicle.last_position_x,
       positionY: live?.positionY ?? vehicle.last_position_y,
+      ...(liveLatLng !== null ? { lat: liveLatLng.lat, lng: liveLatLng.lng } : {}),
       speedMps: live?.speed ?? vehicle.last_speed_mps,
       createdAtIso: vehicle.created_at.toISOString(),
       activatedAtIso: vehicle.activated_at?.toISOString() ?? null,
@@ -717,6 +729,8 @@ export class EmergencyService {
       simTimeSeconds: this.manager.getStatusSnapshot().simTimeSeconds,
       positionX: live.positionX,
       positionY: live.positionY,
+      ...(live.lat !== undefined && live.lng !== undefined ? { lat: live.lat, lng: live.lng } : {}),
+      angle: live.angle,
       speedMps: live.speed,
       roadId: live.roadId,
       laneId: live.laneId,
@@ -770,16 +784,38 @@ export class EmergencyService {
     }
     const positionOnEdge = Math.min(live.lanePosition, currentEdge.distanceM);
     const remainingM = Math.max(0, currentEdge.distanceM - positionOnEdge);
+    // Remaining time on the current edge uses the vehicle's LIVE speed when
+    // it is moving: emergency vehicles travel faster than the
+    // congestion-adjusted cost model assumes (other traffic yields), which
+    // otherwise overestimates the ETA and delays corridor windows. The cost
+    // model remains the fallback (speed 0 / stopped).
+    const liveSecondsPerMeter = live.speed > 0.5 ? 1 / live.speed : null;
     const currentCost = this.routeEngine.edgeCost(currentSegmentId);
-    const secondsPerMeter = currentCost.costSeconds / Math.max(1, currentEdge.distanceM);
+    const secondsPerMeter = liveSecondsPerMeter ?? currentCost.costSeconds / Math.max(1, currentEdge.distanceM);
     time += remainingM * secondsPerMeter;
     distance += remainingM;
     this.pushEtaIfRelevant(etas, graph, emergency, currentEdge.toJunction, time, distance);
 
+    // Future edges: the cost model reflects the MIXED-traffic average speed,
+    // but an emergency vehicle with priority progresses substantially faster
+    // than ordinary traffic on the same edges. Calibrate the remaining-route
+    // ETA with the vehicle's demonstrated pace: scale each edge's cost-model
+    // time by the ratio between the cost-model speed of the CURRENT edge and
+    // the vehicle's actual speed on it (bounded to [0.5, 1.0]), and never go
+    // below the edge's free-flow time (physical lower bound).
+    const costSpeed =
+      currentCost.costSeconds > 0 && currentEdge.distanceM > 0
+        ? currentEdge.distanceM / currentCost.costSeconds
+        : 0;
+    const progressFactor =
+      liveSecondsPerMeter !== null && costSpeed > 0.1
+        ? Math.min(Math.max(costSpeed / live.speed, 0.5), 1.0)
+        : 1.0;
     for (let index = routeIndex + 1; index < emergency.routeEdges.length; index++) {
       const segmentId = emergency.routeEdges[index]!;
       const cost = this.routeEngine.edgeCost(segmentId);
-      time += cost.costSeconds;
+      const scaled = Math.max(cost.costSeconds * progressFactor, cost.freeFlowSeconds);
+      time += scaled;
       distance += cost.lengthM;
       this.pushEtaIfRelevant(etas, graph, emergency, cost.toJunction, time, distance);
     }

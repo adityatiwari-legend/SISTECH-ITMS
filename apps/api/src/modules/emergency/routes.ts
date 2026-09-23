@@ -8,8 +8,11 @@ const createBodySchema = {
   required: ["type", "origin", "destination", "priority"],
   properties: {
     type: { type: "string", enum: ["ambulance", "fire_engine", "police"] },
-    origin: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9]{0,15}$" },
-    destination: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9]{0,15}$" },
+    // Junction ids: grid ids (I1..I6, W1..) and OSM-derived city ids
+    // (numeric like "315577777" or joined clusters like "cluster_...").
+    // Existence is validated by the route engine against the road graph.
+    origin: { type: "string", pattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$" },
+    destination: { type: "string", pattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$" },
     priority: { type: "string", enum: ["critical", "high", "normal"] },
   },
   additionalProperties: false,

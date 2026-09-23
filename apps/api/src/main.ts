@@ -36,10 +36,13 @@ async function main(): Promise<void> {
   // ---- network catalog (static registry source of truth) ----
   const catalog = await loadNetworkCatalog(config.networkPath);
   logger.info("Network catalog loaded", {
+    profile: config.demoProfile,
+    city: config.demoCity,
     junctions: catalog.junctions.length,
     segments: catalog.segments.length,
     roads: catalog.roads.length,
     signals: catalog.signals.length,
+    geoReferenced: catalog.geoReferenced,
   });
 
   // ---- routing (road graph + A* engine) ----
@@ -141,7 +144,7 @@ async function main(): Promise<void> {
     metricsRepository,
     comparisonService,
     catalog,
-    facilitiesPath: join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "simulation", "sumo", "network", "facilities.add.xml"),
+    facilitiesPath: config.facilitiesPath,
     db,
     wsBus,
   });

@@ -46,7 +46,7 @@ Do not build the polished dashboard before the core traffic-control loop works.
 - TypeScript
 - Tailwind CSS
 - Framer Motion
-- MapLibre GL or Mapbox
+- SUMO network SVG renderer (no external map provider; SUMO is the map)
 - Recharts
 - WebSocket
 

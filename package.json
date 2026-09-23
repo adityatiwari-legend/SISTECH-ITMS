@@ -12,6 +12,8 @@
   },
   "scripts": {
     "build:network": "node simulation/sumo/scripts/build-network.mjs",
+    "fetch:city": "node simulation/sumo/scripts/fetch-city-osm.mjs",
+    "build:city-network": "node simulation/sumo/scripts/build-city-network.mjs",
     "dev:api": "npm run dev --workspace apps/api",
     "dev:web": "npm run dev --workspace web",
     "build:web": "npm run build --workspace web",

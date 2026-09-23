@@ -3,7 +3,7 @@
 import React from "react";
 import { api } from "@/lib/api";
 import { useItms } from "@/lib/store";
-import { CityMap } from "@/components/CityMap";
+import { SimulationMap } from "@/components/SimulationMap";
 import { ActiveEmergencyPanel, AiPanel, CompactSignalsPanel, CorridorChainPanel } from "@/components/panels";
   import { DisconnectedBanner, LoadingState, StaleBanner, StatusDot } from "@/components/ui";
 import { formatSpeed } from "@/lib/format";
@@ -34,7 +34,7 @@ export default function CommandCenterPage() {
     null;
   const activeCorridor = state.corridors.find((corridor) => corridor.status === "ACTIVE") ?? null;
 
-  const mapReady = geometry !== null && geometryError === null && hasGoogleKey();
+  const mapReady = geometry !== null && geometryError === null;
 
   return (
     <div className="flex h-full flex-col gap-3 p-3">
@@ -70,9 +70,9 @@ export default function CommandCenterPage() {
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">
-        {/* ---------- LARGE GOOGLE MAP (~65%) ---------- */}
+        {/* ---------- LARGE SUMO NETWORK MAP (~65%) ---------- */}
         <div className="itms-panel min-h-[340px] overflow-hidden">
-          <CityMap
+          <SimulationMap
             className="h-full min-h-[320px] w-full"
             data={{
               geometry,
@@ -118,10 +118,6 @@ export default function CommandCenterPage() {
       </div>
     </div>
   );
-}
-
-function hasGoogleKey(): boolean {
-  return (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "") !== "";
 }
 
 const cacheGeometryRef = { current: false };

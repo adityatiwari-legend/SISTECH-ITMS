@@ -83,12 +83,31 @@ export function CorridorChainPanel({ corridor }: { corridor: CorridorDetail | nu
     );
   }
   const ordered = [...corridor.signals].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
+  const current = ordered.find((signal) => signal.status === "APPLIED") ?? null;
+  const upcoming = ordered.filter((signal) => signal.status === "PENDING");
+  const next = upcoming[0] ?? null;
   return (
     <Panel
-      title="⇉ Green corridor"
+      title="⇉ Active green corridor"
       ai
       right={<Badge color={corridor.status === "ACTIVE" ? "#a78bfa" : "#8B95A9"}>{corridor.status}</Badge>}
     >
+      {(current !== null || next !== null) && (
+        <div className="mb-2 grid grid-cols-3 gap-2 font-mono text-[10px]">
+          <div className="rounded border border-[#202938] px-2 py-1">
+            <div className="text-[9px] uppercase tracking-wider text-[#5c6675]">Emergency</div>
+            <div className="text-[#F4F7FA]">{corridor.vehicleId !== null ? vehicleLabel(corridor.vehicleId) : `event ${corridor.eventId}`}</div>
+          </div>
+          <div className="rounded border border-[#22c55e]/40 px-2 py-1">
+            <div className="text-[9px] uppercase tracking-wider text-[#5c6675]">Current (green)</div>
+            <div className="text-[#34d399]">{current?.junctionId ?? "—"}</div>
+          </div>
+          <div className="rounded border border-[#fbbf24]/30 px-2 py-1">
+            <div className="text-[9px] uppercase tracking-wider text-[#5c6675]">Next</div>
+            <div className="text-[#fbbf24]">{next?.junctionId ?? "—"}</div>
+          </div>
+        </div>
+      )}
       <div className={`flex flex-wrap items-center gap-1.5 font-mono text-xl ${corridor.status === "ACTIVE" ? "itms-ai-glow" : ""}`} aria-label="Corridor chain">
         <span title="Emergency vehicle">🚑</span>
         {ordered.map((signal) => (

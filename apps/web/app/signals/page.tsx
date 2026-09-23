@@ -4,6 +4,7 @@ import React from "react";
 import { useItms } from "@/lib/store";
 import { Badge, EmptyState, ErrorState, LoadingState, Panel, StatusDot, DisconnectedBanner } from "@/components/ui";
 import { signalDominant } from "@/lib/format";
+import { api } from "@/lib/api";
 
 interface CorridorAssociation {
   corridorId: number;
@@ -19,7 +20,7 @@ export default function SignalsPage() {
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
-        const corridors = await api_getCorridors();
+        const corridors = (await api.getCorridors()).corridors;
         if (cancelled) return;
         const map = new Map<string, CorridorAssociation>();
         for (const corridor of corridors) {
@@ -84,6 +85,8 @@ export default function SignalsPage() {
                 {signals.map((signal) => {
                   const dominant = signalDominant(signal.state);
                   const corridor = corridorBySignal.get(signal.id) ?? null;
+                  const simTime = state.sim?.simTimeSeconds ?? 0;
+                  const remaining = Math.max(0, signal.nextSwitchAtSeconds - simTime);
                   return (
                     <tr key={signal.id} className="border-b border-[#202938]/50">
                       <td className="py-1.5 pr-3 font-semibold text-[#F4F7FA]">{signal.id}</td>
@@ -95,14 +98,12 @@ export default function SignalsPage() {
                           <span className="text-[9px] text-[#5c6675]">{signal.state}</span>
                         </span>
                       </td>
-                      <td className="py-1.5 pr-3 text-[#8B95A7]">
-                        {Math.max(0, signal.nextSwitchAtSeconds - (state.sim?.simTimeSeconds ?? 0)).toFixed(0)}s
-                      </td>
+                      <td className="py-1.5 pr-3 text-[#8B95A7]">{remaining.toFixed(0)}s</td>
                       <td className="py-1.5 pr-3">{signal.queueLength}</td>
                       <td className="py-1.5 pr-3">
-                        {corridor !== null ? <Badge color="#8B5CF6">CORRIDOR</Badge> : <Badge color="#5c6675">NORMAL</Badge>}
+                        {corridor !== null ? <Badge color="#8B5CF6">CORRIDOR {corridor.status}</Badge> : <Badge color="#5c6675">NORMAL CONTROL</Badge>}
                       </td>
-                      <td className="py-1.5 pr-3 text-[#8B95A7]">{corridor !== null ? `corridor ${corridor.corridorId}` : "—"}</td>
+                      <td className="py-1.5 pr-3 text-[#8B95A7]">{corridor !== null ? `PRIORITY ACTIVE — corridor ${corridor.corridorId}` : "—"}</td>
                     </tr>
                   );
                 })}
@@ -127,9 +128,4 @@ function controlledLocation(controlledLanes: string[]): string {
     }
   }
   return [...approaches].sort().join("/") || "—";
-}
-
-async function api_getCorridors() {
-  const { api } = await import("@/lib/api");
-  return (await api.getCorridors()).corridors;
 }

@@ -4,24 +4,34 @@ import React from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { api, ApiError } from "@/lib/api";
 import { useItms } from "@/lib/store";
-import { ActionButton, Badge, EmptyState, ErrorState, LoadingState, Panel, DisconnectedBanner } from "@/components/ui";
+import { ActionButton, EmptyState, ErrorState, LoadingState, Panel, DisconnectedBanner, StatusDot } from "@/components/ui";
+import { SimulationMap } from "@/components/SimulationMap";
 import { simClock } from "@/lib/format";
-import { scenarioForTrafficLevel, type CreateComparisonBody, type EmergencyPriority, type EmergencyType, type TrafficLevel, type ComparisonResult } from "@itms/types";
+import { scenarioForTrafficLevel, type CreateComparisonBody, type EmergencyPriority, type EmergencyType, type TrafficLevel, type ComparisonResult, type NetworkGeometryResponse } from "@itms/types";
 
 const TYPES: Array<{ value: EmergencyType; label: string; icon: string }> = [
   { value: "ambulance", label: "Ambulance", icon: "🚑" },
   { value: "fire_engine", label: "Fire engine", icon: "🚒" },
   { value: "police", label: "Police", icon: "🚓" },
 ];
-const JUNCTIONS = ["W1", "W2", "E1", "E2", "S1", "S2", "S3", "N1", "N2", "N3", "I1", "I2", "I3", "I4", "I5", "I6"];
 const SPEEDS = [1, 2, 5, 10];
 
 export default function SimulatorPage() {
   const { state, refreshAll } = useItms();
+  const [geometry, setGeometry] = React.useState<NetworkGeometryResponse | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const sim = state.sim;
+  const activeEmergency =
+    state.emergencies.find((emergency) => emergency.status === "active") ??
+    state.emergencies.find((emergency) => emergency.status === "created") ??
+    null;
+  const activeCorridor = state.corridors.find((corridor) => corridor.status === "ACTIVE") ?? null;
+
+  React.useEffect(() => {
+    void api.getNetworkGeometry().then(setGeometry).catch(() => setGeometry(null));
+  }, []);
 
   const control = async (action: () => Promise<unknown>): Promise<void> => {
     setBusy(true);
@@ -37,7 +47,7 @@ export default function SimulatorPage() {
   };
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex h-full flex-col gap-2 p-3">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Simulator</h1>
@@ -48,27 +58,34 @@ export default function SimulatorPage() {
 
       {error !== null && <ErrorState title="Command failed" detail={error} retry={() => setError(null)} />}
 
+      {/* ---------- SIMULATION CONTROL ---------- */}
       <Panel title="Simulation control">
         {sim === null ? (
           <LoadingState label="Connecting" />
         ) : (
           <>
-            <div className="mb-3 flex flex-wrap items-center gap-4 font-mono text-[11px]">
-              <Badge color={sim.status === "running" ? "#22C55E" : sim.status === "error" ? "#EF4444" : "#F59E0B"}>{sim.status}</Badge>
-              <span className="text-[#8B95A7]">
-                Scenario: <span className="text-[#F4F7FA]">{sim.scenario ?? "—"}</span>
+            <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[11px]">
+              <span className="flex items-center gap-2">
+                <StatusDot
+                  color={sim.status === "running" ? "#34d399" : sim.status === "error" ? "#f87171" : sim.status === "paused" ? "#fbbf24" : "#8B95A9"}
+                  label={sim.status.toUpperCase()}
+                  pulse={sim.status === "running"}
+                />
               </span>
               <span className="text-[#8B95A7]">
-                Sim time: <span className="text-[#F4F7FA]">{simClock(sim.simTimeSeconds)}</span> ({sim.simTimeSeconds.toFixed(0)}s)
+                Time: <span className="text-[#F4F7FA]">{simClock(sim.simTimeSeconds)}</span>
               </span>
               <span className="text-[#8B95A7]">
-                Pace: <span className="text-[#F4F7FA]">{sim.paceMultiplier}x</span>
+                Speed: <span className="text-[#F4F7FA]">{sim.paceMultiplier}×</span>
               </span>
               <span className="text-[#8B95A7]">
-                SUMO: <span className="text-[#F4F7FA]">{sim.sumoVersion ?? "—"}</span>
+                SUMO: <span className="text-[#F4F7FA]">{sim.sumoVersion !== null ? "CONNECTED" : "—"}</span>
               </span>
               <span className="text-[#8B95A7]">
-                Vehicles in: <span className="text-[#F4F7FA]">{sim.vehicleCount}</span> · arrived: <span className="text-[#F4F7FA]">{sim.arrivedVehicleCount ?? "—"}</span>
+                Vehicles: <span className="text-[#F4F7FA]">{state.vehicles.length}</span>
+              </span>
+              <span className="text-[#8B95A7]">
+                Arrived: <span className="text-[#F4F7FA]">{sim.arrivedVehicleCount ?? "—"}</span>
               </span>
               {sim.lastError !== null && <span className="text-[#EF4444]">⚠ {sim.lastError}</span>}
             </div>
@@ -94,24 +111,84 @@ export default function SimulatorPage() {
         )}
       </Panel>
 
-      <ScenarioBuilder />
+      {/* ---------- LIVE SIMULATION (PRIMARY) ---------- */}
+      <div className="itms-panel min-h-[420px] flex-1 overflow-hidden">
+        <SimulationMap
+          className="h-full min-h-[400px] w-full"
+          data={{
+            geometry,
+            trafficSegments: state.traffic?.segments ?? [],
+            signals: state.signals,
+            vehicles: state.vehicles,
+            emergency: activeEmergency,
+            corridor: activeCorridor,
+          }}
+        />
+      </div>
 
+      {/* ---------- LIVE METRICS ---------- */}
+      <div className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+        <MiniMetric label="VEHICLES" value={state.vehicles.length > 0 ? String(state.vehicles.length) : "—"} />
+        <MiniMetric label="AVG SPEED" value={state.traffic ? formatSpeedKmh(state.traffic.summary.avgSpeedMps) : "—"} />
+        <MiniMetric label="QUEUE" value={state.traffic ? String(state.traffic.summary.totalQueueLength) : "—"} />
+        <MiniMetric label="CONGESTION" value={state.traffic ? state.traffic.summary.cityLevel : "—"} color={state.traffic ? congestionColor(state.traffic.summary.cityLevel) : undefined} />
+        <MiniMetric label="EMERGENCIES" value={String(activeEmergency !== null ? 1 : 0)} color={activeEmergency !== null ? "#ff453a" : undefined} />
+        <MiniMetric label="CORRIDOR" value={activeCorridor !== null ? "ACTIVE" : "NONE"} color={activeCorridor !== null ? "#22c55e" : undefined} />
+        <MiniMetric label="SIGNALS" value={state.signals.length > 0 ? String(state.signals.length) : "—"} />
+      </div>
+
+      <ScenarioBuilder />
       <ComparisonRunner />
     </div>
   );
 }
 
+function formatSpeedKmh(mps: number): string {
+  return `${(mps * 3.6).toFixed(1)} km/h`;
+}
+
+function congestionColor(level: string): string {
+  if (level === "CRITICAL") return "#f87171";
+  if (level === "HIGH") return "#fb923c";
+  if (level === "MEDIUM") return "#fbbf24";
+  return "#34d399";
+}
+
+function MiniMetric({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="itms-panel itms-hover px-3 py-2">
+      <div className="font-mono text-[9px] uppercase tracking-widest text-[#5c6675]">{label}</div>
+      <div className="mt-0.5 font-mono text-sm leading-tight" style={{ color: color ?? "#EEF2F9" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function ScenarioBuilder() {
-  const { refreshAll } = useItms();
+  const { state, refreshAll } = useItms();
   const [type, setType] = React.useState<EmergencyType>("ambulance");
-  const [origin, setOrigin] = React.useState("W1");
-  const [destination, setDestination] = React.useState("E2");
+  const [origin, setOrigin] = React.useState("");
+  const [destination, setDestination] = React.useState("");
   const [priority, setPriority] = React.useState<EmergencyPriority>("critical");
   const [trafficLevel, setTrafficLevel] = React.useState<TrafficLevel>("medium");
   const [mode, setMode] = React.useState<"with-itms" | "no-intervention">("with-itms");
   const [running, setRunning] = React.useState(false);
   const [status, setStatus] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const defaulted = React.useRef(false);
+
+  // Junction options come from the ACTUAL network (no hardcoded grid ids).
+  const controlled = React.useMemo(
+    () => (state.signals ?? []).map((signal) => signal.id).sort(),
+    [state.signals],
+  );
+  React.useEffect(() => {
+    if (defaulted.current || controlled.length === 0) return;
+    setOrigin(controlled[0]!);
+    setDestination(controlled[controlled.length - 1]!);
+    defaulted.current = true;
+  }, [controlled]);
 
   const runScenario = async (): Promise<void> => {
     setRunning(true);
@@ -167,13 +244,13 @@ function ScenarioBuilder() {
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Origin</span>
           <select value={origin} onChange={(event) => setOrigin(event.target.value)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {JUNCTIONS.map((junction) => <option key={junction} value={junction}>{junction}</option>)}
+            {(controlled.length > 0 ? controlled : [origin]).map((junction) => <option key={junction} value={junction}>{junction}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Destination</span>
           <select value={destination} onChange={(event) => setDestination(event.target.value)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {JUNCTIONS.map((junction) => <option key={junction} value={junction}>{junction}</option>)}
+            {(controlled.length > 0 ? controlled : [destination]).map((junction) => <option key={junction} value={junction}>{junction}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -185,9 +262,9 @@ function ScenarioBuilder() {
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Traffic level</span>
           <select value={trafficLevel} onChange={(event) => setTrafficLevel(event.target.value as TrafficLevel)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            <option value="low">Low (0.5x)</option>
-            <option value="medium">Medium (1x)</option>
-            <option value="high">High (1.6x)</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -217,13 +294,27 @@ function ComparisonRunner() {
   const [job, setJob] = React.useState<ComparisonResult | null>(null);
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { refreshAll } = useItms();
+  const { state, refreshAll } = useItms();
+
+  // Endpoints from the ACTUAL network's signalized junctions (no hardcoded ids).
+  const controlled = React.useMemo(
+    () => (state.signals ?? []).map((signal) => signal.id).sort(),
+    [state.signals],
+  );
 
   const start = async (): Promise<void> => {
     setRunning(true);
     setError(null);
     try {
-      const body: CreateComparisonBody = { type: "ambulance", origin: "W1", destination: "E2", priority: "critical" };
+      if (controlled.length < 2) {
+        throw new Error("Simulation signals not loaded yet — start the simulation first.");
+      }
+      const body: CreateComparisonBody = {
+        type: "ambulance",
+        origin: controlled[0]!,
+        destination: controlled[controlled.length - 1]!,
+        priority: "critical",
+      };
       const started = await api.startComparison(body);
       setJob(started);
       // poll until finished

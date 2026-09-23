@@ -28,7 +28,10 @@ export async function systemRoutes(
   const { config, manager, db, predictionService, metricsRepository, catalog, facilitiesPath } = options;
 
   app.get("/api/network/geometry", async () => {
-    return getNetworkGeometry(catalog, facilitiesPath);
+    return getNetworkGeometry(catalog, facilitiesPath, {
+      demoCity: config.demoCity,
+      demoCenter: config.demoCenter,
+    });
   });
 
   app.get("/api/analytics", async () => {

@@ -40,6 +40,11 @@ export interface VehicleSnapshot {
   /** Position in SUMO network coordinates (meters). */
   positionX: number;
   positionY: number;
+  /** Position in WGS84 degrees (present only for georeferenced networks). */
+  lat?: number;
+  lng?: number;
+  /** Heading in degrees (SUMO convention: 0 = north, clockwise). */
+  angle: number;
   /** Current speed in m/s. */
   speed: number;
   /** Current road (edge) id. */
@@ -240,6 +245,9 @@ export interface EmergencyVehicleRecord {
   /** Live position in SUMO coordinates (null before insertion). */
   positionX: number | null;
   positionY: number | null;
+  /** Live position in WGS84 degrees (georeferenced networks only). */
+  lat?: number;
+  lng?: number;
   /** Live speed in m/s (null before insertion). */
   speedMps: number | null;
   createdAtIso: string;
@@ -304,6 +312,11 @@ export interface EmergencyEventDetail {
     simTimeSeconds: number;
     positionX: number;
     positionY: number;
+    /** Live position in WGS84 degrees (georeferenced networks only). */
+    lat?: number;
+    lng?: number;
+    /** Heading in degrees (SUMO convention: 0 = north, clockwise). */
+    angle: number;
     speedMps: number;
     roadId: string;
     laneId: string;
@@ -650,10 +663,23 @@ export interface AnalyticsResponse {
 
 /** Network geometry for the live map (SUMO coordinates, meters). */
 export interface NetworkGeometryResponse {
-  /** SUMO → display info (the network is not geo-referenced). */
+  /** True when the network carries a real geographic projection (OSM-derived). */
   geoReferenced: boolean;
+  /** Demo city metadata (real-world city demo profile). */
+  demoCity: string;
+  demoCenter: { lat: number; lng: number };
   extent: { minX: number; minY: number; maxX: number; maxY: number };
-  junctions: Array<{ id: string; x: number; y: number; controlled: boolean }>;
-  segments: Array<{ id: string; fromJunction: string; toJunction: string; coordinates: Array<{ x: number; y: number }> }>;
-  facilities: Array<{ id: string; type: string; x: number; y: number }>;
+  /** Geographic extent in degrees (present only when geoReferenced). */
+  geoExtent?: { minLat: number; minLng: number; maxLat: number; maxLng: number };
+  junctions: Array<{ id: string; x: number; y: number; lat?: number; lng?: number; controlled: boolean }>;
+  segments: Array<{
+    id: string;
+    fromJunction: string;
+    toJunction: string;
+    laneCount: number;
+    coordinates: Array<{ x: number; y: number; lat?: number; lng?: number }>;
+    /** Per-lane shapes (actual SUMO lane geometry; index 0 = rightmost). */
+    lanes: Array<{ id: string; index: number; shape: Array<{ x: number; y: number }> }>;
+  }>;
+  facilities: Array<{ id: string; type: string; x: number; y: number; lat?: number; lng?: number }>;
 }

@@ -3,7 +3,7 @@
 import React from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useItms } from "@/lib/store";
-import { CityMap } from "@/components/CityMap";
+import { SimulationMap } from "@/components/SimulationMap";
 import { Badge, EmptyState, ErrorState, LoadingState, Panel, Stat, StaleBanner, DisconnectedBanner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { CONGESTION_COLORS, CONGESTION_LABELS, formatSpeed } from "@/lib/format";
@@ -85,7 +85,7 @@ export default function TrafficPage() {
 
           <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
             <Panel title="Traffic map">
-              <CityMap
+              <SimulationMap
                 className="h-[380px] w-full"
                 highlightTraffic
                 data={{

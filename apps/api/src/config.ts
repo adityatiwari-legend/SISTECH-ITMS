@@ -10,12 +10,21 @@ export interface AppConfig {
   logLevel: string;
   /** Allowed CORS origins for the browser UI (comma-separated env, "*" = all). */
   corsOrigin: string[];
+  /** Demo profile: "grid" = synthetic 3x2 grid, "city" = real OSM-derived city. */
+  demoProfile: "grid" | "city";
+  /** Display name of the demo city (city profile). */
+  demoCity: string;
+  /** Demo city center + radius used by the OSM fetch/build scripts. */
+  demoCenter: { lat: number; lng: number };
+  demoRadiusKm: number;
   /** SUMO executable (path or PATH-resolvable name). */
   sumoBinary: string;
   /** Scenario config path per scenario id. */
   scenarioPaths: Record<SimulationScenarioId, string>;
   /** Path to the compiled SUMO network file. */
   networkPath: string;
+  /** Path to the facilities (POI) additional file used for map markers. */
+  facilitiesPath: string;
   sumoStepLengthSeconds: number;
   stepIntervalMs: number;
   sumoConnectTimeoutMs: number;
@@ -153,28 +162,68 @@ function readCongestionThresholds(env: NodeJS.ProcessEnv): CongestionThresholds 
  * Throws a descriptive error for invalid values (fail fast on startup).
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const scenarioPaths: Record<SimulationScenarioId, string> = {
-    baseline: readScenarioPath(
+  // ---- demo profile selection (Rules: never mix networks silently) ----
+  const demoRaw = env.ITMS_DEMO;
+  const demoProfile: "grid" | "city" = demoRaw === undefined || demoRaw === "" ? "grid" : parseDemoProfile(demoRaw);
+  const demoCity = env.DEMO_CITY || "Bhopal";
+  const demoLat = readNumber(env, "DEMO_LAT", 23.2615, -90, 90);
+  const demoLng = readNumber(env, "DEMO_LNG", 77.4092, -180, 180);
+  const demoRadiusKm = readNumber(env, "DEMO_RADIUS_KM", 3, 0.2, 50);
+
+  const cityNetworkPath = join(REPO_ROOT, "simulation", "sumo", "network", "city", "itms-city.net.xml");
+  const cityScenarioDir = join(REPO_ROOT, "simulation", "sumo", "scenarios", "city");
+  const cityFacilitiesPath = join(REPO_ROOT, "simulation", "sumo", "network", "city", "city-facilities.add.xml");
+
+  let networkPath: string;
+  let facilitiesPath: string;
+  let scenarioPaths: Record<SimulationScenarioId, string>;
+  if (demoProfile === "city") {
+    // All four scenario ids map onto the city scenario variants so that
+    // traffic-level scenarios and the comparison runner keep working.
+    networkPath = cityNetworkPath;
+    facilitiesPath = cityFacilitiesPath;
+    scenarioPaths = {
+      baseline: readScenarioPath(env, "ITMS_SCENARIO_BASELINE", join(cityScenarioDir, "city.sumocfg")),
+      emergency: readScenarioPath(env, "ITMS_SCENARIO_EMERGENCY", join(cityScenarioDir, "city.sumocfg")),
+      emergency_low: readScenarioPath(env, "ITMS_SCENARIO_EMERGENCY_LOW", join(cityScenarioDir, "city-low.sumocfg")),
+      emergency_high: readScenarioPath(env, "ITMS_SCENARIO_EMERGENCY_HIGH", join(cityScenarioDir, "city-high.sumocfg")),
+    };
+    if (!existsSync(networkPath)) {
+      throw new Error(
+        `City demo network is missing: ${networkPath}. ` +
+        "Run 'npm run fetch:city && npm run build:city-network' (DEMO_LAT/DEMO_LNG/DEMO_RADIUS_KM select the area).",
+      );
+    }
+  } else {
+    networkPath = readScenarioPath(env, "ITMS_NETWORK", join(REPO_ROOT, "simulation", "sumo", "network", "itms.net.xml"));
+    facilitiesPath = readScenarioPath(
       env,
-      "ITMS_SCENARIO_BASELINE",
-      join(REPO_ROOT, "simulation", "sumo", "scenarios", "baseline", "baseline.sumocfg"),
-    ),
-    emergency: readScenarioPath(
-      env,
-      "ITMS_SCENARIO_EMERGENCY",
-      join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency.sumocfg"),
-    ),
-    emergency_low: readScenarioPath(
-      env,
-      "ITMS_SCENARIO_EMERGENCY_LOW",
-      join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-low.sumocfg"),
-    ),
-    emergency_high: readScenarioPath(
-      env,
-      "ITMS_SCENARIO_EMERGENCY_HIGH",
-      join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-high.sumocfg"),
-    ),
-  };
+      "ITMS_FACILITIES",
+      join(REPO_ROOT, "simulation", "sumo", "network", "facilities.add.xml"),
+    );
+    scenarioPaths = {
+      baseline: readScenarioPath(
+        env,
+        "ITMS_SCENARIO_BASELINE",
+        join(REPO_ROOT, "simulation", "sumo", "scenarios", "baseline", "baseline.sumocfg"),
+      ),
+      emergency: readScenarioPath(
+        env,
+        "ITMS_SCENARIO_EMERGENCY",
+        join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency.sumocfg"),
+      ),
+      emergency_low: readScenarioPath(
+        env,
+        "ITMS_SCENARIO_EMERGENCY_LOW",
+        join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-low.sumocfg"),
+      ),
+      emergency_high: readScenarioPath(
+        env,
+        "ITMS_SCENARIO_EMERGENCY_HIGH",
+        join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-high.sumocfg"),
+      ),
+    };
+  }
   for (const [id, path] of Object.entries(scenarioPaths)) {
     if (!existsSync(path)) {
       throw new Error(
@@ -202,12 +251,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
-  const networkPath = readScenarioPath(
-    env,
-    "ITMS_NETWORK",
-    join(REPO_ROOT, "simulation", "sumo", "network", "itms.net.xml"),
-  );
-
   const predictionUrlRaw = env.PREDICTION_SERVICE_URL;
   if (predictionUrlRaw !== undefined && predictionUrlRaw !== "") {
     try {
@@ -230,9 +273,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(",")
       .map((origin) => origin.trim())
       .filter((origin) => origin !== ""),
+    demoProfile,
+    demoCity,
+    demoCenter: { lat: demoLat, lng: demoLng },
+    demoRadiusKm,
     sumoBinary: env.SUMO_BINARY || "sumo",
     scenarioPaths,
     networkPath,
+    facilitiesPath,
     sumoStepLengthSeconds: readNumber(env, "SUMO_STEP_LENGTH_S", 1, 0.001, 60),
     stepIntervalMs: readNumber(env, "SUMO_STEP_INTERVAL_MS", 1000, 0, 60_000),
     sumoConnectTimeoutMs: readNumber(env, "SUMO_CONNECT_TIMEOUT_MS", 15_000, 100, 600_000),
@@ -282,4 +330,9 @@ function readCorridorMinPriority(env: NodeJS.ProcessEnv): "normal" | "high" | "c
   if (raw === undefined || raw === "") return "normal";
   if (raw === "normal" || raw === "high" || raw === "critical") return raw;
   throw new Error('Invalid CORRIDOR_MIN_PRIORITY: allowed values are "normal", "high", "critical".');
+}
+
+function parseDemoProfile(raw: string): "grid" | "city" {
+  if (raw === "grid" || raw === "city") return raw;
+  throw new Error('Invalid ITMS_DEMO: allowed values are "grid", "city".');
 }
