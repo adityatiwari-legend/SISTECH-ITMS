@@ -44,6 +44,18 @@ export function wsUrl(): string {
   return base.replace(/^http/, "ws") + "/ws";
 }
 
+/** Simple backend liveness probe (GET /health). */
+export async function checkBackendHealth(): Promise<{ ok: boolean; service: string | null }> {
+  try {
+    const response = await fetch(baseUrl() + "/health", { cache: "no-store", signal: AbortSignal.timeout(4000) });
+    if (!response.ok) return { ok: false, service: null };
+    const body = (await response.json()) as { status?: string; service?: string };
+    return { ok: body.status === "ok", service: body.service ?? null };
+  } catch {
+    return { ok: false, service: null };
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {

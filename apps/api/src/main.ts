@@ -62,6 +62,7 @@ async function main(): Promise<void> {
     roadGraph,
   });
   trafficService.startBroadcastLoop();
+  wsBus.startHeartbeat(15_000);
 
   const emergencyRepository = new EmergencyRepository(db);
   const controlledJunctions = new Set(catalog.signals.map((signal) => signal.id));

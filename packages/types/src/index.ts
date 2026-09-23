@@ -203,7 +203,8 @@ export interface WsEvent<T> {
     | "corridor:created"
     | "corridor:update"
     | "route:switched"
-    | "comparison:update";
+    | "comparison:update"
+    | "heartbeat";
   ts: string;
   payload: T;
 }

@@ -194,69 +194,70 @@ Not implemented yet (Phase 7 by plan).
 
 ## Last Completed Task
 
-Phase 7 — Command Center + Final Product: the polished operator UI
-(apps/web, Next.js 15 + React 19 + TypeScript + Tailwind + Framer Motion +
-MapLibre GL + Recharts + WebSocket) exposing the entire real system:
-- `/` Command Center: MapLibre live map (~65%, empty dark style, GeoJSON
-  layers: base roads, congestion overlay, corridor glow/route, signal dots
-  colored by live RYG state with click popups, facility POIs parsed from
-  facilities.add.xml, normal vehicles low-key, emergency vehicle glowing)
-  plus the priority-ordered panel stack (active emergency dominant, corridor
-  chain 🚑→🟢→🟢→🏥 reflecting REAL per-signal statuses, signals grid, AI
-  decision panel from live prediction/corridor state).
-- `/traffic`, `/emergencies` (+ creation flow), `/signals` (table with
-  labels + corridor association), `/corridors` (real chain + schedule +
-  activate/cancel), `/simulator` (start/pause/resume/reset/speed 1-10x +
-  scenario builder with type/origin/destination/priority/traffic level/mode
-  + baseline-vs-ITMS runner with table + bar chart), `/analytics` (measured
-  aggregates + per-run charts from recorded runs only), `/decisions` (AI
-  trace merging persisted DB events with live WS events), `/settings`
-  (component health + read-only settings, no secrets).
-- Backend supporting additions: POST /api/simulation/speed + /reset,
-  GET /api/network/geometry, GET /api/decisions, GET /api/analytics,
-  GET /api/system, traffic-level scenarios (emergency_low/high route files
-  + migration 006: scenario CHECK extension + persisted comparisons table).
-- Live E2E verification: full operator flow driven through the exact REST
-  endpoints the UI uses — start → traffic → emergency #5 → route 5 segs →
-  corridor 3 ACTIVE (3 junctions commanded, 7 applied rows in DB) →
-  comparison job (baseline 162s vs ITMS 82s, deltas persisted) → analytics
-  shows avgTimeSavedS=80 (measured) → decision trace 43 real events →
-  speed 5x verified live (25 sim s in 5 wall s) → reset verified.
-- All 13 static pages generated; production build ✓; lint clean; web
-  typecheck strict ✓; backend suite 126/126 ✓.
+Foundation repair + Google Maps integration (urgent repair session):
+1. ROOT CAUSES found (no blind rewrite):
+   - CSS: globals.css used Tailwind v3 directives (@tailwind base/components/utilities)
+     with Tailwind v4 (@tailwindcss/postcss) → zero utilities generated → unstyled UI.
+     FIXED: `@import "tailwindcss";`.
+   - Map: maplibre-gl v6 + style spec passing `glyphs: undefined` → "glyphs: string
+     expected" error; Next.js production worker URL → "Worker failed to load".
+     FIXED by complete removal.
+   - Data: backend was simply not started when the browser showed "Backend
+     disconnected / Failed to fetch" — the honest states were working correctly.
+   - Backend: missing GET /health — ADDED (`{status:"ok",service:"itms-backend",timestamp}`).
+   - WebSocket: no liveness signal — ADDED backend heartbeat broadcast (15 s) +
+     frontend heartbeat-based liveness check (force reconnect when silent > 35 s) +
+     exponential backoff reconnect (1s→2s→4s→…→30s cap).
+2. MapLibre REMOVED completely (dependency uninstalled; imports/CSS/worker/glyph
+   config all gone).
+3. Google Maps INTEGRATED via the official @vis.gl/react-google-maps integration:
+   - dark Google style (inline DARK_MAP_STYLE, no cloud mapId needed),
+   - SUMO network rendered as Polylines (roads) + circle markers (junctions/
+     signals colored by live RYG state, CORRIDOR PRIORITY violet when applied) +
+     emoji markers (🏥 hospital, 🚑 EMS, 🚒 fire),
+   - simulated vehicles as low-key dots; the REAL emergency vehicle from SUMO
+     as a dominant 🚑 marker following TraCI coordinates (no fake motion),
+   - corridor approaches glow violet; congested segments colored by measured
+     congestion; green corridor + route are real backend state.
+   - Coordinate transform: SUMO local meters → degrees via configurable anchor
+     (NEXT_PUBLIC_MAP_ANCHOR_LAT/LNG, default central Los Angeles), documented
+     as display-only projection (SUMO remains the simulation; Google Maps is
+     visualization only; Google live traffic is NOT used).
+4. Status chips row on the Command Center: SYSTEM ONLINE / BACKEND CONNECTED /
+   WEBSOCKET CONNECTED / SUMO CONNECTED / SIMULATION RUNNING / MAP READY — each
+   driven by real probes (GET /health poll, heartbeat liveness, sim status,
+   geometry fetch), never hard-coded.
+5. Verification: web strict tsc ✓, lint 0/0, production build ✓, /health live ✓,
+   heartbeat live ✓ (received with timestamp), SUMO start → 12 vehicles →
+   geometry endpoint 34 segments/16 junctions/3 facilities ✓, emergency created
+   → registry ✓ → corridor 4 ACTIVE (4 junctions incl. rolling) ✓, traffic API
+   CRITICAL/67 vehicles ✓, frontend SSR 200 with the full chip row ✓.
 
 ## Current Task
 
-None (Phase 7 done — all phases complete).
+None (repair + Google Maps complete).
 
 ## Files Changed
 
-Phase 7 (this session):
-- apps/web/ (new Next.js app): package.json (+ framer-motion, maplibre-gl, recharts),
-  app/layout.tsx (Inter + JetBrains Mono fonts, ItmsProvider, AppShell),
-  app/globals.css (Design.md tokens: #080B12/#0F141D/#202938 + semantic colors,
-  panel/grid styles, emergency pulse, MapLibre popup theming),
-  app/page.tsx (Command Center), app/{traffic,emergencies,signals,corridors,
-  simulator,analytics,decisions,settings}/page.tsx,
-  components/AppShell.tsx (nav/topbar/KPI bar + mobile drawer),
-  components/CityMap.tsx (MapLibre GeoJSON live map, SUMO-meter display transform),
-  components/panels.tsx, components/ui.tsx,
-  lib/api.ts (typed REST client), lib/store.tsx (REST+WS live store + trace),
-  lib/format.ts, .env.example, README.md, scripts.typecheck
-- apps/api/src/modules/simulation/: simulation-manager.ts (+ setPace, paceMultiplier
-  in snapshot), routes.ts (+ /speed, /reset)
-- apps/api/src/modules/system/: routes.ts, overview.ts, geometry.ts (new endpoints)
-- apps/api/src/modules/scenarios/scenario-comparison-service.ts (+ persistComparison)
-- apps/api/src/database/repositories/metrics-repository.ts (+ insertComparison,
-  listCompletedComparisons)
-- apps/api/src/database/migrations/006_phase7.sql
-- apps/api/src/config.ts (+ emergency_low/high scenario paths)
-- packages/types/src/index.ts (+ DecisionEvent, SystemOverview, AnalyticsResponse,
-  NetworkGeometryResponse, TrafficLevel, scenario ids, paceMultiplier)
-- simulation/sumo/scenarios/emergency/emergency-{low,high}.rou.xml + .sumocfg (new)
-- package.json (root scripts), README.md
+Repair + Google Maps session:
+- apps/web/app/globals.css (Tailwind v4 import; MapLibre CSS removed)
+- apps/web/components/CityMap.tsx (REWRITTEN: Google Maps via @vis.gl/react-google-maps;
+  SUMO geometry overlays; RYG signal markers; corridor/route polylines; real
+  emergency 🚑 marker; meters→degrees anchor transform)
+- apps/web/lib/api.ts (+ checkBackendHealth → GET /health)
+- apps/web/lib/store.tsx (REWRITTEN: backend health poll, WS heartbeat liveness,
+  exponential backoff reconnect, per-component status fields + derived connection)
+- apps/api/src/app.ts (+ GET /health)
+- apps/api/src/modules/websocket/ws-bus.ts (+ startHeartbeat/stopHeartbeat)
+- apps/api/src/main.ts (start heartbeat)
+- packages/types/src/index.ts (+ "heartbeat" WS event type)
+- apps/web/package.json (- maplibre-gl, + @vis.gl/react-google-maps, + @types/google.maps)
+- apps/web/.env.example (+ Google Maps key + anchor template), apps/web/.env.local (template)
 
-Phase 6/5/4/3/2/1: see previous entries and git history.
+Premium restyle session (previous): globals.css, ui.tsx, AppShell.tsx, panels.tsx,
+CityMap.tsx styling, page heroes.
+
+Phase 7 and earlier: see git history and prior entries.
 
 ## Tests Run
 
@@ -319,6 +320,15 @@ Phase 6/5/4/3/2/1: see previous entries and git history.
 
 ## Known Issues
 
+- FIXED (CORS session): the browser UI could not call the API cross-origin —
+  @fastify/cors was missing, so OPTIONS preflights got Fastify's 404 and no
+  Access-Control-Allow-Origin header, and the browser blocked every call
+  (the "CORS error / 404 preflight" flood in the network tab). Also, an
+  intermediate origin-callback implementation never invoked the cors
+  callback, hanging all requests until timeout — replaced with the native
+  array/boolean origin support. Final behavior: preflight → 204 + ACAO;
+  GET/POST → 200 + ACAO for allowed origins (CORS_ORIGIN env, default =
+  localhost:3000/3001/3100 + 127.0.0.1 equivalents).
 - SUMO binaries are provided via `pip install eclipse-sumo` on this machine;
   `sumo`/`netconvert` resolve through PATH. SUMO_BINARY/SUMO_HOME supported as fallbacks.
 - TraCI coordinates are SUMO network coordinates (netOffset 0,0, not
@@ -612,6 +622,36 @@ This section is the primary handoff area for the next coding session.
 - `npm run test:prediction` — 12/12 pass
 - `npm run build:web` — ✓ Compiled successfully (13 pages)
 - Full 20-step live E2E through the real stack (see below)
+
+### Tests Run (CORS repair + traffic-page fix session)
+- `npm run typecheck` (3 packages) — pass (fixed missing corsOrigin in test configs)
+- `npm run test:api` — 126/126 pass
+- Browser-like CORS verification (python urllib with Origin header):
+  GET /health → 200 + ACAO=http://localhost:3001; OPTIONS /api/corridors
+  preflight → 204 + ACAO + allow-methods + allow-headers; all 10 dashboard
+  endpoints → 200 with ACAO; WS stream live: heartbeat, traffic:update,
+  vehicle:update, signal:update, prediction:update; SUMO running (75 vehicles).
+- Traffic page runtime TypeError fixed ("Cannot add property 2, object is not
+  extensible"): the page mutated a ref array created during render (React may
+  freeze those in dev). Rewritten to state + functional update (capped 180
+  points, duplicate-sample guard). CityMap overlay ref hardened the same way
+  (fresh local array per effect run). Web tsc strict ✓, lint 0/0 ✓, build ✓.
+- Dev-server corruption fixed: running `npm run build` + `next start` against
+  the same .next while `next dev` was running corrupted the webpack HMR state
+  (500s: "__webpack_modules__[moduleId] is not a function"). Killed processes,
+  wiped .next, restarted dev fresh; /traffic → 200.
+- Simulation reset live-verified after a degenerate past-end state
+  (simTime 1087 / 0 vehicles → reset → running / 29 vehicles at 21 s).
+
+### Tests Run (premium restyle session)
+- `npx tsc --noEmit` (web, strict) — pass
+- `npm run lint` (web) — 0 errors, 0 warnings
+- `npm run build` (web production) — ✓ Compiled successfully, 13 pages
+- SSR chrome checks (brand/nav/KPI/panel heroes/chain hint/comparison) — 10/10 OK
+- Live stack re-verification: backend + uvicorn + frontend up, simulation
+  started, emergency created (5-segment route), corridor 3 ACTIVE with 4
+  junctions (I1 clearance, I2 extend, I3 switch, I6 rolling), pages served
+  with the premium chrome; all data channels (REST + WS) unchanged.
 
 ### Actual Results (20-step E2E, production build, real stack)
 1–4 SUMO+backend+prediction+frontend up (uvicorn ready, DB healthy, PostGIS 3.4) · 5 traffic started (6 signals, 14 vehicles) · 6–7 emergency + A* route: 5 segments, 717 m, est 78 s vs free-flow 52 s (congestion-adjusted; path chosen via i2_i5 responding to live traffic) · 8 predictions src=ml, stale=false, 4 horizons · 9 ETAs per controlled junction: I1 +11.1s, I2 +26.7s, I5 +41.3s, I6 +54.2s, E2 +61.1s · 10–11 corridor 1 ACTIVE, 3 junctions, validation passed, 0 skips · 12 signal schedule persisted and applied (corridor green at I2/I5/I6 windows) · 13 vehicle moved (15.2 m/s on i2_i5) · 14 traffic change: I5 forced all-red · 15 re-optimization: all 3 corridor windows replanned (ETA drift), vehicle passed all junctions during corridor green, programs restored · 16 emergency arrived (travel 131 sim s) · 17–18 comparison: baseline run=3 travel 162 s / delay 21.94 s / queue 25.59 / speed 6.09 m/s / throughput 18.65/h / 0 signal changes vs ITMS run=4 travel 82 s / delay 15.66 s / queue 21.78 / speed 6.36 / throughput 31.86/h / 6 signal changes · 19 metrics auto-generated into simulation_metrics · 20 results served to the UI (analytics avgTimeSavedS = 80, decision trace, WS events live-verified).

@@ -4,7 +4,7 @@ import React from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useItms } from "@/lib/store";
 import { CityMap } from "@/components/CityMap";
-import { Badge, EmptyState, ErrorState, LoadingState, Panel, Stat, StaleBanner } from "@/components/ui";
+import { Badge, EmptyState, ErrorState, LoadingState, Panel, Stat, StaleBanner, DisconnectedBanner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { CONGESTION_COLORS, CONGESTION_LABELS, formatSpeed } from "@/lib/format";
 import type { NetworkGeometryResponse } from "@itms/types";
@@ -19,28 +19,33 @@ interface TrendPoint {
 export default function TrafficPage() {
   const { state, refreshAll } = useItms();
   const [geometry, setGeometry] = React.useState<NetworkGeometryResponse | null>(null);
-  const trend = React.useRef<TrendPoint[]>([]);
-  const [, setTick] = React.useState(0);
+  // Trend accumulated from live traffic updates (real samples only), capped.
+  const [trend, setTrend] = React.useState<TrendPoint[]>([]);
 
   React.useEffect(() => {
     void api.getNetworkGeometry().then(setGeometry).catch(() => setGeometry(null));
   }, []);
 
-  // Accumulate the trend from live traffic updates (real samples only).
   React.useEffect(() => {
     const traffic = state.traffic;
     if (traffic === null || traffic.collectedAtIso === null) return;
-    const points = trend.current;
-    const last = points[points.length - 1];
-    if (last !== undefined && Math.abs(last.t - traffic.simTimeSeconds) < 0.01) return;
-    points.push({
-      t: traffic.simTimeSeconds,
-      vehicles: traffic.summary.vehicleCount,
-      speed: Math.round(traffic.summary.avgSpeedMps * 100) / 100,
-      queue: traffic.summary.totalQueueLength,
+    setTrend((points) => {
+      const last = points[points.length - 1];
+      if (last !== undefined && Math.abs(last.t - traffic.simTimeSeconds) < 0.01) {
+        return points; // duplicate sample (same sim step)
+      }
+      const next = [
+        ...points,
+        {
+          t: traffic.simTimeSeconds,
+          vehicles: traffic.summary.vehicleCount,
+          speed: Math.round(traffic.summary.avgSpeedMps * 100) / 100,
+          queue: traffic.summary.totalQueueLength,
+        },
+      ];
+      if (next.length > 180) next.shift();
+      return next;
     });
-    if (points.length > 180) points.shift();
-    setTick((value) => value + 1);
   }, [state.traffic]);
 
   const traffic = state.traffic;
@@ -48,10 +53,15 @@ export default function TrafficPage() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <header className="flex items-center justify-between">
-        <h1 className="font-mono text-sm font-semibold uppercase tracking-wider text-[#8B95A7]">Traffic</h1>
-        {traffic?.stale && state.connection !== "offline" && <StaleBanner />}
-        {state.connection === "offline" && <span className="font-mono text-[11px] text-[#EF4444]">Backend disconnected</span>}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Traffic</h1>
+          <p className="mt-0.5 text-[11px] text-[#6B7385]">Live city-wide traffic intelligence from the running SUMO simulation</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {traffic?.stale === true && state.connection !== "offline" && <StaleBanner />}
+          {state.connection === "offline" && <DisconnectedBanner />}
+        </div>
       </header>
 
       {state.connection === "offline" ? (
@@ -91,12 +101,12 @@ export default function TrafficPage() {
 
             <div className="flex flex-col gap-2">
               <Panel title="Trend (live samples)">
-                {trend.current.length < 2 ? (
+                {trend.length < 2 ? (
                   <EmptyState title="Collecting samples" hint="Start the simulation and keep this page open." />
                 ) : (
                   <div className="h-[180px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={trend.current} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                      <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
                         <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
                         <XAxis dataKey="t" tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} tickFormatter={(value) => `${Math.round(Number(value))}s`} />
                         <YAxis tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />

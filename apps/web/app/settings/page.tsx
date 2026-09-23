@@ -39,11 +39,14 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <header className="flex items-center justify-between">
-        <h1 className="font-mono text-sm font-semibold uppercase tracking-wider text-[#8B95A7]">Settings / System</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Settings / System</h1>
+          <p className="mt-0.5 text-[11px] text-[#6B7385]">Component health, scenarios and read-only operational settings</p>
+        </div>
         <button
           onClick={() => void refreshAll()}
-          className="rounded border border-[#202938] px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-[#8B95A7] hover:border-[#38BDF8] hover:text-[#38BDF8]"
+          className="rounded-lg border border-[rgba(148,163,190,0.2)] bg-[rgba(148,163,190,0.06)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[#8B95A9] transition-colors hover:border-[#67e8f9] hover:text-[#67e8f9]"
         >
           Refresh
         </button>

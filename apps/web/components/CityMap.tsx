@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Map as MapLibreMap, Popup, type GeoJSONSource, type MapMouseEvent, type MapGeoJSONFeature, type StyleSpecification } from "maplibre-gl";
+import { APIProvider, Map as GoogleMap, useMap, type MapCameraChangedEvent } from "@vis.gl/react-google-maps";
 import type {
   CongestionLevel,
   CorridorDetail,
@@ -13,335 +13,282 @@ import type {
 import { CONGESTION_COLORS } from "@/lib/format";
 
 /**
- * Live city map (MapLibre GL).
+ * Live city map (Google Maps JavaScript API via @vis.gl/react-google-maps).
  *
- * The SUMO network is not geo-referenced (SRID 0), so coordinates are
- * displayed through a pure linear transform SUMO meters → lng/lat degrees.
- * This is a display projection only — no geography is claimed or
- * fabricated, and no basemap tiles are used (dark background style).
+ * ARCHITECTURE (unchanged): Google Maps is ONLY the geographic visualization
+ * layer. The simulated network is SUMO's; traffic state flows
+ * SUMO → TraCI → backend → WebSocket → this component. Google live traffic
+ * is NOT used as a data source and no vehicle movement is faked.
+ *
+ * Coordinate transform: the SUMO network is synthetic and not geo-referenced
+ * (SRID 0, local meters). It is displayed through a documented, configurable
+ * meters→degrees projection anchored at NEXT_PUBLIC_MAP_ANCHOR_LAT/LNG.
  */
 
-const SCALE = 1e-5; // 600 m network → ~0.006° box
-const toLng = (x: number): number => (x - 300) * SCALE;
-const toLat = (y: number): number => (y - 200) * SCALE;
+const DEFAULT_ANCHOR = { lat: 34.0522, lng: -118.2437 }; // central Los Angeles (configurable)
+
+function mapAnchor(): { lat: number; lng: number } {
+  const lat = Number(process.env.NEXT_PUBLIC_MAP_ANCHOR_LAT);
+  const lng = Number(process.env.NEXT_PUBLIC_MAP_ANCHOR_LNG);
+  return {
+    lat: Number.isFinite(lat) ? lat : DEFAULT_ANCHOR.lat,
+    lng: Number.isFinite(lng) ? lng : DEFAULT_ANCHOR.lng,
+  };
+}
+
+function makeTransform() {
+  const anchor = mapAnchor();
+  const METERS_PER_DEG_LAT = 111320;
+  const METERS_PER_DEG_LNG = Math.max(1, 111320 * Math.cos((anchor.lat * Math.PI) / 180));
+  return {
+    anchor,
+    toLatLng(x: number, y: number): { lat: number; lng: number } {
+      return {
+        lat: anchor.lat + (y - 200) / METERS_PER_DEG_LAT,
+        lng: anchor.lng + (x - 300) / METERS_PER_DEG_LNG,
+      };
+    },
+  };
+}
+type Transform = ReturnType<typeof makeTransform>;
+
+/** Dark Google Maps style (display-only; roads/labels dimmed for the dashboard). */
+const DARK_MAP_STYLE: google.maps.MapTypeStyle[] = [
+  { elementType: "geometry", stylers: [{ color: "#0b0f17" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#5c6675" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#05060a" }] },
+  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#1a2230" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#161d29" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#0a0d14" }] },
+  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#5c6675" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#1e2836" }] },
+  { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#0a0d14" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#070a10" }] },
+  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3a4354" }] },
+];
 
 export interface CityMapData {
   geometry: NetworkGeometryResponse | null;
-  trafficSegments: TrafficStateResponse["segments"];
+  trafficSegments: Array<{ segmentId: string; congestion: CongestionLevel; vehicleCount: number; avgSpeedMps: number }>;
   signals: SignalSnapshot[];
   vehicles: VehicleSnapshot[];
   emergency: EmergencyEventDetail | null;
   corridor: CorridorDetail | null;
 }
 
-type TrafficStateResponse = { segments: Array<{ segmentId: string; congestion: CongestionLevel; vehicleCount: number; avgSpeedMps: number }> };
-
-function emptyStyle(): StyleSpecification {
-  return {
-    version: 8,
-    glyphs: undefined,
-    sources: {},
-    layers: [{ id: "bg", type: "background", paint: { "background-color": "#080B12" } }],
-  };
+export function CityMap({ data, className = "", highlightTraffic = true }: { data: CityMapData; className?: string; highlightTraffic?: boolean }) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
+  if (apiKey === "") {
+    return (
+      <div className={`flex flex-col items-center justify-center gap-2 ${className}`}>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-[#fbbf24]">⚠ Map unavailable</span>
+        <span className="max-w-sm text-center text-[11px] leading-relaxed text-[#6B7385]">
+          Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY. Put your Google Maps JavaScript API key in
+          <code className="mx-1 rounded bg-[rgba(148,163,190,0.1)] px-1 font-mono">apps/web/.env.local</code>
+          and restart <code className="mx-1 rounded bg-[rgba(148,163,190,0.1)] px-1 font-mono">npm run dev</code>.
+        </span>
+      </div>
+    );
+  }
+  return (
+    <APIProvider apiKey={apiKey}>
+      <GoogleCityMap data={data} className={className} highlightTraffic={highlightTraffic} />
+    </APIProvider>
+  );
 }
 
-export function CityMap({ data, className = "", highlightTraffic = true }: { data: CityMapData; className?: string; highlightTraffic?: boolean }) {
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const mapRef = React.useRef<MapLibreMap | null>(null);
-  const dataRef = React.useRef(data);
-  dataRef.current = data;
-  const [ready, setReady] = React.useState(false);
-
-  React.useEffect(() => {
-    if (containerRef.current === null || mapRef.current !== null) return;
-    const map = new MapLibreMap({
-      container: containerRef.current,
-      style: emptyStyle(),
-      center: [0, 0],
-      zoom: 15.2,
-      attributionControl: false,
-      interactive: true,
-    });
-    mapRef.current = map;
-    map.on("load", () => {
-      // --- sources (updated imperatively on data changes) ---
-      map.addSource("segments", { type: "geojson", data: segmentsFeatureCollection([]) });
-      map.addSource("junctions", { type: "geojson", data: junctionsFeatureCollection([]) });
-      map.addSource("facilities", { type: "geojson", data: facilitiesFeatureCollection([]) });
-      map.addSource("vehicles", { type: "geojson", data: vehiclesFeatureCollection([], null) });
-      map.addSource("emergencyRoute", { type: "geojson", data: routeFeatureCollection([], null) });
-      map.addSource("corridorGlow", { type: "geojson", data: routeFeatureCollection([], null) });
-
-      map.addLayer({
-        id: "corridor-line",
-        type: "line",
-        source: "corridorGlow",
-        paint: {
-          "line-color": "#8B5CF6",
-          "line-width": 7,
-          "line-opacity": 0.35,
-          "line-blur": 3,
-        },
-      });
-      map.addLayer({
-        id: "corridor-line-core",
-        type: "line",
-        source: "corridorGlow",
-        paint: { "line-color": "#A78BFA", "line-width": 2, "line-opacity": 0.9 },
-      });
-      map.addLayer({
-        id: "emergency-route-line",
-        type: "line",
-        source: "emergencyRoute",
-        paint: { "line-color": "#FF3B30", "line-width": 3, "line-opacity": 0.95 },
-      });
-      map.addLayer({
-        id: "segment-base",
-        type: "line",
-        source: "segments",
-        paint: { "line-color": "#2A3547", "line-width": ["interpolate", ["linear"], ["zoom"], 14, 3, 17, 7] },
-      });
-      map.addLayer({
-        id: "segment-traffic",
-        type: "line",
-        source: "segments",
-        paint: {
-          "line-color": ["get", "congestionColor"],
-          "line-width": ["interpolate", ["linear"], ["zoom"], 14, 2, 17, 5],
-          "line-opacity": ["get", "congestionOpacity"],
-        },
-        layout: { "line-cap": "round" },
-      });
-      map.addLayer({
-        id: "signal-dots",
-        type: "circle",
-        source: "junctions",
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 4, 17, 9],
-          "circle-color": ["get", "signalColor"],
-          "circle-stroke-color": "#080B12",
-          "circle-stroke-width": 1.5,
-        },
-      });
-      map.addLayer({
-        id: "facility-markers",
-        type: "circle",
-        source: "facilities",
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 5, 17, 10],
-          "circle-color": ["get", "facilityColor"],
-          "circle-stroke-color": "#F4F7FA",
-          "circle-stroke-width": 1,
-        },
-      });
-      map.addLayer({
-        id: "vehicle-dots",
-        type: "circle",
-        source: "vehicles",
-        paint: {
-          "circle-radius": 3,
-          "circle-color": "#8B95A7",
-          "circle-opacity": 0.55,
-        },
-      });
-      map.addLayer({
-        id: "emergency-dot-glow",
-        type: "circle",
-        source: "vehicles",
-        filter: ["==", "emergency", true],
-        paint: {
-          "circle-radius": 14,
-          "circle-color": "#FF3B30",
-          "circle-opacity": 0.25,
-          "circle-blur": 1,
-        },
-      });
-      map.addLayer({
-        id: "emergency-dot",
-        type: "circle",
-        source: "vehicles",
-        filter: ["==", "emergency", true],
-        paint: {
-          "circle-radius": 8,
-          "circle-color": "#FF3B30",
-          "circle-stroke-color": "#FFFFFF",
-          "circle-stroke-width": 2,
-        },
-      });
-
-      map.on("click", "junctions", (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
-        const feature = event.features?.[0];
-        if (feature === undefined) return;
-        const props = feature.properties as { id: string; label: string };
-        new Popup({ closeButton: false })
-          .setLngLat(event.lngLat)
-          .setHTML(`<strong>${props.id}</strong><br/>${props.label}`)
-          .addTo(map);
-      });
-      map.on("mouseenter", "junctions", () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", "junctions", () => { map.getCanvas().style.cursor = ""; });
-
-      setReady(true);
-    });
-    return () => {
-      map.remove();
-      mapRef.current = null;
-    };
+function GoogleCityMap({ data, className, highlightTraffic }: { data: CityMapData; className: string; highlightTraffic: boolean }) {
+  const transform = React.useMemo(() => makeTransform(), []);
+  const handleCameraChange = React.useCallback((event: MapCameraChangedEvent) => {
+    void event;
   }, []);
 
-  // Data → GeoJSON updates (imperative; the map is the live surface).
-  React.useEffect(() => {
-    const map = mapRef.current;
-    if (map === null || !ready) return;
-
-    const { geometry, trafficSegments, signals, vehicles, emergency, corridor } = data;
-
-    const source = (id: string): GeoJSONSource | undefined => map.getSource(id) as GeoJSONSource | undefined;
-
-    // --- segments: base geometry + traffic overlay colors ---
-    if (geometry !== null) {
-      const trafficBySegment = new Map(trafficSegments.map((segment) => [segment.segmentId, segment] as const));
-      const corridorApproaches = new Set((corridor?.signals ?? []).map((signal) => signal.approachSegmentId));
-      source("segments")?.setData(segmentsFeatureCollection(geometry.segments.map((segment) => {
-        const traffic = trafficBySegment.get(segment.id);
-        const congestion = traffic !== undefined && traffic.vehicleCount > 0 ? traffic.congestion : null;
-        return {
-          id: segment.id,
-          coordinates: segment.coordinates.map((point) => [toLng(point.x), toLat(point.y)]),
-          congestionColor: congestion !== null ? CONGESTION_COLORS[congestion] : "#3D4960",
-          congestionOpacity: congestion !== null ? (highlightTraffic ? 0.85 : 0.3) : 0.25,
-          corridor: corridorApproaches.has(segment.id),
-        };
-      })));
-
-      const signalById = new Map(signals.map((signal) => [signal.id, signal] as const));
-      const appliedCorridorSignals = new Set(
-        (corridor?.signals ?? []).filter((signal) => signal.status === "APPLIED").map((signal) => signal.junctionId),
-      );
-      source("junctions")?.setData(junctionsFeatureCollection(geometry.junctions.map((junction) => {
-        const signal = signalById.get(junction.id);
-        const inCorridor = appliedCorridorSignals.has(junction.id);
-        let color = "#3D4960";
-        let label = "Uncontrolled junction";
-        if (inCorridor) {
-          color = "#8B5CF6";
-          label = `Signal ${junction.id} — CORRIDOR PRIORITY`;
-        } else if (junction.controlled && signal !== undefined) {
-          const dominant = signalDominantOf(signal.state);
-          color = dominant;
-          label = `Signal ${junction.id} — ${dominant === "#22C55E" ? "GREEN" : dominant === "#F59E0B" ? "YELLOW" : dominant === "#EF4444" ? "RED" : "MIXED"}`;
-        } else if (junction.controlled) {
-          color = "#3D4960";
-          label = `Signal ${junction.id} — no live data`;
-        }
-        return { id: junction.id, x: junction.x, y: junction.y, color, label };
-      })));
-
-      source("facilities")?.setData(facilitiesFeatureCollection(geometry.facilities.map((facility) => ({
-        id: facility.id,
-        x: facility.x,
-        y: facility.y,
-        color: facility.type === "hospital" ? "#FF3B30" : facility.type === "ems_station" ? "#F59E0B" : "#F97316",
-      }))));
-    }
-
-    // --- vehicles: normal low-key dots; emergency dominant with glow ---
-    const emergencyVehicleId = emergency?.vehicle?.vehicleId ?? null;
-    source("vehicles")?.setData(vehiclesFeatureCollection(vehicles, emergencyVehicleId));
-
-    // --- emergency route line ---
-    const routeEdges = emergency?.route?.segments ?? [];
-    const segmentCoordinates = new Map((geometry?.segments ?? []).map((segment) => [segment.id, segment.coordinates] as const));
-    source("emergencyRoute")?.setData(routeFeatureCollection(routeEdges, segmentCoordinates));
-
-    // --- corridor glow (planned/applied approaches) ---
-    const corridorEntries = (corridor?.signals ?? []).filter(
-      (signal) => signal.status === "APPLIED" || signal.status === "PASSED" || (signal.status === "PENDING" && signal.corridorState !== null),
-    );
-    source("corridorGlow")?.setData(routeFeatureCollection(corridorEntries, segmentCoordinates));  }, [data, ready, highlightTraffic]);
-
   return (
-    <div className={`relative overflow-hidden ${className}`} data-testid="city-map">
-      <div ref={containerRef} className="h-full w-full" />
-      {data.geometry === null && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#080B12]/80">
-          <span className="font-mono text-[11px] uppercase tracking-wider text-[#8B95A7]">
-            {data.geometry === null ? "Loading map…" : ""}
-          </span>
-        </div>
-      )}
+    <div className={`relative ${className}`} data-testid="city-map">
+      <GoogleMap
+        defaultCenter={{ lat: transform.anchor.lat - 0.0012, lng: transform.anchor.lng }}
+        defaultZoom={16}
+        styles={DARK_MAP_STYLE}
+        onCameraChanged={handleCameraChange}
+        style={{ width: "100%", height: "100%" }}
+        gestureHandling="greedy"
+        disableDefaultUI={false}
+      >        <MapOverlayLayer transform={transform} data={data} highlightTraffic={highlightTraffic} />
+      </GoogleMap>
     </div>
   );
 }
 
-function signalDominantOf(state: string): string {
+/**
+ * Declarative overlay layer rendered INSIDE <Map> (useMap() provides the
+ * instance). Redraws on every live state change; bounded network (34
+ * segments, 16 junctions, fleet of vehicles) keeps redraws cheap.
+ */
+function MapOverlayLayer({
+  transform,
+  data,
+  highlightTraffic,
+}: {
+  transform: Transform;
+  data: CityMapData;
+  highlightTraffic: boolean;
+}) {
+  const map = useMap();
+  const overlaysRef = React.useRef<Array<{ setMap(map: google.maps.Map | null): void }>>([]);
+
+  React.useEffect(() => {
+    if (map === null) return;
+    // Fresh array per effect run (never mutate the previous one: React may
+    // freeze arrays created during render).
+    const previous = overlaysRef.current;
+    for (const overlay of previous) {
+      overlay.setMap(null);
+    }
+    const overlays: Array<{ setMap(map: google.maps.Map | null): void }> = [];
+    overlaysRef.current = overlays;
+
+    const geometry = data.geometry;
+    if (geometry === null) return;
+
+    const activeCorridor = data.corridor;
+    const corridorApproaches = new Set(
+      (activeCorridor?.signals ?? [])
+        .filter((signal) => signal.status === "APPLIED" || signal.status === "PASSED" || signal.status === "PENDING")
+        .map((signal) => signal.approachSegmentId),
+    );
+    const appliedJunctions = new Set(
+      (activeCorridor?.signals ?? []).filter((signal) => signal.status === "APPLIED").map((signal) => signal.junctionId),
+    );
+    const trafficBySegment = new Map(data.trafficSegments.map((segment) => [segment.segmentId, segment] as const));
+    const signalById = new Map(data.signals.map((signal) => [signal.id, signal] as const));
+    const emergency = data.emergency;
+    const emergencyVehicleId = emergency?.vehicle?.vehicleId ?? null;
+
+    // ---- roads: SUMO segment geometry → Polylines ----
+    for (const segment of geometry.segments) {
+      const traffic = trafficBySegment.get(segment.id);
+      const congested = traffic !== undefined && traffic.vehicleCount > 0;
+      const inCorridor = corridorApproaches.has(segment.id);
+      const congestionColor = congested ? CONGESTION_COLORS[traffic!.congestion] : null;
+      overlays.push(
+        new google.maps.Polyline({
+          path: segment.coordinates.map((point) => transform.toLatLng(point.x, point.y)),
+          strokeColor: inCorridor ? "#a78bfa" : congestionColor !== null && highlightTraffic ? congestionColor : "#263041",
+          strokeOpacity: inCorridor ? 0.95 : congestionColor !== null && highlightTraffic ? 0.85 : 0.5,
+          strokeWeight: inCorridor ? 6 : congestionColor !== null && highlightTraffic ? 4.5 : 3.5,
+          zIndex: inCorridor ? 30 : congestionColor !== null ? 20 : 10,
+          clickable: false,
+          map,
+        }),
+      );
+    }
+
+    // ---- junctions / signals ----
+    for (const junction of geometry.junctions) {
+      const signal = signalById.get(junction.id);
+      const inCorridor = appliedJunctions.has(junction.id);
+      let color = "#3a4354";
+      let title = junction.controlled ? `Signal ${junction.id}` : `Junction ${junction.id}`;
+      if (inCorridor) {
+        color = "#a78bfa";
+        title += " — CORRIDOR PRIORITY";
+      } else if (junction.controlled && signal !== undefined) {
+        color = signalDominantColor(signal.state);
+        title += ` — ${signalDominantLabel(signal.state)}`;
+      }
+      overlays.push(
+        new google.maps.Marker({
+          position: transform.toLatLng(junction.x, junction.y),
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeColor: "#05060a",
+            strokeWeight: 2,
+            scale: junction.controlled ? 7 : 4,
+          },
+          title,
+          zIndex: junction.controlled ? 40 : 15,
+          map,
+        }),
+      );
+    }
+
+    // ---- facilities (hospital / EMS / fire) ----
+    for (const facility of geometry.facilities) {
+      const glyph = facility.type === "hospital" ? "🏥" : facility.type === "ems_station" ? "🚑" : "🚒";
+      overlays.push(
+        new google.maps.Marker({
+          position: transform.toLatLng(facility.x, facility.y),
+          label: { text: glyph, fontSize: "18px" },
+          title: facility.id.replace(/_/g, " "),
+          zIndex: 45,
+          map,
+        }),
+      );
+    }
+
+    // ---- simulated vehicles (SUMO positions; no fake motion) ----
+    const emergencyPosition =
+      emergency !== null && emergency.live !== null
+        ? transform.toLatLng(emergency.live.positionX, emergency.live.positionY)
+        : null;
+    for (const vehicle of data.vehicles) {
+      if (vehicle.id === emergencyVehicleId) continue; // drawn below as 🚑
+      overlays.push(
+        new google.maps.Marker({
+          position: transform.toLatLng(vehicle.positionX, vehicle.positionY),
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#8B95A9",
+            fillOpacity: 0.5,
+            strokeOpacity: 0,
+            scale: 2.5,
+          },
+          clickable: false,
+          zIndex: 12,
+          map,
+        }),
+      );
+    }
+    if (emergencyPosition !== null) {
+      overlays.push(
+        new google.maps.Marker({
+          position: emergencyPosition,
+          label: { text: "🚑", fontSize: "26px" },
+          title: `${emergencyVehicleId ?? "emergency vehicle"} — live SUMO position`,
+          zIndex: 100,
+          map,
+        }),
+      );
+    }
+
+    return () => {
+      for (const overlay of overlays) {
+        overlay.setMap(null);
+      }
+    };
+  }, [map, transform, data, highlightTraffic]);
+
+  return null;
+}
+
+function signalDominantColor(state: string): string {
   const greens = (state.match(/[gG]/g) ?? []).length;
   const yellows = (state.match(/[yY]/g) ?? []).length;
-  if (greens > 0 && yellows === 0) return "#22C55E";
-  if (yellows > 0 && greens === 0) return "#F59E0B";
-  if (greens > 0) return "#38BDF8";
-  return "#EF4444";
+  if (greens > 0 && yellows === 0) return "#34d399";
+  if (yellows > 0 && greens === 0) return "#fbbf24";
+  if (greens > 0) return "#67e8f9";
+  return "#f87171";
 }
 
-function segmentsFeatureCollection(segments: Array<{ id: string; coordinates: Array<[number, number]>; congestionColor: string; congestionOpacity: number }>): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: segments.map((segment) => ({
-      type: "Feature",
-      id: undefined,
-      properties: { id: segment.id, congestionColor: segment.congestionColor, congestionOpacity: segment.congestionOpacity },
-      geometry: { type: "LineString", coordinates: segment.coordinates },
-    })),
-  };
-}
-
-function junctionsFeatureCollection(junctions: Array<{ id: string; x: number; y: number; color: string; label: string }>): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: junctions.map((junction) => ({
-      type: "Feature",
-      properties: { id: junction.id, signalColor: junction.color, label: junction.label },
-      geometry: { type: "Point", coordinates: [toLng(junction.x), toLat(junction.y)] },
-    })),
-  };
-}
-
-function facilitiesFeatureCollection(facilities: Array<{ id: string; x: number; y: number; color: string }>): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: facilities.map((facility) => ({
-      type: "Feature",
-      properties: { id: facility.id, facilityColor: facility.color },
-      geometry: { type: "Point", coordinates: [toLng(facility.x), toLat(facility.y)] },
-    })),
-  };
-}
-
-function vehiclesFeatureCollection(vehicles: VehicleSnapshot[], emergencyVehicleId: string | null): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: vehicles.map((vehicle) => ({
-      type: "Feature",
-      properties: { id: vehicle.id, emergency: vehicle.id === emergencyVehicleId || vehicle.typeId.startsWith("emergency") },
-      geometry: { type: "Point", coordinates: [toLng(vehicle.positionX), toLat(vehicle.positionY)] },
-    })),
-  };
-}
-
-function routeFeatureCollection(
-  edges: Array<{ segmentId: string } | { approachSegmentId: string }>,
-  coordinatesBySegment: Map<string, Array<{ x: number; y: number }>> | null,
-): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  for (const edge of edges) {
-    const segmentId = "segmentId" in edge ? edge.segmentId : (edge as { approachSegmentId: string }).approachSegmentId;
-    const coordinates = coordinatesBySegment?.get(segmentId);
-    if (coordinates === undefined || coordinates.length < 2) continue;
-    features.push({
-      type: "Feature",
-      properties: { segmentId },
-      geometry: { type: "LineString", coordinates: coordinates.map((point) => [toLng(point.x), toLat(point.y)]) },
-    });
-  }
-  return { type: "FeatureCollection", features };
+function signalDominantLabel(state: string): string {
+  const greens = (state.match(/[gG]/g) ?? []).length;
+  const yellows = (state.match(/[yY]/g) ?? []).length;
+  if (greens > 0 && yellows === 0) return "GREEN";
+  if (yellows > 0 && greens === 0) return "YELLOW";
+  if (greens > 0) return "GREEN+YELLOW";
+  return "RED";
 }

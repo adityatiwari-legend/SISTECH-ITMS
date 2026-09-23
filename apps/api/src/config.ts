@@ -8,6 +8,8 @@ export interface AppConfig {
   host: string;
   port: number;
   logLevel: string;
+  /** Allowed CORS origins for the browser UI (comma-separated env, "*" = all). */
+  corsOrigin: string[];
   /** SUMO executable (path or PATH-resolvable name). */
   sumoBinary: string;
   /** Scenario config path per scenario id. */
@@ -224,6 +226,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host: env.HOST || "127.0.0.1",
     port: readNumber(env, "PORT", 3000, 1, 65535),
     logLevel: env.LOG_LEVEL || "info",
+    corsOrigin: (env.CORS_ORIGIN || "http://localhost:3000,http://localhost:3001,http://localhost:3100,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3100")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter((origin) => origin !== ""),
     sumoBinary: env.SUMO_BINARY || "sumo",
     scenarioPaths,
     networkPath,

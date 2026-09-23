@@ -50,8 +50,11 @@ export default function EmergenciesPage() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <header className="flex items-center justify-between">
-        <h1 className="font-mono text-sm font-semibold uppercase tracking-wider text-[#8B95A7]">Emergencies</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Emergencies</h1>
+          <p className="mt-0.5 text-[11px] text-[#6B7385]">Dispatch, routing and live tracking of emergency vehicles</p>
+        </div>
         {state.connection === "offline" && <DisconnectedBanner />}
       </header>
 

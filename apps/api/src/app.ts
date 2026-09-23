@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
+import cors from "@fastify/cors";
 import type { AppConfig } from "./config.ts";
 import { AppError } from "./errors.ts";
 import type { Logger } from "./logger.ts";
@@ -50,6 +51,20 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
 
   await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
+  // CORS: the browser UI (apps/web) calls this API cross-origin. Preflight
+  // OPTIONS requests must be answered here or the browser blocks everything.
+  // Origins: CORS_ORIGIN env var (comma-separated, "*" allows all);
+  // default covers the local dev frontends. @fastify/cors accepts arrays
+  // natively (reflects the request origin on match).
+  const corsOriginRaw = deps.config.corsOrigin;
+  const corsOrigin: boolean | string[] = corsOriginRaw.includes("*") ? true : corsOriginRaw;
+  await app.register(cors, {
+    origin: corsOrigin,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["content-type"],
+    credentials: false,
+  });
+
   app.setErrorHandler((error: unknown, request, reply) => {
     if (error instanceof AppError) {
       return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message } });
@@ -83,6 +98,11 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     return reply.code(404).send({
       error: { code: "not_found", message: `Route ${request.method} ${request.url} not found.` },
     });
+  });
+
+  /** Simple health probe (Phase 6 of the repair prompt). */
+  app.get("/health", async () => {
+    return { status: "ok", service: "itms-backend", timestamp: new Date().toISOString() };
   });
 
   await app.register(simulationRoutes, { manager: deps.manager });

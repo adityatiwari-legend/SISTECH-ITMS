@@ -12,6 +12,7 @@ import type { WsEvent } from "@itms/types";
 export class WsBus {
   private clients = new Set<WebSocket>();
   private readonly logger: Logger;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor(logger: Logger) {
     this.logger = logger;
@@ -26,6 +27,21 @@ export class WsBus {
 
   clientCount(): number {
     return this.clients.size;
+  }
+
+  /** Periodic heartbeat so clients can detect silent dead connections. */
+  startHeartbeat(intervalMs = 15_000): void {
+    if (this.heartbeatTimer !== null) return;
+    this.heartbeatTimer = setInterval(() => {
+      this.broadcast("heartbeat", { timestamp: Date.now() });
+    }, intervalMs);
+  }
+
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   broadcast<T>(type: WsEvent<T>["type"], payload: T): void {

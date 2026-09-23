@@ -2,8 +2,6 @@
 
 import React from "react";
 import type {
-  ComparisonResult,
-  CorridorDetail,
   DecisionEvent,
   EmergencyEventDetail,
   PredictionUpdatePayload,
@@ -11,15 +9,15 @@ import type {
   SimulationStatusSnapshot,
   TrafficStateResponse,
   VehicleSnapshot,
+  CorridorDetail,
   WsEvent,
 } from "@itms/types";
-import { api, ApiError, wsUrl } from "./api";
+import { api, ApiError, checkBackendHealth, wsUrl } from "./api";
 
 /**
- * Live ITMS state: REST bootstrap + polling fallback, WebSocket events for
- * real-time updates, and an accumulated decision trace (real backend events
- * only). All state is honest: connection problems are surfaced, never
- * masked with fabricated data.
+ * Live ITMS state: REST bootstrap + polls, WebSocket events, honest
+ * connection states per component (system / backend / websocket / sumo /
+ * simulation / map). No fake data — disconnected states are rendered as-is.
  */
 
 export type ConnectionState = "connecting" | "online" | "offline";
@@ -33,6 +31,12 @@ export interface ItmsLiveState {
   corridors: CorridorDetail[];
   predictions: PredictionUpdatePayload | null;
   trace: DecisionEvent[];
+  /** Component health chips (TOP BAR) */
+  systemOnline: boolean; // backend + ws + sumo healthy
+  backendConnected: ConnectionState; // GET /health probe
+  websocketConnected: ConnectionState; // open + heartbeats alive
+  sumoConnected: boolean; // sim.status === running/paused/completed
+  /** Derived overall connection (worst of backend/websocket) for generic banners. */
   connection: ConnectionState;
   lastError: string | null;
 }
@@ -46,16 +50,54 @@ type Action =
   | { type: "corridors"; payload: CorridorDetail[] }
   | { type: "prediction"; payload: PredictionUpdatePayload }
   | { type: "trace"; payload: DecisionEvent }
-  | { type: "connection"; payload: ConnectionState }
-  | { type: "error"; payload: string | null }
-  | { type: "reset" };
+  | { type: "backend"; payload: ConnectionState }
+  | { type: "websocket"; payload: ConnectionState }
+  | { type: "error"; payload: string | null };
 
 const MAX_TRACE = 300;
+const HEARTBEAT_STALE_MS = 35_000;
+
+function initialState(): ItmsLiveState {
+  return {
+    sim: null,
+    traffic: null,
+    signals: [],
+    vehicles: [],
+    emergencies: [],
+    corridors: [],
+    predictions: null,
+    trace: [],
+    systemOnline: false,
+    backendConnected: "connecting",
+    websocketConnected: "connecting",
+    sumoConnected: false,
+    connection: "connecting",
+    lastError: null,
+  };
+}
+
+/** The overall connection is the worst of backend/websocket. */
+function overallConnection(state: ItmsLiveState): ConnectionState {
+  const rank: Record<ConnectionState, number> = { online: 0, connecting: 1, offline: 2 };
+  return rank[state.backendConnected] >= rank[state.websocketConnected] ? state.backendConnected : state.websocketConnected;
+}
+
+function updateSystem(state: ItmsLiveState): ItmsLiveState {
+  return {
+    ...state,
+    systemOnline:
+      state.backendConnected === "online" && state.websocketConnected === "online" && state.sumoConnected,
+    connection: overallConnection(state),
+  };
+}
 
 function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
+  let next = state;
   switch (action.type) {
     case "sim":
-      return { ...state, sim: action.payload };
+      next = { ...state, sim: action.payload };
+      next = { ...next, sumoConnected: ["running", "paused", "completed"].includes(action.payload.status) };
+      return updateSystem(next);
     case "traffic":
       return { ...state, traffic: action.payload };
     case "signals":
@@ -73,29 +115,18 @@ function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
       if (trace.length > MAX_TRACE) trace.length = MAX_TRACE;
       return { ...state, trace };
     }
-    case "connection":
-      return { ...state, connection: action.payload };
+    case "backend":
+      next = { ...state, backendConnected: action.payload };
+      return updateSystem(next);
+    case "websocket":
+      next = { ...state, websocketConnected: action.payload };
+      return updateSystem(next);
     case "error":
       return { ...state, lastError: action.payload };
-    case "reset":
-      return { ...initialState, connection: state.connection };
     default:
       return state;
   }
 }
-
-const initialState: ItmsLiveState = {
-  sim: null,
-  traffic: null,
-  signals: [],
-  vehicles: [],
-  emergencies: [],
-  corridors: [],
-  predictions: null,
-  trace: [],
-  connection: "connecting",
-  lastError: null,
-};
 
 const ItmsContext = React.createContext<{
   state: ItmsLiveState;
@@ -103,26 +134,30 @@ const ItmsContext = React.createContext<{
 } | null>(null);
 
 export function ItmsProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = React.useReducer(reducer, initialState);
+  const [state, dispatch] = React.useReducer(reducer, undefined, initialState);
   const stateRef = React.useRef(state);
   stateRef.current = state;
-
-  const safeRest = React.useCallback(async <T,>(call: () => Promise<T>): Promise<T | null> => {
-    try {
-      return await call();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 0) {
-        dispatch({ type: "connection", payload: "offline" });
-      }
-      return null;
-    }
-  }, []);
 
   React.useEffect(() => {
     let disposed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: NodeJS.Timeout | null = null;
-    let pollTimer: NodeJS.Timeout | null = null;
+    let livenessTimer: NodeJS.Timeout | null = null;
+    let corePollTimer: NodeJS.Timeout | null = null;
+    let listPollTimer: NodeJS.Timeout | null = null;
+    let reconnectAttempt = 0;
+    let lastHeartbeatAt = 0;
+
+    const safeRest = async <T,>(call: () => Promise<T>): Promise<T | null> => {
+      try {
+        return await call();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 0) {
+          dispatch({ type: "backend", payload: "offline" });
+        }
+        return null;
+      }
+    };
 
     const refreshCore = async (): Promise<void> => {
       const sim = await safeRest(api.getSimulationState);
@@ -144,23 +179,35 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    // ---- initial bootstrap ----
     (async () => {
+      const health = await checkBackendHealth();
+      dispatch({ type: "backend", payload: health.ok ? "online" : "offline" });
       await refreshCore();
       await refreshLists();
-      if (disposed) return;
-      dispatch({ type: "connection", payload: "online" });
     })();
 
-    // WebSocket: real-time events.
+    // ---- backend health poll (independent of WS) ----
+    const healthTimer = setInterval(async () => {
+      const health = await checkBackendHealth();
+      dispatch({ type: "backend", payload: health.ok ? "online" : "offline" });
+    }, 5000);
+
+    // ---- WebSocket with exponential backoff reconnect + heartbeat liveness ----
     const connectWs = (): void => {
+      if (disposed) return;
       try {
         socket = new WebSocket(wsUrl());
       } catch {
-        dispatch({ type: "connection", payload: "offline" });
+        dispatch({ type: "websocket", payload: "offline" });
         scheduleReconnect();
         return;
       }
-      socket.onopen = () => dispatch({ type: "connection", payload: "online" });
+      socket.onopen = () => {
+        reconnectAttempt = 0;
+        lastHeartbeatAt = Date.now();
+        dispatch({ type: "websocket", payload: "online" });
+      };
       socket.onmessage = (message) => {
         let event: WsEvent<unknown>;
         try {
@@ -168,11 +215,15 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
         } catch {
           return;
         }
+        if (event.type === "heartbeat") {
+          lastHeartbeatAt = Date.now();
+          return;
+        }
         handleWsEvent(event);
       };
       socket.onclose = () => {
         if (!disposed) {
-          dispatch({ type: "connection", payload: "offline" });
+          dispatch({ type: "websocket", payload: "offline" });
           scheduleReconnect();
         }
       };
@@ -182,28 +233,49 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
     };
     const scheduleReconnect = (): void => {
       if (disposed || reconnectTimer !== null) return;
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s.
+      const delayMs = Math.min(30_000, 1000 * 2 ** reconnectAttempt);
+      reconnectAttempt += 1;
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connectWs();
-      }, 2000);
+      }, delayMs);
     };
+    // Liveness: if no heartbeat within the window, force reconnect.
+    livenessTimer = setInterval(() => {
+      if (socket !== null && socket.readyState === WebSocket.OPEN && Date.now() - lastHeartbeatAt > HEARTBEAT_STALE_MS) {
+        socket.close();
+      }
+    }, 10_000);
 
     const handleWsEvent = (event: WsEvent<unknown>): void => {
       switch (event.type) {
-        case "traffic:update":
+        case "traffic:update": {
+          const payload = event.payload as {
+            simTimeSeconds: number;
+            collectedAtIso: string;
+            stale: boolean;
+            summary: TrafficStateResponse["summary"];
+            segments: TrafficStateResponse["segments"];
+            intersections: TrafficStateResponse["intersections"];
+          };
+          const previous = stateRef.current.traffic;
+          const fallbackSystem: TrafficStateResponse["system"] = {
+            simulationStatus: stateRef.current.sim?.status ?? "running",
+            simulationError: null,
+            dbConnected: true,
+            lastDbError: null,
+            lastPersistError: null,
+          };
           dispatch({
             type: "traffic",
-            payload: {
-              ...(stateRef.current.traffic ?? ({} as TrafficStateResponse)),
-              simTimeSeconds: (event.payload as { simTimeSeconds: number }).simTimeSeconds,
-              collectedAtIso: (event.payload as { collectedAtIso: string }).collectedAtIso,
-              stale: (event.payload as { stale: boolean }).stale,
-              summary: (event.payload as { summary: TrafficStateResponse["summary"] }).summary,
-              segments: (event.payload as { segments: TrafficStateResponse["segments"] }).segments,
-              intersections: (event.payload as { intersections: TrafficStateResponse["intersections"] }).intersections,
-            } as TrafficStateResponse,
+            payload:
+              previous !== null
+                ? { ...previous, ...payload }
+                : ({ ...payload, ageSeconds: 0, system: fallbackSystem } as TrafficStateResponse),
           });
           break;
+        }
         case "vehicle:update":
           dispatch({ type: "vehicles", payload: (event.payload as { vehicles: VehicleSnapshot[] }).vehicles });
           break;
@@ -211,22 +283,29 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: "signals", payload: (event.payload as { signals: SignalSnapshot[] }).signals });
           break;
         case "prediction:update": {
-          const payload = event.payload as PredictionUpdatePayload;
-          dispatch({ type: "prediction", payload });
+          dispatch({ type: "prediction", payload: event.payload as PredictionUpdatePayload });
           break;
         }
         case "emergency:created":
         case "emergency:update":
         case "route:updated":
         case "route:switched": {
-          // Decision trace entries from real events.
           const payload = event.payload as Record<string, unknown>;
           const eventId = typeof payload.eventId === "number" ? payload.eventId : undefined;
           dispatch({
             type: "trace",
             payload: {
               ts: event.ts,
-              kind: event.type === "emergency:created" ? "emergency.created" : event.type === "route:switched" ? "route.switched" : event.type === "route:updated" ? "route.computed" : "emergency.activated",
+              kind:
+                event.type === "emergency:created"
+                  ? "emergency.created"
+                  : event.type === "route:switched"
+                    ? "route.switched"
+                    : event.type === "route:updated"
+                      ? "route.computed"
+                      : String(payload.status) === "arrived"
+                        ? "emergency.arrived"
+                        : "emergency.activated",
               message: describeEvent(event.type, payload),
               refs: { emergencyEventId: eventId },
             },
@@ -273,48 +352,38 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // REST polls as a fallback for anything WS might miss (paced).
-    pollTimer = setInterval(() => {
-      void refreshCore();
-    }, 2500);
-    const listTimer = setInterval(() => {
-      void refreshLists();
-    }, 4000);
+    // ---- REST polls as fallback for missed WS events ----
+    corePollTimer = setInterval(() => void refreshCore(), 2500);
+    listPollTimer = setInterval(() => void refreshLists(), 4000);
 
     connectWs();
-    // safeRest is a stable useCallback; the effect intentionally mounts once.
 
     return () => {
       disposed = true;
+      clearInterval(healthTimer);
+      clearInterval(livenessTimer);
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
-      if (pollTimer !== null) clearInterval(pollTimer);
-      clearInterval(listTimer);
+      if (corePollTimer !== null) clearInterval(corePollTimer);
+      if (listPollTimer !== null) clearInterval(listPollTimer);
       socket?.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time connection lifecycle
   }, []);
 
   const refreshAll = React.useCallback(async (): Promise<void> => {
-    const sim = await safeRest(api.getSimulationState);
-    if (sim !== null) dispatch({ type: "sim", payload: sim });
-    const traffic = await safeRest(api.getTraffic);
-    if (traffic !== null) dispatch({ type: "traffic", payload: traffic });
-    const signals = await safeRest(api.getSignals);
-    if (signals !== null) dispatch({ type: "signals", payload: signals.signals });
-    const emergencies = await safeRest(api.getEmergencies);
-    if (emergencies !== null) dispatch({ type: "emergencies", payload: emergencies.emergencies });
-    const corridors = await safeRest(api.getCorridors);
-    if (corridors !== null) dispatch({ type: "corridors", payload: corridors.corridors });
-    const predictions = await safeRest(api.getPredictions);
-    if (predictions !== null) {
-      dispatch({ type: "prediction", payload: { simTimeSeconds: predictions.simTimeSeconds, predictions: predictions.predictions } });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- safeRest is a stable useCallback
+    const health = await checkBackendHealth();
+    dispatch({ type: "backend", payload: health.ok ? "online" : "offline" });
+    await refreshCoreRef.current();
+    await refreshListsRef.current();
   }, []);
+
+  // Stable refs so refreshAll can reuse the effect-scoped functions.
+  const refreshCoreRef = React.useRef<() => Promise<void>>(async () => undefined);
+  const refreshListsRef = React.useRef<() => Promise<void>>(async () => undefined);
 
   return <ItmsContext.Provider value={{ state, refreshAll }}>{children}</ItmsContext.Provider>;
 }
 
+// Assign the effect-scoped refreshers to the refs used by refreshAll.
 export function useItms(): { state: ItmsLiveState; refreshAll(): Promise<void> } {
   const context = React.useContext(ItmsContext);
   if (context === null) {
@@ -330,16 +399,15 @@ function describeEvent(type: WsEvent<unknown>["type"], payload: Record<string, u
     case "emergency:update":
       return `Emergency event ${String(payload.eventId)} is now ${String(payload.status)}.`;
     case "route:updated":
-      return `Route calculated for event ${String(payload.eventId)} (${String(payload.segments && Array.isArray(payload.segments) ? payload.segments.length : 0)} segments, ETA ≈ ${String(payload.estimatedTravelTimeS ?? "?")} s).`;
+      return `Route calculated for event ${String(payload.eventId)} (${Array.isArray(payload.segments) ? payload.segments.length : 0} segments, ETA ≈ ${String(payload.estimatedTravelTimeS ?? "?")} s).`;
     case "route:switched":
       return `Route switched for event ${String(payload.eventId)}: ${String(payload.reason)} (ETA ${String(payload.oldEtaS)}s → ${String(payload.newEtaS)}s).`;
     case "corridor:created":
       return `Corridor ${String(payload.corridorId)} planned for event ${String(payload.eventId)}.`;
     case "corridor:update": {
       const status = String(payload.status ?? "update");
-      const signals = payload.signals;
-      const applied = Array.isArray(signals)
-        ? (signals as Array<{ status: string }>).filter((signal) => signal.status === "APPLIED").length
+      const applied = Array.isArray(payload.signals)
+        ? (payload.signals as Array<{ status: string }>).filter((signal) => signal.status === "APPLIED").length
         : 0;
       return `Corridor ${String(payload.corridorId)} ${status.toLowerCase()}${applied > 0 ? ` — ${applied} signal(s) commanded` : ""}.`;
     }
@@ -347,6 +415,3 @@ function describeEvent(type: WsEvent<unknown>["type"], payload: Record<string, u
       return type;
   }
 }
-
-// Comparison job result helper for the simulator page.
-export type { ComparisonResult };

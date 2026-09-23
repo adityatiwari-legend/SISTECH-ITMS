@@ -171,6 +171,7 @@ export function harnessConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     host: "127.0.0.1",
     port: 0,
     logLevel: "error",
+    corsOrigin: ["*"],
     sumoBinary: process.env.SUMO_BINARY || "sumo",
     scenarioPaths: SCENARIO_PATHS,
     networkPath: NETWORK_PATH,

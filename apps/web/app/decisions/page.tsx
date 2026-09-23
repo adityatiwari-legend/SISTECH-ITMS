@@ -58,9 +58,11 @@ export default function DecisionsPage() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <header className="flex items-center justify-between">
-        <h1 className="font-mono text-sm font-semibold uppercase tracking-wider text-[#8B95A7]">AI decision trace</h1>
-        <span className="font-mono text-[10px] text-[#5c6675]">Real system events only (emergencies, routes, corridors, signals)</span>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">AI decision trace</h1>
+          <p className="mt-0.5 text-[11px] text-[#6B7385]">Real system events only — every routing, prediction, corridor and signal action, explainable</p>
+        </div>
       </header>
 
       {error !== null && <ErrorState title="Trace unavailable" detail={error} retry={() => void load()} />}

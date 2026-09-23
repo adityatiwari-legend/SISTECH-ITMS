@@ -11,6 +11,7 @@ function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     host: "127.0.0.1",
     port: 3000,
     logLevel: "error",
+    corsOrigin: ["*"],
     sumoBinary: process.env.SUMO_BINARY || "sumo",
     scenarioPaths: SCENARIO_PATHS,
     networkPath: process.env.ITMS_NETWORK || "network.net.xml",

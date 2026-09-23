@@ -48,8 +48,11 @@ export default function SignalsPage() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <header className="flex items-center justify-between">
-        <h1 className="font-mono text-sm font-semibold uppercase tracking-wider text-[#8B95A7]">Signals</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Signals</h1>
+          <p className="mt-0.5 text-[11px] text-[#6B7385]">Every signalized junction with live phase, timing, queue and corridor mode</p>
+        </div>
         {state.connection === "offline" && <DisconnectedBanner />}
       </header>
 

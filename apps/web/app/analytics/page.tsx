@@ -35,9 +35,14 @@ export default function AnalyticsPage() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <header className="flex items-center justify-between">
-        <h1 className="font-mono text-sm font-semibold uppercase tracking-wider text-[#8B95A7]">Analytics</h1>
-        <span className="font-mono text-[10px] text-[#5c6675]">All values measured from recorded simulation runs</span>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Analytics</h1>
+          <p className="mt-0.5 text-[11px] text-[#6B7385]">Measured aggregates over every recorded simulation run — never hard-coded</p>
+        </div>
+        <span className="rounded-lg border border-[rgba(148,163,190,0.14)] bg-[rgba(148,163,190,0.05)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[#8B95A9]">
+          {analytics.runsRecorded} runs recorded
+        </span>
       </header>
 
       {analytics.runsRecorded === 0 ? (
