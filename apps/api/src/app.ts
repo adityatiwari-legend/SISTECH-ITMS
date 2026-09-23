@@ -6,10 +6,16 @@ import type { Logger } from "./logger.ts";
 import { simulationRoutes } from "./modules/simulation/routes.ts";
 import { trafficRoutes } from "./modules/traffic/routes.ts";
 import { emergencyRoutes } from "./modules/emergency/routes.ts";
+import { predictionRoutes } from "./modules/prediction/routes.ts";
+import { corridorRoutes } from "./modules/corridor/routes.ts";
+import { scenarioRoutes } from "./modules/scenarios/routes.ts";
+import { systemRoutes } from "./modules/system/routes.ts";
 import { websocketRoutes } from "./modules/websocket/routes.ts";
 import type { SimulationManager } from "./modules/simulation/simulation-manager.ts";
 import type { TrafficService } from "./modules/traffic/traffic-service.ts";
 import type { EmergencyService } from "./modules/emergency/emergency-service.ts";
+import type { PredictionService } from "./modules/prediction/prediction-service.ts";
+import type { CorridorService } from "./modules/corridor/corridor-service.ts";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -17,6 +23,14 @@ export interface AppDependencies {
   manager: SimulationManager;
   trafficService: TrafficService;
   emergencyService: EmergencyService;
+  predictionService: PredictionService;
+  corridorService: CorridorService;
+  loopService: import("./modules/loop/closed-loop-service.ts").ClosedLoopService;
+  metricsRepository: import("./database/repositories/metrics-repository.ts").MetricsRepository;
+  comparisonService: import("./modules/scenarios/scenario-comparison-service.ts").ScenarioComparisonService;
+  catalog: import("./modules/simulation/network-loader.ts").NetworkCatalog;
+  facilitiesPath: string;
+  db: import("./database/db.ts").DatabasePool;
   wsBus: import("./modules/websocket/ws-bus.ts").WsBus;
 }
 
@@ -74,6 +88,21 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   await app.register(simulationRoutes, { manager: deps.manager });
   await app.register(trafficRoutes, { trafficService: deps.trafficService });
   await app.register(emergencyRoutes, { emergencyService: deps.emergencyService });
+  await app.register(predictionRoutes, { predictionService: deps.predictionService });
+  await app.register(corridorRoutes, { corridorService: deps.corridorService });
+  await app.register(scenarioRoutes, {
+    comparisonService: deps.comparisonService,
+    metricsRepository: deps.metricsRepository,
+  });
+  await app.register(systemRoutes, {
+    config: deps.config,
+    manager: deps.manager,
+    db: deps.db!,
+    predictionService: deps.predictionService,
+    metricsRepository: deps.metricsRepository,
+    catalog: deps.catalog,
+    facilitiesPath: deps.facilitiesPath!,
+  });
   await app.register(websocketRoutes, { bus: deps.wsBus });
 
   return app;

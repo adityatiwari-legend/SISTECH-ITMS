@@ -3,9 +3,17 @@ import type { SimulationScenarioId } from "@itms/types";
 import type { SimulationManager } from "./simulation-manager.ts";
 import { AppError } from "../../errors.ts";
 
-const SCENARIOS: SimulationScenarioId[] = ["baseline", "emergency"];
+const SCENARIOS: SimulationScenarioId[] = ["baseline", "emergency", "emergency_low", "emergency_high"];
 
 const startBodySchema = {
+  type: "object",
+  properties: {
+    scenario: { type: "string", enum: SCENARIOS },
+  },
+  additionalProperties: false,
+} as const;
+
+const resetBodySchema = {
   type: "object",
   properties: {
     scenario: { type: "string", enum: SCENARIOS },
@@ -66,6 +74,31 @@ export async function simulationRoutes(
 
   app.post("/api/simulation/resume", async () => {
     return manager.resume();
+  });
+
+  const paceBodySchema = {
+    type: "object",
+    required: ["multiplier"],
+    properties: {
+      multiplier: { type: "number", enum: [1, 2, 5, 10] },
+    },
+    additionalProperties: false,
+  } as const;
+
+  app.post("/api/simulation/speed", { schema: { body: paceBodySchema } }, async (request) => {
+    const { multiplier } = request.body as { multiplier: number };
+    return manager.setPace(multiplier);
+  });
+
+  /** Reset = stop the current simulation and start it again (same scenario
+   *  when one is/was active, otherwise the default). Deterministic: a fresh
+   *  SUMO process reloads the scenario from the beginning. */
+  app.post("/api/simulation/reset", { schema: { body: resetBodySchema } }, async (request) => {
+    const body = (request.body ?? {}) as { scenario?: SimulationScenarioId };
+    const previous = manager.getStatusSnapshot();
+    const target = body.scenario ?? previous.scenario ?? "baseline";
+    await manager.stop();
+    return manager.start(target, { autoRun: true });
   });
 
   app.get("/api/simulation/state", async () => {

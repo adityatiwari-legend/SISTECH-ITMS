@@ -11,6 +11,8 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 export const SCENARIO_PATHS: Record<SimulationScenarioId, string> = {
   baseline: resolve(REPO_ROOT, "simulation", "sumo", "scenarios", "baseline", "baseline.sumocfg"),
   emergency: resolve(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency.sumocfg"),
+  emergency_low: resolve(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-low.sumocfg"),
+  emergency_high: resolve(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-high.sumocfg"),
 };
 
 export const NETWORK_PATH = resolve(REPO_ROOT, "simulation", "sumo", "network", "itms.net.xml");
@@ -130,6 +132,13 @@ import { TrafficCollector } from "../src/modules/traffic/collector.ts";
 import { TrafficService } from "../src/modules/traffic/traffic-service.ts";
 import { EmergencyService } from "../src/modules/emergency/emergency-service.ts";
 import { EmergencyRepository } from "../src/database/repositories/emergency-repository.ts";
+import { PredictionService } from "../src/modules/prediction/prediction-service.ts";
+import { CorridorService } from "../src/modules/corridor/corridor-service.ts";
+import { CorridorRepository } from "../src/database/repositories/corridor-repository.ts";
+import { ClosedLoopService } from "../src/modules/loop/closed-loop-service.ts";
+import { MetricsRecorder } from "../src/modules/metrics/metrics-recorder.ts";
+import { MetricsRepository } from "../src/database/repositories/metrics-repository.ts";
+import { ScenarioComparisonService } from "../src/modules/scenarios/scenario-comparison-service.ts";
 import { WsBus } from "../src/modules/websocket/ws-bus.ts";
 import { createDatabasePool, type DatabasePool } from "../src/database/db.ts";
 import { runMigrations } from "../src/database/migrate.ts";
@@ -143,6 +152,12 @@ export interface TestAppHarness {
   manager: SimulationManager;
   trafficService: TrafficService;
   emergencyService: EmergencyService;
+  predictionService: PredictionService;
+  corridorService: CorridorService;
+  loopService: ClosedLoopService;
+  metricsRecorder: MetricsRecorder;
+  metricsRepository: MetricsRepository;
+  comparisonService: ScenarioComparisonService;
   routeEngine: RouteEngine;
   roadGraph: RoadGraph;
   db: DatabasePool;
@@ -168,6 +183,36 @@ export function harnessConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     trafficEventIntervalMs: 200,
     trafficStaleAfterSeconds: 2,
     congestionThresholds: { ...DEFAULT_CONGESTION_THRESHOLDS },
+    predictionServiceUrl: null,
+    predictionIntervalMs: 250,
+    predictionTimeoutMs: 500,
+    // The harness steps the sim much faster than real time (25 ms wall per
+    // sim second); allow a larger sim-age window so entries survive between
+    // refreshes (sim age grows ~10 s per 250 ms refresh interval).
+    predictionStaleAfterSeconds: 30,
+    simStartHour: 8,
+    simStartDayOfWeek: 2,
+    corridorGreenLeadS: 5,
+    corridorGreenTrailS: 12,
+    corridorMinGreenWindowS: 8,
+    corridorMaxGreenWindowS: 30,
+    corridorMaxGreenExtensionS: 20,
+    corridorMaxRedExtensionS: 45,
+    corridorClearanceYellowS: 3,
+    corridorEtaPlanHorizonS: 60,
+    corridorReplanEtaThresholdS: 4,
+    corridorDownstreamOccupancyLimit: 0.85,
+    corridorMinPriority: "normal",
+    loopEvalIntervalS: 3,
+    routeReevalIntervalS: 5,
+    routeSwitchMinImprovementS: 8,
+    routeSwitchMinImprovementFraction: 0.15,
+    routeSwitchCooldownS: 30,
+    routeSwitchMaxPerEmergency: 3,
+    routeSwitchNearDestinationGuardS: 15,
+    metricsSampleIntervalS: 5,
+    comparisonWarmupSeconds: 30,
+    comparisonDurationCapSeconds: 480,
     ...overrides,
   };
 }
@@ -210,7 +255,71 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     controlledJunctions,
     getRunId: () => trafficService.getCurrentRunId(),
   });
-  const app = await buildApp({ config, logger, manager, trafficService, emergencyService, wsBus });
+  const predictionService = new PredictionService({
+    config,
+    logger,
+    trafficService,
+    db,
+    bus: wsBus,
+  });
+  predictionService.start();
+  const corridorService = new CorridorService({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    trafficService,
+    predictionService,
+    repository: new CorridorRepository(db),
+    bus: wsBus,
+    catalog,
+  });
+  const metricsRepository = new MetricsRepository(db);
+  const metricsRecorder = new MetricsRecorder({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    trafficService,
+    repository: metricsRepository,
+  });
+  const loopService = new ClosedLoopService({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    corridorService,
+    predictionService,
+    routeEngine,
+    metricsRepository,
+  });
+  const comparisonService = new ScenarioComparisonService({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    corridorService,
+    loopService,
+    metricsRecorder,
+    metricsRepository,
+    trafficService,
+  });
+  const app = await buildApp({
+    config,
+    logger,
+    manager,
+    trafficService,
+    emergencyService,
+    predictionService,
+    corridorService,
+    loopService,
+    metricsRepository,
+    comparisonService,
+    catalog,
+    facilitiesPath: resolve(REPO_ROOT, "simulation", "sumo", "network", "facilities.add.xml"),
+    db,
+    wsBus,
+  });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
   const port = typeof address === "object" && address !== null ? address.port : 0;
@@ -220,12 +329,22 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     manager,
     trafficService,
     emergencyService,
+    predictionService,
+    corridorService,
+    loopService,
+    metricsRecorder,
+    metricsRepository,
+    comparisonService,
     routeEngine,
     roadGraph,
     db,
     wsBus,
     port,
     close: async () => {
+      await loopService.dispose();
+      await metricsRecorder.dispose();
+      await corridorService.dispose();
+      await predictionService.dispose();
       await emergencyService.dispose();
       await trafficService.dispose();
       await manager.stop();

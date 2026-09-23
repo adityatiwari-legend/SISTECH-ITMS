@@ -69,6 +69,7 @@ export const TRACI = {
   // Traffic light domain variables
   TL_RED_YELLOW_GREEN_STATE: 0x20,
   TL_PHASE_INDEX: 0x22,
+  TL_PROGRAM: 0x23,
   TL_CURRENT_PROGRAM: 0x29,
   TL_PHASE_DURATION: 0x24,
   TL_CONTROLLED_LANES: 0x26,
@@ -84,6 +85,7 @@ export const TRACI = {
   VAR_LANE_ID: 0x51,
   VAR_LANEPOSITION: 0x56,
   VAR_WAITING_TIME: 0x7a,
+  VAR_TIMELOSS: 0x8c,
   VAR_ROUTE: 0x57,
   VAR_ROUTE_INDEX: 0x69,
 

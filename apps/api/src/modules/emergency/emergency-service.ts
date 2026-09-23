@@ -50,6 +50,32 @@ interface ActiveEmergency {
   routeEdges: string[];
   destinationJunction: string;
   routeLengths: number[];
+  /** Sim times captured at transitions (metrics). */
+  activatedSimTimeS: number | null;
+  arrivedSimTimeS: number | null;
+  /** Dynamic route switches so far (safeguard). */
+  switchCount: number;
+}
+
+/** In-memory runtime snapshot of an emergency (no database access). */
+export interface EmergencyRuntimeSnapshot {
+  eventId: number;
+  status: EmergencyEventDetail["status"];
+  vehicleId: string;
+  priority: EmergencyEventDetail["priority"];
+  originJunction: string;
+  destinationJunction: string;
+  routeEdges: string[];
+  routeLengths: number[];
+  live: {
+    simTimeSeconds: number;
+    positionX: number;
+    positionY: number;
+    speedMps: number;
+    roadId: string;
+    laneId: string;
+    routeIndex: number;
+  } | null;
 }
 
 export class EmergencyService {
@@ -67,6 +93,11 @@ export class EmergencyService {
   private active = new Map<number, ActiveEmergency>();
   private sequence = 0;
   private eventListeners: Array<() => void> = [];
+  /** Priority and last persisted status per event (corridor service reads). */
+  private priorityByEvent = new Map<number, EmergencyEventDetail["priority"]>();
+  private persistedStatusByEvent = new Map<number, EmergencyEventDetail["status"]>();
+  /** Sim-time transition bookkeeping kept after the runtime is removed. */
+  private transitionSimTimesByEvent = new Map<number, { activatedSimTimeS: number | null; arrivedSimTimeS: number | null }>();
 
   constructor(options: {
     config: AppConfig;
@@ -96,6 +127,174 @@ export class EmergencyService {
   async dispose(): Promise<void> {
     for (const off of this.eventListeners) off();
     this.eventListeners = [];
+  }
+
+  // ------------------------------------------------------------------
+  // Runtime access for dependent services (corridor engine, Phase 5+)
+  // ------------------------------------------------------------------
+
+  /** In-memory runtime snapshot; null when the event is unknown/inactive. */
+  getEmergencyRuntime(eventId: number): EmergencyRuntimeSnapshot | null {
+    const emergency = this.active.get(eventId);
+    if (emergency === undefined) return null;
+    const liveVehicle = this.manager.getVehicles().find((v) => v.id === emergency.vehicleId) ?? null;
+    // The origin junction is the start of the route (first edge's from).
+    const originJunction = emergency.routeEdges[0]?.split("_")[0]?.toUpperCase() ?? "";
+    return {
+      eventId: emergency.eventId,
+      status: emergency.status,
+      vehicleId: emergency.vehicleId,
+      priority: this.priorityByEvent.get(eventId) ?? "normal",
+      originJunction,
+      destinationJunction: emergency.destinationJunction,
+      routeEdges: [...emergency.routeEdges],
+      routeLengths: [...emergency.routeLengths],
+      live:
+        liveVehicle !== null
+          ? {
+              simTimeSeconds: this.manager.getStatusSnapshot().simTimeSeconds,
+              positionX: liveVehicle.positionX,
+              positionY: liveVehicle.positionY,
+              speedMps: liveVehicle.speed,
+              roadId: liveVehicle.roadId,
+              laneId: liveVehicle.laneId,
+              routeIndex: liveVehicle.roadId.startsWith(":")
+                ? -1
+                : emergency.routeEdges.indexOf(liveVehicle.roadId),
+            }
+          : null,
+    };
+  }
+
+  /** Last known persisted status of an event (in-memory mirror of the DB). */
+  getPersistedStatus(eventId: number): EmergencyEventDetail["status"] | null {
+    return this.persistedStatusByEvent.get(eventId) ?? null;
+  }
+
+  /** Ids of all in-memory active emergencies (created/active). */
+  getActiveEventIds(): number[] {
+    return [...this.active.keys()];
+  }
+
+  /** ETAs for the upcoming controlled junctions + destination (in-memory). */
+  getEtas(eventId: number): EmergencyEta[] | null {
+    const emergency = this.active.get(eventId);
+    if (emergency === undefined) return null;
+    const live = this.manager.getVehicles().find((v) => v.id === emergency.vehicleId) ?? null;
+    if (live === null) return null;
+    return this.computeEtas(emergency, live);
+  }
+
+  /**
+   * Dynamically re-routes an active emergency (closed loop, Phases.md 6.3):
+   * SUMO gets the new edge list (current edge first), a route revision is
+   * persisted (routes + emergency_route_switches), and the runtime state is
+   * updated. The caller decides WHEN to switch (hysteresis/safeguards);
+   * this method performs the switch atomically.
+   */
+  async rerouteEmergency(input: {
+    eventId: number;
+    /** Full new edge list; the FIRST edge must be the vehicle's current edge. */
+    edges: string[];
+    reason: string;
+    oldEtaS: number;
+    newEtaS: number;
+  }): Promise<{ switched: boolean; routeId: number | null; error: string | null }> {
+    const emergency = this.active.get(input.eventId);
+    if (emergency === undefined) {
+      return { switched: false, routeId: null, error: `Emergency event ${input.eventId} is not active.` };
+    }
+    if (input.edges[0] === undefined) {
+      return { switched: false, routeId: null, error: "New route is empty." };
+    }
+
+    // 1. Update SUMO (source of truth for movement).
+    try {
+      await this.manager.setVehicleRouteEdges(emergency.vehicleId, input.edges);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error("SUMO rejected the emergency reroute", { eventId: input.eventId, error: message });
+      return { switched: false, routeId: null, error: message };
+    }
+
+    // 2. Persist the route revision + switch record.
+    const simTime = this.manager.getStatusSnapshot().simTimeSeconds;
+    let routeId: number | null = null;
+    try {
+      routeId = await this.repository.addRouteRevision({
+        eventId: input.eventId,
+        originJunction: emergency.routeEdges[0]?.split("_")[0]?.toUpperCase() ?? "",
+        destinationJunction: emergency.destinationJunction,
+        edges: input.edges.map((segmentId) => {
+          const edge = this.routeEngine.getGraph().getEdge(segmentId);
+          if (edge === null) {
+            throw new Error(`New route edge ${segmentId} is not in the network`);
+          }
+          return {
+            segmentId,
+            fromJunction: edge.fromJunction,
+            toJunction: edge.toJunction,
+            lengthM: edge.distanceM,
+            costSeconds: this.routeEngine.edgeCost(segmentId).costSeconds,
+            congestion: edge.congestion,
+          };
+        }),
+        estimatedTravelTimeS: input.newEtaS,
+        freeFlowTravelTimeS: input.edges.reduce((sum, segmentId) => {
+          const edge = this.routeEngine.getGraph().getEdge(segmentId);
+          return sum + (edge !== null ? edge.distanceM / edge.freeFlowSpeedMps : 0);
+        }, 0),
+        reason: input.reason,
+        simTimeS: simTime,
+        fromRouteId: emergency.routeRowId,
+      });
+    } catch (err) {
+      // SUMO already has the route; persistence problems must not revert it.
+      this.logger.error("Could not persist route revision", { eventId: input.eventId, error: err });
+    }
+
+    // 3. Update the runtime state to the new route.
+    emergency.routeEdges = [...input.edges];
+    emergency.routeLengths = input.edges.map((segmentId) => {
+      const edge = this.routeEngine.getGraph().getEdge(segmentId);
+      return edge !== null ? edge.distanceM : 0;
+    });
+    if (routeId !== null) {
+      emergency.routeRowId = routeId;
+    }
+    emergency.switchCount += 1;
+
+    this.bus.broadcast("route:switched", {
+      eventId: input.eventId,
+      simTimeSeconds: simTime,
+      reason: input.reason,
+      oldEtaS: round1(input.oldEtaS),
+      newEtaS: round1(input.newEtaS),
+      segments: input.edges,
+    });
+    this.logger.info("Emergency rerouted", {
+      eventId: input.eventId,
+      switch: emergency.switchCount,
+      reason: input.reason,
+      oldEta: round1(input.oldEtaS),
+      newEta: round1(input.newEtaS),
+    });
+    return { switched: true, routeId, error: null };
+  }
+
+  /** Runtime route-switch count (safeguard for the closed loop). */
+  getSwitchCount(eventId: number): number | null {
+    return this.active.get(eventId)?.switchCount ?? null;
+  }
+
+  /** Sim-time transition record for metrics (null when not captured yet). */
+  getTransitionSimTimes(eventId: number): { activatedSimTimeS: number | null; arrivedSimTimeS: number | null } | null {
+    const emergency = this.active.get(eventId);
+    if (emergency !== undefined) {
+      return { activatedSimTimeS: emergency.activatedSimTimeS, arrivedSimTimeS: emergency.arrivedSimTimeS };
+    }
+    // The event may have arrived already (runtime deleted after a step).
+    return this.transitionSimTimesByEvent.get(eventId) ?? null;
   }
 
   // ------------------------------------------------------------------
@@ -208,7 +407,12 @@ export class EmergencyService {
       routeEdges: route.segments.map((segment) => segment.segmentId),
       destinationJunction: body.destination,
       routeLengths: route.segments.map((segment) => segment.lengthM),
+      activatedSimTimeS: null,
+      arrivedSimTimeS: null,
+      switchCount: 0,
     });
+    this.priorityByEvent.set(persisted.event.id, body.priority);
+    this.persistedStatusByEvent.set(persisted.event.id, "created");
 
     this.bus.broadcast("emergency:created", {
       eventId: persisted.event.id,
@@ -257,6 +461,12 @@ export class EmergencyService {
     const vehicleById = new Map(this.manager.getVehicles().map((vehicle) => [vehicle.id, vehicle] as const));
 
     for (const emergency of [...this.active.values()]) {
+      // Keep the sim-time bookkeeping reachable after the runtime is deleted.
+      this.transitionSimTimesByEvent.set(emergency.eventId, {
+        activatedSimTimeS: emergency.activatedSimTimeS,
+        arrivedSimTimeS: emergency.arrivedSimTimeS,
+      });
+
       if (emergency.status === "arrived" || emergency.status === "failed" || emergency.status === "cancelled") {
         this.active.delete(emergency.eventId);
         continue;
@@ -281,6 +491,11 @@ export class EmergencyService {
 
   private async markActive(emergency: ActiveEmergency, live: VehicleSnapshot): Promise<void> {
     emergency.status = "active";
+    this.persistedStatusByEvent.set(emergency.eventId, "active");
+    if (emergency.activatedSimTimeS === null) {
+      emergency.activatedSimTimeS = this.manager.getStatusSnapshot().simTimeSeconds;
+    }
+    this.updateTransitionBookkeeping(emergency);
     const nowIso = new Date().toISOString();
     try {
       await this.repository.applyTransition({
@@ -292,6 +507,7 @@ export class EmergencyService {
         positionX: live.positionX,
         positionY: live.positionY,
         speedMps: live.speed,
+        activatedSimTimeS: emergency.activatedSimTimeS,
       });
     } catch (err) {
       this.logger.error("Could not persist emergency activation", { eventId: emergency.eventId, error: err });
@@ -308,6 +524,11 @@ export class EmergencyService {
 
   private async markArrived(emergency: ActiveEmergency, live: VehicleSnapshot | null): Promise<void> {
     emergency.status = "arrived";
+    this.persistedStatusByEvent.set(emergency.eventId, "arrived");
+    if (emergency.arrivedSimTimeS === null) {
+      emergency.arrivedSimTimeS = this.manager.getStatusSnapshot().simTimeSeconds;
+    }
+    this.updateTransitionBookkeeping(emergency);
     const nowIso = new Date().toISOString();
     try {
       await this.repository.applyTransition({
@@ -319,6 +540,8 @@ export class EmergencyService {
         positionX: live?.positionX ?? null,
         positionY: live?.positionY ?? null,
         speedMps: 0,
+        activatedSimTimeS: emergency.activatedSimTimeS,
+        arrivedSimTimeS: emergency.arrivedSimTimeS,
       });
     } catch (err) {
       this.logger.error("Could not persist emergency arrival", { eventId: emergency.eventId, error: err });
@@ -337,10 +560,19 @@ export class EmergencyService {
     });
   }
 
+  /** Keeps the sim-time bookkeeping current at every transition point. */
+  private updateTransitionBookkeeping(emergency: ActiveEmergency): void {
+    this.transitionSimTimesByEvent.set(emergency.eventId, {
+      activatedSimTimeS: emergency.activatedSimTimeS,
+      arrivedSimTimeS: emergency.arrivedSimTimeS,
+    });
+  }
+
   /** Simulation stopped/ended/disconnected: any unfinished emergency failed. */
   private async handleSimStopped(reason: "stopped" | "simulation_ended" | "disconnected"): Promise<void> {
     for (const emergency of this.active.values()) {
       if (emergency.status !== "created" && emergency.status !== "active") continue;
+      this.persistedStatusByEvent.set(emergency.eventId, "failed");
       try {
         await this.repository.applyTransition({
           eventId: emergency.eventId,

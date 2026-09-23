@@ -16,7 +16,21 @@ export type SimulationStatus =
   | "completed";
 
 /** Scenario identifiers. Each maps to its own SUMO configuration file. */
-export type SimulationScenarioId = "baseline" | "emergency";
+export type SimulationScenarioId = "baseline" | "emergency" | "emergency_low" | "emergency_high";
+
+/** Traffic-demand variants exposed by the scenario builder (Phases.md 7.12). */
+export type TrafficLevel = "low" | "medium" | "high";
+
+export function scenarioForTrafficLevel(level: TrafficLevel): SimulationScenarioId {
+  switch (level) {
+    case "low":
+      return "emergency_low";
+    case "high":
+      return "emergency_high";
+    default:
+      return "emergency";
+  }
+}
 
 /** A single vehicle as observed in the SUMO simulation at a point in time. */
 export interface VehicleSnapshot {
@@ -65,6 +79,8 @@ export interface SimulationStatusSnapshot {
   scenario: SimulationScenarioId | null;
   simTimeSeconds: number;
   stepLengthSeconds: number;
+  /** Current pace multiplier (1 = real time; wall ms per step = 1000/pace). */
+  paceMultiplier: number;
   vehicleCount: number;
   signalCount: number;
   departedVehicleCount: number | null;
@@ -175,7 +191,19 @@ export interface TrafficStateResponse {
 
 /** WebSocket event envelope. */
 export interface WsEvent<T> {
-  type: "traffic:update" | "vehicle:update" | "signal:update" | "system:alert" | "emergency:created" | "emergency:update" | "route:updated";
+  type:
+    | "traffic:update"
+    | "vehicle:update"
+    | "signal:update"
+    | "system:alert"
+    | "emergency:created"
+    | "emergency:update"
+    | "route:updated"
+    | "prediction:update"
+    | "corridor:created"
+    | "corridor:update"
+    | "route:switched"
+    | "comparison:update";
   ts: string;
   payload: T;
 }
@@ -290,4 +318,341 @@ export interface CreateEmergencyBody {
   origin: string;
   destination: string;
   priority: EmergencyPriority;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — AI traffic prediction types
+// ---------------------------------------------------------------------------
+
+/** Source of a prediction value. */
+export type PredictionSource = "ml" | "fallback" | "unavailable";
+
+/** One horizon's prediction for one junction. */
+export interface PredictionHorizon {
+  horizonSeconds: number;
+  /** Predicted vehicle count on the junction's approaches. */
+  predictedVehicleCount: number;
+}
+
+/** Current prediction state for one junction. */
+export interface JunctionPrediction {
+  junctionId: string;
+  /** Simulation time the prediction is based on. */
+  basedOnSimTimeSeconds: number | null;
+  /** Wall-clock ISO time the prediction was computed. */
+  computedAtIso: string | null;
+  source: PredictionSource;
+  modelVersion: string | null;
+  horizons: PredictionHorizon[];
+  /** True when the prediction is older than the configured staleness limit. */
+  stale: boolean;
+  /** Present when the last prediction attempt failed (with the reason). */
+  lastError: { reason: string; message: string } | null;
+}
+
+/** Response of GET /api/predictions. */
+export interface PredictionsResponse {
+  simTimeSeconds: number;
+  predictionsEnabled: boolean;
+  serviceUrl: string | null;
+  serviceHealthy: boolean;
+  staleAfterSeconds: number;
+  /** Latest model version when known. */
+  modelVersion: string | null;
+  predictions: JunctionPrediction[];
+  system: {
+    simulationStatus: SimulationStatus;
+    dbConnected: boolean;
+  };
+}
+
+/** WebSocket prediction:update payload. */
+export interface PredictionUpdatePayload {
+  simTimeSeconds: number;
+  predictions: JunctionPrediction[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — predictive rolling green corridor types
+// ---------------------------------------------------------------------------
+
+/** Lifecycle of a green corridor (Phases.md 5). */
+export type CorridorState =
+  | "PLANNING"
+  | "VALIDATING"
+  | "ACTIVE"
+  | "REPLANNING"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "FAILED";
+
+/** Per-junction plan mode decided by the planner. */
+export type CorridorJunctionMode = "switch" | "extend" | "noop";
+
+/** Per-junction execution status. */
+export type CorridorSignalStatus = "PENDING" | "APPLIED" | "PASSED" | "SKIPPED" | "NOOP";
+
+/** One junction's planned green window inside a corridor. */
+export interface CorridorSignalPlanEntry {
+  sequenceIndex: number;
+  junctionId: string;
+  signalId: string;
+  /** Route edge (directed segment) leading into this junction. */
+  approachSegmentId: string;
+  /** Emergency ETA at this junction in seconds (relative to planning time). */
+  etaSeconds: number;
+  mode: CorridorJunctionMode;
+  /** Absolute simulation-time green window [start, end] (null for PENDING). */
+  plannedGreenStartS: number | null;
+  plannedGreenEndS: number | null;
+  /** The RYG state that gives green only to the corridor approach. */
+  corridorState: string | null;
+  /** Traffic-light link indices of the corridor approach at this junction. */
+  corridorLinkIndices: number[];
+  /** True when a yellow clearance step is scheduled before corridor green. */
+  requiresClearance: boolean;
+  status: CorridorSignalStatus;
+  skipReason: string | null;
+  /** Predicted approach vehicle count closest to the ETA (null: unavailable). */
+  predictedVehicleCount: number | null;
+  predictedCongestion: CongestionLevel | null;
+  /** Downstream segment after this junction (null at the route end). */
+  downstreamSegmentId: string | null;
+  downstreamOccupancy: number | null;
+}
+
+/** Explicit safety-validation outcome for a corridor plan. */
+export interface CorridorValidationSummary {
+  passed: boolean;
+  /** Junctions skipped by safety constraints (junctionId → reason). */
+  skipped: Array<{ junctionId: string; reason: string }>;
+  /** Fatal problems that fail the whole corridor. */
+  failures: string[];
+}
+
+/** Full corridor detail (API responses). */
+export interface CorridorDetail {
+  id: number;
+  eventId: number;
+  vehicleId: string | null;
+  status: CorridorState;
+  originJunction: string;
+  destinationJunction: string;
+  junctionCount: number;
+  /** Simulation time when the plan was computed. */
+  plannedAtSimTimeS: number | null;
+  createdAtIso: string;
+  activatedAtIso: string | null;
+  completedAtIso: string | null;
+  cancelledAtIso: string | null;
+  failedAtIso: string | null;
+  cancelReason: string | null;
+  lastError: string | null;
+  validation: CorridorValidationSummary | null;
+  signals: CorridorSignalPlanEntry[];
+  /** Live view (null when the corridor is not active). */
+  live: {
+    simTimeSeconds: number;
+    /** Junctions not yet passed. */
+    remainingJunctions: number;
+    emergencyStatus: EmergencyStatus | null;
+    vehicleSpeedMps: number | null;
+  } | null;
+}
+
+/** Body of POST /api/corridors. */
+export interface CreateCorridorBody {
+  eventId: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — closed-loop optimization types
+// ---------------------------------------------------------------------------
+
+/** Recorded performance metrics of one simulation run (measured, never fabricated). */
+export interface SimulationMetrics {
+  runId: number;
+  scenario: SimulationScenarioId;
+  /** baseline | itms — which control regime produced the run. */
+  mode: "baseline" | "itms" | "unspecified";
+  /** Emergency travel time in sim seconds (null: no completed emergency). */
+  emergencyTravelTimeS: number | null;
+  /** Emergency total time loss in sim seconds (null: no sample). */
+  emergencyTimeLossS: number | null;
+  /** Mean time loss across all vehicles (average delay). */
+  avgVehicleDelayS: number | null;
+  /** Mean total queue length across samples. */
+  avgQueueLength: number | null;
+  /** Mean city average speed (m/s) across samples. */
+  avgSpeedMps: number | null;
+  /** Arrived vehicles per simulated hour. */
+  throughputPerHour: number | null;
+  /** Number of signal state/program changes issued this run. */
+  signalChangeCount: number;
+  simDurationS: number;
+  sampleCount: number;
+  startedAtIso: string | null;
+  completedAtIso: string | null;
+}
+
+/** One recorded dynamic route switch of an emergency. */
+export interface RouteSwitchRecord {
+  id: number;
+  eventId: number;
+  simTimeS: number;
+  fromRouteId: number | null;
+  toRouteId: number | null;
+  oldEtaS: number;
+  newEtaS: number;
+  reason: string;
+  createdAtIso: string;
+}
+
+/** Result of the baseline vs ITMS comparison. */
+export interface ComparisonResult {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  error: string | null;
+  input: {
+    type: EmergencyType;
+    origin: string;
+    destination: string;
+    priority: EmergencyPriority;
+    warmupSeconds: number;
+    durationCapSeconds: number;
+  };
+  baseline: { runId: number | null; metrics: SimulationMetrics | null };
+  itms: { runId: number | null; metrics: SimulationMetrics | null };
+  /** Deltas (itms - baseline); null where metrics are missing. */
+  deltas: {
+    emergencyTravelTimeS: number | null;
+    avgVehicleDelayS: number | null;
+    avgQueueLength: number | null;
+    avgSpeedMps: number | null;
+    throughputPerHour: number | null;
+    signalChangeCount: number | null;
+  } | null;
+  startedAtIso: string | null;
+  completedAtIso: string | null;
+}
+
+/** Body of POST /api/scenarios/compare. */
+export interface CreateComparisonBody {
+  type: EmergencyType;
+  origin: string;
+  destination: string;
+  priority: EmergencyPriority;
+  warmupSeconds?: number;
+  durationCapSeconds?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — command center supporting types
+// ---------------------------------------------------------------------------
+
+/** One decision-trace timeline entry (from persisted backend data only). */
+export interface DecisionEvent {
+  /** Wall-clock ISO timestamp of the decision. */
+  ts: string;
+  kind:
+    | "emergency.created"
+    | "emergency.activated"
+    | "emergency.arrived"
+    | "route.computed"
+    | "route.switched"
+    | "corridor.created"
+    | "corridor.activated"
+    | "corridor.completed"
+    | "corridor.cancelled"
+    | "corridor.failed"
+    | "signal.applied"
+    | "signal.passed";
+  message: string;
+  /** Structured identifiers for filtering. */
+  refs: {
+    emergencyEventId?: number;
+    corridorId?: number;
+    signalId?: string;
+    runId?: number;
+  };
+}
+
+/** Non-secret system overview for the Settings/System page. */
+export interface SystemOverview {
+  api: { host: string; port: number; nodeVersion: string };
+  simulation: SimulationStatusSnapshot;
+  database: { connected: boolean; lastError: string | null; postgisVersion: string | null };
+  prediction: {
+    configured: boolean;
+    url: string | null;
+    healthy: boolean;
+    modelVersion: string | null;
+    horizonsS: number[];
+  };
+  scenarios: Array<{ id: SimulationScenarioId; label: string }>;
+  settingsSummary: {
+    loopEvalIntervalS: number;
+    routeReevalIntervalS: number;
+    metricsSampleIntervalS: number;
+    congestionThresholds: {
+      mediumOccupancy: number;
+      highOccupancy: number;
+      criticalOccupancy: number;
+      mediumSpeedRatio: number;
+      highSpeedRatio: number;
+      criticalSpeedRatio: number;
+      mediumQueue: number;
+      highQueue: number;
+      criticalQueue: number;
+    };
+    corridor: {
+      greenLeadS: number;
+      greenTrailS: number;
+      minGreenWindowS: number;
+      maxGreenWindowS: number;
+      maxGreenExtensionS: number;
+      maxRedExtensionS: number;
+      clearanceYellowS: number;
+      minPriority: EmergencyPriority;
+    };
+  };
+}
+
+/** Measured analytics aggregates (computed from persisted runs only). */
+export interface AnalyticsResponse {
+  emergencyTrips: number;
+  completedEmergencies: number;
+  corridorsCreated: number;
+  runsRecorded: number;
+  /** Mean emergency travel time over runs that measured it (sim seconds). */
+  avgResponseTimeS: number | null;
+  /** Mean time saved per comparison (baseline − ITMS travel time, seconds). */
+  avgTimeSavedS: number | null;
+  avgTrafficDelayS: number | null;
+  avgQueueLength: number | null;
+  avgSpeedMps: number | null;
+  avgThroughputPerHour: number | null;
+  totalSignalChanges: number;
+  /** Per-run rows for charts (chronological). */
+  runs: Array<{
+    runId: number;
+    mode: string;
+    emergencyTravelTimeS: number | null;
+    avgVehicleDelayS: number | null;
+    avgQueueLength: number | null;
+    avgSpeedMps: number | null;
+    throughputPerHour: number | null;
+    signalChangeCount: number;
+    completedAtIso: string | null;
+  }>;
+}
+
+/** Network geometry for the live map (SUMO coordinates, meters). */
+export interface NetworkGeometryResponse {
+  /** SUMO → display info (the network is not geo-referenced). */
+  geoReferenced: boolean;
+  extent: { minX: number; minY: number; maxX: number; maxY: number };
+  junctions: Array<{ id: string; x: number; y: number; controlled: boolean }>;
+  segments: Array<{ id: string; fromJunction: string; toJunction: string; coordinates: Array<{ x: number; y: number }> }>;
+  facilities: Array<{ id: string; type: string; x: number; y: number }>;
 }

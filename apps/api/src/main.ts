@@ -9,6 +9,13 @@ import { TrafficCollector } from "./modules/traffic/collector.ts";
 import { TrafficService } from "./modules/traffic/traffic-service.ts";
 import { EmergencyService } from "./modules/emergency/emergency-service.ts";
 import { EmergencyRepository } from "./database/repositories/emergency-repository.ts";
+import { PredictionService } from "./modules/prediction/prediction-service.ts";
+import { CorridorService } from "./modules/corridor/corridor-service.ts";
+import { CorridorRepository } from "./database/repositories/corridor-repository.ts";
+import { ClosedLoopService } from "./modules/loop/closed-loop-service.ts";
+import { MetricsRecorder } from "./modules/metrics/metrics-recorder.ts";
+import { MetricsRepository } from "./database/repositories/metrics-repository.ts";
+import { ScenarioComparisonService } from "./modules/scenarios/scenario-comparison-service.ts";
 import { WsBus } from "./modules/websocket/ws-bus.ts";
 import { createDatabasePool } from "./database/db.ts";
 import { runMigrations } from "./database/migrate.ts";
@@ -69,10 +76,97 @@ async function main(): Promise<void> {
     getRunId: () => trafficService.getCurrentRunId(),
   });
 
-  const app = await buildApp({ config, logger, manager, trafficService, emergencyService, wsBus });
+  const predictionService = new PredictionService({
+    config,
+    logger,
+    trafficService,
+    db,
+    bus: wsBus,
+  });
+  predictionService.start();
+
+  const corridorService = new CorridorService({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    trafficService,
+    predictionService,
+    repository: new CorridorRepository(db),
+    bus: wsBus,
+    catalog,
+  });
+
+  const metricsRepository = new MetricsRepository(db);
+  const metricsRecorder = new MetricsRecorder({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    trafficService,
+    repository: metricsRepository,
+  });
+  const loopService = new ClosedLoopService({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    corridorService,
+    predictionService,
+    routeEngine,
+    metricsRepository,
+  });
+  const comparisonService = new ScenarioComparisonService({
+    config,
+    logger,
+    manager,
+    emergencyService,
+    corridorService,
+    loopService,
+    metricsRecorder,
+    metricsRepository,
+    trafficService,
+  });
+
+  const app = await buildApp({
+    config,
+    logger,
+    manager,
+    trafficService,
+    emergencyService,
+    predictionService,
+    corridorService,
+    loopService,
+    metricsRepository,
+    comparisonService,
+    catalog,
+    facilitiesPath: join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "simulation", "sumo", "network", "facilities.add.xml"),
+    db,
+    wsBus,
+  });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("Shutting down", { signal });
+    try {
+      await loopService.dispose();
+    } catch (err) {
+      logger.warn("Error while disposing loop service", { error: err });
+    }
+    try {
+      await metricsRecorder.dispose();
+    } catch (err) {
+      logger.warn("Error while disposing metrics recorder", { error: err });
+    }
+    try {
+      await corridorService.dispose();
+    } catch (err) {
+      logger.warn("Error while disposing corridor service", { error: err });
+    }
+    try {
+      await predictionService.dispose();
+    } catch (err) {
+      logger.warn("Error while disposing prediction service", { error: err });
+    }
     try {
       await emergencyService.dispose();
     } catch (err) {

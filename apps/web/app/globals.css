@@ -1,0 +1,72 @@
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --itms-bg: #080b12;
+  --itms-panel: #0f141d;
+  --itms-border: #202938;
+  --itms-text: #f4f7fa;
+  --itms-muted: #8b95a7;
+  --itms-success: #22c55e;
+  --itms-warning: #f59e0b;
+  --itms-critical: #ef4444;
+  --itms-emergency: #ff3b30;
+  --itms-ai: #8b5cf6;
+  --itms-info: #38bdf8;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--itms-bg);
+  color: var(--itms-text);
+}
+
+/* Subtle glass panel per Design.md (avoid excessive glassmorphism) */
+.itms-panel {
+  background: color-mix(in srgb, var(--itms-panel) 88%, transparent);
+  border: 1px solid var(--itms-border);
+  border-radius: 0.5rem;
+}
+
+.itms-grid-bg {
+  background-image:
+    linear-gradient(var(--itms-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--itms-border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center;
+}
+
+/* Emergency pulse: meaningful state indicator only */
+@keyframes itms-emergency-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 59, 48, 0); }
+}
+.itms-pulse {
+  animation: itms-emergency-pulse 2s ease-in-out infinite;
+}
+
+/* MapLibre popup theming */
+.maplibregl-popup-content {
+  background: var(--itms-panel) !important;
+  border: 1px solid var(--itms-border);
+  color: var(--itms-text);
+  border-radius: 0.375rem;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--itms-panel) !important;
+  border-bottom-color: var(--itms-panel) !important;
+}
+
+/* Scrollbars */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--itms-border); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }

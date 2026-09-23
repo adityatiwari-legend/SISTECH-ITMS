@@ -49,6 +49,11 @@ export interface NetworkSignal {
   programId: string;
   type: string;
   phases: NetworkSignalPhase[];
+  /**
+   * Traffic-light link indices per incoming segment (from <connection
+   * tl=... linkIndex=...> elements). Maps segment id → sorted link indices.
+   */
+  linkIndicesBySegment: Record<string, number[]>;
 }
 
 /** An undirected road between two adjacent junctions. */
@@ -112,6 +117,7 @@ export async function loadNetworkCatalog(netXmlPath: string): Promise<NetworkCat
 
   let currentSignal: NetworkSignal | null = null;
   let currentEdge: NetworkSegment | null = null;
+  const signalById = new Map<string, NetworkSignal>();
   let match: RegExpExecArray | null;
 
   TAG_PATTERN.lastIndex = 0;
@@ -194,7 +200,9 @@ export async function loadNetworkCatalog(netXmlPath: string): Promise<NetworkCat
           programId: attrs["programID"] ?? "0",
           type: attrs["type"] ?? "static",
           phases: [],
+          linkIndicesBySegment: {},
         };
+        signalById.set(id, currentSignal);
         signals.push(currentSignal);
         break;
       }
@@ -205,6 +213,23 @@ export async function loadNetworkCatalog(netXmlPath: string): Promise<NetworkCat
           durationS: Number(attrs["duration"] ?? 0),
           state: attrs["state"] ?? "",
         });
+        break;
+      }
+      case "connection": {
+        // Traffic-light controlled connections carry tl + linkIndex; they
+        // give the mapping "incoming segment → link indices at the signal",
+        // which the corridor planner uses to build green states.
+        const tl = attrs["tl"];
+        const linkIndexRaw = attrs["linkIndex"];
+        const from = attrs["from"] ?? "";
+        if (tl === undefined || linkIndexRaw === undefined || from === "") break;
+        const signal = signalById.get(tl);
+        if (signal === undefined) break;
+        const linkIndex = Number(linkIndexRaw);
+        if (!Number.isInteger(linkIndex) || linkIndex < 0) break;
+        const existing = signal.linkIndicesBySegment[from] ?? [];
+        existing.push(linkIndex);
+        signal.linkIndicesBySegment[from] = existing;
         break;
       }
       default:
@@ -222,6 +247,13 @@ export async function loadNetworkCatalog(netXmlPath: string): Promise<NetworkCat
     );
   }
   void netOffset;
+
+  // Sort link indices per segment for deterministic state construction.
+  for (const signal of signals) {
+    for (const [segmentId, indices] of Object.entries(signal.linkIndicesBySegment)) {
+      signal.linkIndicesBySegment[segmentId] = [...indices].sort((a, b) => a - b);
+    }
+  }
 
   const roads = deriveRoads(segments);
 

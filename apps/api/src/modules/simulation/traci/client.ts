@@ -506,6 +506,20 @@ export class TraCIConnection {
     });
   }
 
+  /**
+   * Switches the traffic light to the named (previously loaded) program and
+   * resumes its schedule. Used to restore normal operation after a
+   * corridor's temporary RYG override.
+   */
+  async setProgram(tlsId: string, programId: string): Promise<void> {
+    await this.request({
+      cmdId: TRACI.CMD_SET_TL_VARIABLE,
+      varId: TRACI.TL_PROGRAM,
+      objId: tlsId,
+      payload: encodeTypedString(programId),
+    });
+  }
+
   // ------------------------------------------------------------------
   // Route domain
   // ------------------------------------------------------------------
@@ -611,6 +625,13 @@ export class TraCIConnection {
   async getVehicleWaitingTime(vehicleId: string): Promise<number> {
     return this.expectNumber(
       await this.getVariable(TRACI.CMD_GET_VEHICLE_VARIABLE, TRACI.VAR_WAITING_TIME, vehicleId),
+    );
+  }
+
+  /** Accumulated time loss (delay) of a vehicle in seconds (SUMO). */
+  async getVehicleTimeLoss(vehicleId: string): Promise<number> {
+    return this.expectNumber(
+      await this.getVariable(TRACI.CMD_GET_VEHICLE_VARIABLE, TRACI.VAR_TIMELOSS, vehicleId),
     );
   }
 

@@ -221,6 +221,9 @@ export class EmergencyRepository {
     positionX: number | null;
     positionY: number | null;
     speedMps: number | null;
+    /** Simulation times captured at the transition (metrics). */
+    activatedSimTimeS?: number | null;
+    arrivedSimTimeS?: number | null;
   }): Promise<void> {
     await this.db.transaction(async (tx: QueryClient) => {
       const eventUpdate = await tx.query(
@@ -237,20 +240,76 @@ export class EmergencyRepository {
         `UPDATE emergency_vehicles SET status = $2,
            activated_at = COALESCE($3, activated_at),
            arrived_at = COALESCE($4, arrived_at),
-           last_position_x = COALESCE($5, last_position_x),
-           last_position_y = COALESCE($6, last_position_y),
-           last_speed_mps = COALESCE($7, last_speed_mps)
+           activated_sim_time_s = COALESCE($5, activated_sim_time_s),
+           arrived_sim_time_s = COALESCE($6, arrived_sim_time_s),
+           last_position_x = COALESCE($7, last_position_x),
+           last_position_y = COALESCE($8, last_position_y),
+           last_speed_mps = COALESCE($9, last_speed_mps)
          WHERE id = $1`,
         [
           input.vehicleRowId,
           input.status,
           input.activatedAtIso,
           input.arrivedAtIso,
+          input.activatedSimTimeS ?? null,
+          input.arrivedSimTimeS ?? null,
           input.positionX,
           input.positionY,
           input.speedMps,
         ],
       );
+    });
+  }
+
+  /** Persists a dynamic route revision and points the event at it. */
+  async addRouteRevision(input: {
+    eventId: number;
+    originJunction: string;
+    destinationJunction: string;
+    edges: Array<{ segmentId: string; fromJunction: string; toJunction: string; lengthM: number; costSeconds: number; congestion: string | null }>;
+    estimatedTravelTimeS: number;
+    freeFlowTravelTimeS: number;
+    reason: string;
+    simTimeS: number;
+    fromRouteId: number | null;
+  }): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const routeResult = await tx.query<{ id: number }>(
+        `INSERT INTO routes
+           (event_id, algorithm, origin_junction, destination_junction, edge_count,
+            total_length_m, estimated_travel_time_s, free_flow_travel_time_s)
+         VALUES ($1, 'astar', $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [
+          input.eventId,
+          input.originJunction,
+          input.destinationJunction,
+          input.edges.length,
+          input.edges.reduce((sum, edge) => sum + edge.lengthM, 0),
+          input.estimatedTravelTimeS,
+          input.freeFlowTravelTimeS,
+        ],
+      );
+      const routeId = routeResult.rows[0]!.id;
+      const values: unknown[] = [];
+      const placeholders = input.edges.map((edge, index) => {
+        const adjusted = index * 7;
+        values.push(routeId, index, edge.segmentId, edge.fromJunction, edge.toJunction, edge.lengthM, edge.costSeconds);
+        return `($${adjusted + 1}, $${adjusted + 2}, $${adjusted + 3}, $${adjusted + 4}, $${adjusted + 5}, $${adjusted + 6}, $${adjusted + 7})`;
+      });
+      await tx.query(
+        `INSERT INTO route_segments
+           (route_id, sequence_index, segment_id, from_junction, to_junction, length_m, cost_seconds)
+         VALUES ${placeholders.join(", ")}`,
+        values,
+      );
+      await tx.query(`UPDATE emergency_events SET route_id = $2 WHERE id = $1`, [input.eventId, routeId]);
+      await tx.query(
+        `INSERT INTO emergency_route_switches
+           (event_id, sim_time_s, from_route_id, to_route_id, new_eta_s, reason)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [input.eventId, input.simTimeS, input.fromRouteId, routeId, input.estimatedTravelTimeS, input.reason],
+      );
+      return routeId;
     });
   }
 }

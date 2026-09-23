@@ -1,6 +1,11 @@
 import pg from "pg";
 import { AppError } from "../errors.ts";
 
+// PostgreSQL BIGINT (int8, OID 20) arrives as a string by default, which
+// corrupts id-based Map lookups and JSON contracts. All ITMS ids are small
+// (well below 2^53), so parse them as numbers at this single boundary.
+pg.types.setTypeParser(20, (value: string) => Number(value));
+
 /**
  * Thin wrapper around a pg Pool.
  *

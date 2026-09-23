@@ -29,6 +29,66 @@ export interface AppConfig {
   trafficStaleAfterSeconds: number;
   /** Congestion classification thresholds. */
   congestionThresholds: CongestionThresholds;
+
+  // Phase 4 — AI traffic prediction
+  /** Base URL of the Python prediction service; empty disables predictions. */
+  predictionServiceUrl: string | null;
+  /** Minimum wall-clock interval between prediction refreshes (ms). */
+  predictionIntervalMs: number;
+  /** Timeout for prediction service calls (ms). */
+  predictionTimeoutMs: number;
+  /** Age in SIMULATION seconds after which a prediction is stale. */
+  predictionStaleAfterSeconds: number;
+  /** Simulated city clock origin used for the hour/day features. */
+  simStartHour: number;
+  simStartDayOfWeek: number;
+
+  // Phase 5 — predictive rolling green corridor
+  /** Green window starts this many seconds before the emergency ETA. */
+  corridorGreenLeadS: number;
+  /** Green window extends this many seconds past the emergency ETA. */
+  corridorGreenTrailS: number;
+  corridorMinGreenWindowS: number;
+  /** Maximum total corridor-green duration at one junction (also red bound). */
+  corridorMaxGreenWindowS: number;
+  /** Maximum extra green beyond the normal program's switch point. */
+  corridorMaxGreenExtensionS: number;
+  /** Maximum time cross-traffic approaches may be held red by the corridor. */
+  corridorMaxRedExtensionS: number;
+  /** Yellow clearance duration inserted before cutting a live green. */
+  corridorClearanceYellowS: number;
+  /** Junctions with ETA beyond this horizon are planned later (rolling). */
+  corridorEtaPlanHorizonS: number;
+  /** ETA change larger than this triggers a window replan (seconds). */
+  corridorReplanEtaThresholdS: number;
+  /** Downstream occupancy above this blocks corridor green (spillback). */
+  corridorDownstreamOccupancyLimit: number;
+  /** Minimum emergency priority eligible for corridors. */
+  corridorMinPriority: "normal" | "high" | "critical";
+
+  // Phase 6 — closed-loop optimization
+  /** Loop evaluation cadence in SIMULATION seconds (deterministic). */
+  loopEvalIntervalS: number;
+  /** Route re-evaluation cadence in SIMULATION seconds. */
+  routeReevalIntervalS: number;
+  /** Minimum absolute improvement (sim seconds) required to switch route. */
+  routeSwitchMinImprovementS: number;
+  /** Minimum relative improvement (fraction of current ETA) required. */
+  routeSwitchMinImprovementFraction: number;
+  /** Minimum sim seconds between two switches of one emergency. */
+  routeSwitchCooldownS: number;
+  /** Maximum dynamic switches per emergency (oscillation guard). */
+  routeSwitchMaxPerEmergency: number;
+  /** No switch when the destination ETA is at/below this (sim seconds). */
+  routeSwitchNearDestinationGuardS: number;
+
+  // Phase 6 — metrics + comparison runs
+  /** Metrics sampling cadence in SIMULATION seconds. */
+  metricsSampleIntervalS: number;
+  /** Comparison run warm-up sim seconds before the emergency is created. */
+  comparisonWarmupSeconds: number;
+  /** Comparison run duration cap in sim seconds. */
+  comparisonDurationCapSeconds: number;
 }
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -102,6 +162,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       "ITMS_SCENARIO_EMERGENCY",
       join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency.sumocfg"),
     ),
+    emergency_low: readScenarioPath(
+      env,
+      "ITMS_SCENARIO_EMERGENCY_LOW",
+      join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-low.sumocfg"),
+    ),
+    emergency_high: readScenarioPath(
+      env,
+      "ITMS_SCENARIO_EMERGENCY_HIGH",
+      join(REPO_ROOT, "simulation", "sumo", "scenarios", "emergency", "emergency-high.sumocfg"),
+    ),
   };
   for (const [id, path] of Object.entries(scenarioPaths)) {
     if (!existsSync(path)) {
@@ -136,6 +206,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     join(REPO_ROOT, "simulation", "sumo", "network", "itms.net.xml"),
   );
 
+  const predictionUrlRaw = env.PREDICTION_SERVICE_URL;
+  if (predictionUrlRaw !== undefined && predictionUrlRaw !== "") {
+    try {
+      const url = new URL(predictionUrlRaw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error("must use http(s)://");
+      }
+    } catch (err) {
+      throw new Error(
+        `Invalid PREDICTION_SERVICE_URL: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   return {
     host: env.HOST || "127.0.0.1",
     port: readNumber(env, "PORT", 3000, 1, 65535),
@@ -153,5 +237,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trafficEventIntervalMs: readNumber(env, "TRAFFIC_EVENT_INTERVAL_MS", 1000, 100, 60_000),
     trafficStaleAfterSeconds: readNumber(env, "TRAFFIC_STALE_AFTER_SECONDS", 5, 1, 3600),
     congestionThresholds: readCongestionThresholds(env),
+
+    predictionServiceUrl: predictionUrlRaw !== undefined && predictionUrlRaw !== "" ? predictionUrlRaw.replace(/\/+$/, "") : null,
+    predictionIntervalMs: readNumber(env, "PREDICTION_INTERVAL_MS", 2000, 250, 60_000),
+    predictionTimeoutMs: readNumber(env, "PREDICTION_TIMEOUT_MS", 2000, 50, 60_000),
+    predictionStaleAfterSeconds: readNumber(env, "PREDICTION_STALE_AFTER_SECONDS", 10, 1, 3600),
+    simStartHour: readNumber(env, "ITMS_SIM_START_HOUR", 8, 0, 23),
+    simStartDayOfWeek: readNumber(env, "ITMS_SIM_START_DAY_OF_WEEK", 2, 0, 6),
+
+    corridorGreenLeadS: readNumber(env, "CORRIDOR_GREEN_LEAD_S", 5, 0, 120),
+    corridorGreenTrailS: readNumber(env, "CORRIDOR_GREEN_TRAIL_S", 12, 0, 120),
+    corridorMinGreenWindowS: readNumber(env, "CORRIDOR_MIN_GREEN_WINDOW_S", 8, 1, 120),
+    corridorMaxGreenWindowS: readNumber(env, "CORRIDOR_MAX_GREEN_WINDOW_S", 30, 1, 300),
+    corridorMaxGreenExtensionS: readNumber(env, "CORRIDOR_MAX_GREEN_EXTENSION_S", 20, 0, 300),
+    corridorMaxRedExtensionS: readNumber(env, "CORRIDOR_MAX_RED_EXTENSION_S", 45, 1, 300),
+    corridorClearanceYellowS: readNumber(env, "CORRIDOR_CLEARANCE_YELLOW_S", 3, 0, 30),
+    corridorEtaPlanHorizonS: readNumber(env, "CORRIDOR_ETA_PLAN_HORIZON_S", 60, 1, 600),
+    corridorReplanEtaThresholdS: readNumber(env, "CORRIDOR_REPLAN_ETA_THRESHOLD_S", 4, 0.5, 120),
+    corridorDownstreamOccupancyLimit: readNumber(env, "CORRIDOR_DOWNSTREAM_OCCUPANCY_LIMIT", 0.85, 0.1, 1),
+    corridorMinPriority: readCorridorMinPriority(env),
+
+    loopEvalIntervalS: readNumber(env, "LOOP_EVAL_INTERVAL_S", 3, 0.5, 120),
+    routeReevalIntervalS: readNumber(env, "ROUTE_REEVAL_INTERVAL_S", 5, 0.5, 600),
+    routeSwitchMinImprovementS: readNumber(env, "ROUTE_SWITCH_MIN_IMPROVEMENT_S", 8, 0, 300),
+    routeSwitchMinImprovementFraction: readNumber(env, "ROUTE_SWITCH_MIN_IMPROVEMENT_FRACTION", 0.15, 0, 1),
+    routeSwitchCooldownS: readNumber(env, "ROUTE_SWITCH_COOLDOWN_S", 30, 0, 600),
+    routeSwitchMaxPerEmergency: readNumber(env, "ROUTE_SWITCH_MAX_PER_EMERGENCY", 3, 0, 50),
+    routeSwitchNearDestinationGuardS: readNumber(env, "ROUTE_SWITCH_NEAR_DESTINATION_GUARD_S", 15, 0, 300),
+
+    metricsSampleIntervalS: readNumber(env, "METRICS_SAMPLE_INTERVAL_S", 5, 0.5, 600),
+    comparisonWarmupSeconds: readNumber(env, "COMPARISON_WARMUP_SECONDS", 30, 0, 600),
+    comparisonDurationCapSeconds: readNumber(env, "COMPARISON_DURATION_CAP_SECONDS", 480, 30, 7200),
   };
+}
+
+function readCorridorMinPriority(env: NodeJS.ProcessEnv): "normal" | "high" | "critical" {
+  const raw = env.CORRIDOR_MIN_PRIORITY;
+  if (raw === undefined || raw === "") return "normal";
+  if (raw === "normal" || raw === "high" || raw === "critical") return raw;
+  throw new Error('Invalid CORRIDOR_MIN_PRIORITY: allowed values are "normal", "high", "critical".');
 }

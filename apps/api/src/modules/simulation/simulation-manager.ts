@@ -48,6 +48,12 @@ export class SimulationManager {
   private lifecycleChain: Promise<unknown> = Promise.resolve();
   private stepInFlight: Promise<void> | null = null;
   private catalog: NetworkCatalog | null = null;
+  /** Signal state/program changes issued this run (metrics). */
+  private signalChangeCount = 0;
+  /** Wall-clock pace: ms between paced steps (1000 = 1x real time). */
+  private paceMs: number;
+  /** Pace multiplier for the status snapshot. */
+  private paceMultiplier = 1;
   private stepListeners = new Set<(event: { simTimeSeconds: number }) => void>();
   private disconnectListeners = new Set<(event: { reason: string }) => void>();
   private startListeners = new Set<
@@ -60,6 +66,8 @@ export class SimulationManager {
   constructor(options: { config: AppConfig; logger: Logger }) {
     this.config = options.config;
     this.logger = options.logger;
+    this.paceMs = options.config.stepIntervalMs;
+    this.paceMultiplier = options.config.stepIntervalMs > 0 ? Math.max(1, Math.round(1000 / options.config.stepIntervalMs)) : 1;
   }
 
   // ------------------------------------------------------------------
@@ -106,6 +114,7 @@ export class SimulationManager {
       scenario: this.scenario,
       simTimeSeconds: round(this.simTimeSeconds),
       stepLengthSeconds: this.config.sumoStepLengthSeconds,
+      paceMultiplier: this.paceMultiplier,
       vehicleCount: this.vehicles.length,
       signalCount: this.signals.size,
       departedVehicleCount: this.departedVehicleCount,
@@ -213,6 +222,34 @@ export class SimulationManager {
       const message = err instanceof Error ? err.message : String(err);
       throw new AppError(502, "sumo_command_failed", `Could not read pending vehicles: ${message}`);
     }
+  }
+
+  /** Replaces the vehicle's route with a new edge list (dynamic re-routing). */
+  async setVehicleRouteEdges(vehicleId: string, edges: string[]): Promise<void> {
+    if (edges.length === 0) {
+      throw new AppError(422, "invalid_route", "Cannot set an empty vehicle route.");
+    }
+    const client = this.requireClient();
+    try {
+      await client.setVehicleRoute(vehicleId, edges);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `SUMO rejected the new route: ${message}`);
+    }
+  }
+
+  /** Accumulated time loss (delay) of a vehicle in seconds. */
+  async getVehicleTimeLoss(vehicleId: string): Promise<number> {
+    const client = this.requireClient();
+    return client.getVehicleTimeLoss(vehicleId);
+  }
+
+  /**
+   * Number of signal state/program changes issued since the current
+   * simulation started (metric for the baseline vs ITMS comparison).
+   */
+  getSignalChangeCount(): number {
+    return this.signalChangeCount;
   }
 
   /** The network catalog used by this simulation (static topology). */
@@ -409,6 +446,23 @@ export class SimulationManager {
     return this.getStatusSnapshot();
   }
 
+  /**
+   * Sets the wall-clock pace multiplier (1x = 1 sim second per wall second).
+   * Affects the paced auto loop only; manual stepping is unaffected.
+   */
+  setPace(multiplier: number): SimulationStatusSnapshot {
+    if (this.status !== "running" && this.status !== "paused" && this.status !== "idle") {
+      throw new AppError(409, "not_paceable", `Cannot set pace: simulation is ${this.status}.`);
+    }
+    if (![1, 2, 5, 10].includes(multiplier)) {
+      throw new AppError(422, "invalid_pace", `Pace multiplier must be one of 1, 2, 5, 10 (got ${multiplier}).`);
+    }
+    this.paceMultiplier = multiplier;
+    this.paceMs = Math.round(1000 / multiplier);
+    this.logger.info("Simulation pace set", { multiplier, stepIntervalMs: this.paceMs });
+    return this.getStatusSnapshot();
+  }
+
   // ------------------------------------------------------------------
   // Step loop
   // ------------------------------------------------------------------
@@ -433,7 +487,7 @@ export class SimulationManager {
         this.handleDisconnect(`Simulation loop failed: ${message}`);
         break;
       }
-      await sleep(this.config.stepIntervalMs);
+      await sleep(this.paceMs);
     }
   }
 
@@ -606,6 +660,34 @@ export class SimulationManager {
   // Signal control
   // ------------------------------------------------------------------
 
+  /** Switches a signal back to a named program (corridor restoration). */
+  async setSignalProgram(id: string, programId: string): Promise<void> {
+    if (this.status !== "running" && this.status !== "paused") {
+      throw new AppError(409, "simulation_not_running", `Cannot set signal program: simulation is ${this.status}.`);
+    }
+    if (this.signalLinkCount.get(id) === undefined) {
+      throw new AppError(404, "unknown_signal", `Unknown traffic signal "${id}".`);
+    }
+    const client = this.requireClient();
+    try {
+      await client.setProgram(id, programId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, "sumo_command_failed", `SUMO rejected the program switch: ${message}`);
+    }
+    try {
+      const program = await client.getCurrentProgram(id);
+      const signal = this.signals.get(id);
+      if (signal !== undefined) {
+        signal.program = program;
+      }
+    } catch (err) {
+      this.logger.warn("Could not re-read signal program after set", { signal: id, error: err });
+    }
+    this.signalChangeCount += 1;
+    this.logger.info("Signal program set", { signal: id, program: programId });
+  }
+
   /** Applies a red/yellow/green state to a signal and refreshes its snapshot. */
   async setSignalState(id: string, state: string): Promise<SignalSnapshot> {
     if (this.status !== "running" && this.status !== "paused") {
@@ -646,6 +728,7 @@ export class SimulationManager {
     if (snapshot === null) {
       throw new AppError(404, "unknown_signal", `Unknown traffic signal "${id}".`);
     }
+    this.signalChangeCount += 1;
     this.logger.info("Signal state set", { signal: id, state: snapshot.state });
     return snapshot;
   }
@@ -744,6 +827,7 @@ export class SimulationManager {
     this.departedVehicleCount = null;
     this.arrivedVehicleCount = null;
     this.startedAtIso = null;
+    this.signalChangeCount = 0;
     if (!keepErrorState) {
       this.lastError = null;
     }

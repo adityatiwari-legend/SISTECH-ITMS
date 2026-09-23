@@ -108,6 +108,30 @@ export class TrafficService {
     return this.currentRunId;
   }
 
+  /**
+   * The latest collected traffic state (collector output), or null when no
+   * state has been collected yet. Read-only access for the prediction layer.
+   */
+  getLiveTrafficState(): TrafficState | null {
+    return this.latest;
+  }
+
+  /** Ids of junctions with traffic lights (from the network catalog). */
+  getControlledJunctionIds(): string[] {
+    return this.catalog.signals.map((signal) => signal.id);
+  }
+
+  /** Status snapshot access for dependent services. */
+  managerStatus(): SimulationStatusSnapshot {
+    return this.manager.getStatusSnapshot();
+  }
+
+  /** The junction a segment feeds into (static topology), or null. */
+  toJunctionOf(segmentId: string): string | null {
+    const info = this.segmentInfo.find((segment) => segment.id === segmentId);
+    return info?.to ?? null;
+  }
+
   stopBroadcastLoop(): void {
     if (this.broadcastTimer !== null) {
       clearInterval(this.broadcastTimer);

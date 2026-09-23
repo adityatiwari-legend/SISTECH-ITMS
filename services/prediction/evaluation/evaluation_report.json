@@ -1,0 +1,103 @@
+{
+  "generated_at": "2026-09-23T06:36:27.025829+00:00",
+  "dataset": {
+    "path": "data\\training_dataset.csv",
+    "sha256": "82a553ba5c59ea69d9a5bdef0f0ba3ba048904ce01a1b25d7b743114b7dec714",
+    "rows": 36000,
+    "runs_total": 40,
+    "train_runs": [
+      "gen03",
+      "gen04",
+      "gen09",
+      "gen10",
+      "gen11",
+      "gen12",
+      "gen13",
+      "gen16",
+      "gen18",
+      "gen19",
+      "gen20",
+      "gen21",
+      "gen22",
+      "gen23",
+      "gen24",
+      "gen25",
+      "gen26",
+      "gen28",
+      "gen29",
+      "gen30",
+      "gen31",
+      "gen32",
+      "gen33",
+      "gen34",
+      "gen35",
+      "gen36",
+      "gen37",
+      "gen39"
+    ],
+    "val_runs": [
+      "gen00",
+      "gen02",
+      "gen05",
+      "gen06",
+      "gen27",
+      "gen38"
+    ],
+    "test_runs": [
+      "gen01",
+      "gen07",
+      "gen08",
+      "gen14",
+      "gen15",
+      "gen17"
+    ]
+  },
+  "metrics_test": {
+    "30s": {
+      "mae": 3.5800295295638755,
+      "rmse": 5.15936424000756,
+      "r2": 0.9114866034903686,
+      "test_rows": 5400
+    },
+    "60s": {
+      "mae": 4.605011581661938,
+      "rmse": 6.881290994347179,
+      "r2": 0.8733905886931224,
+      "test_rows": 5400
+    },
+    "90s": {
+      "mae": 4.9694014792054615,
+      "rmse": 8.343019050656501,
+      "r2": 0.8456165051586984,
+      "test_rows": 5400
+    },
+    "120s": {
+      "mae": 6.9418235266967505,
+      "rmse": 11.829734419523433,
+      "r2": 0.738686837955975,
+      "test_rows": 5400
+    }
+  },
+  "latency": {
+    "one_horizon_ms": 1.0068,
+    "all_horizons_ms": 4.5263,
+    "measured_calls": 2000
+  },
+  "model_params": {
+    "objective": "reg:squarederror",
+    "n_estimators": 600,
+    "max_depth": 8,
+    "learning_rate": 0.06,
+    "subsample": 0.9,
+    "colsample_bytree": 0.9,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "n_jobs": 4,
+    "tree_method": "hist",
+    "verbosity": 0
+  },
+  "notes": [
+    "Values are measured on held-out test runs; nothing is fabricated.",
+    "Run-level split avoids temporal leakage within the dataset."
+  ]
+}

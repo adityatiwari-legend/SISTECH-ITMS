@@ -13,8 +13,11 @@
   "scripts": {
     "build:network": "node simulation/sumo/scripts/build-network.mjs",
     "dev:api": "npm run dev --workspace apps/api",
-    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace @itms/types",
-    "test:api": "npm run test --workspace apps/api"
+    "dev:web": "npm run dev --workspace web",
+    "build:web": "npm run build --workspace web",
+    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace @itms/types && npm run typecheck --workspace web",
+    "test:api": "npm run test --workspace apps/api",
+    "test:prediction": "python -m pytest services/prediction/tests -q"
   },
   "dependencies": {
     "@fastify/websocket": "^11.3.1",
