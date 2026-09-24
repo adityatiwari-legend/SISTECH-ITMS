@@ -218,38 +218,55 @@ export function SimulationMap({
 
         {/* Legend Flyout */}
         {showLegend && (
-          <div className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#0A0F16]/95 p-3 backdrop-blur-md shadow-2xl text-xs space-y-2 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between pb-1 border-b border-[rgba(255,255,255,0.06)] font-mono text-[9px] uppercase tracking-wider text-[#5E6B7A]">
+          <div className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#0A0F16]/95 p-3.5 backdrop-blur-md shadow-2xl text-xs space-y-2.5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between pb-1.5 border-b border-[rgba(255,255,255,0.06)] font-mono text-[9px] uppercase tracking-wider text-[#5E6B7A]">
               <span>MAP VISUAL LEGEND</span>
               <button onClick={() => setShowLegend(false)} className="text-[#5E6B7A] hover:text-[#F4F7FA]">✕</button>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] font-mono">
               <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#94A3B8]" />
-                <span className="text-[#8D9AAA]">Normal Vehicle</span>
+                <span className="h-2 w-2 rounded-full bg-[#64748B]" />
+                <span className="text-[#8D9AAA]">Normal traffic</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm">🚑</span>
-                <span className="text-[#FF3B4E] font-medium">Emergency Unit</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-1.5 w-4 rounded bg-[#18D88B]" />
-                <span className="text-[#18D88B]">Active Corridor</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-1.5 w-4 rounded bg-[#FFB547]" />
-                <span className="text-[#FFB547]">Preparing Phase</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-[#FF3B4E] animate-pulse" />
+                <span className="text-[#FF6B7A] font-semibold">Emergency vehicle</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="h-1.5 w-4 rounded bg-[#FF3B4E]" />
-                <span className="text-[#FF3B4E]">Emergency Route</span>
+                <span className="text-[#FF3B4E]">Emergency route</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm">🏥</span>
-                <span className="text-[#8D9AAA]">Hospital Base</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-[#18D88B] shadow-sm shadow-[#18D88B]" />
+                <span className="text-[#18D88B] font-semibold">Current green</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#42B8FF]" />
+                <span className="text-[#42B8FF]">Preparing</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#8D9AAA]" />
+                <span className="text-[#8D9AAA]">Upcoming</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#FFB547] animate-pulse" />
+                <span className="text-[#FFB547]">Cross-traffic clearing</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#475569]" />
+                <span className="text-[#8D9AAA]">Passed</span>
+              </div>
+              <div className="flex items-center gap-2 col-span-2 border-t border-[rgba(255,255,255,0.04)] pt-1.5">
+                <span className="h-2 w-2 rounded-full bg-[#1E293B]" />
+                <span className="text-[#5E6B7A]">Normal signal control</span>
               </div>
             </div>
           </div>
+        )}
+
+        {/* Floating Active Corridor HUD */}
+        {showCorridor && data.corridor && data.corridor.status === "ACTIVE" && (
+          <ActiveCorridorHUD corridor={data.corridor} emergency={data.emergency} />
         )}
       </div>
 
@@ -352,34 +369,138 @@ function NetworkCanvas({
   const svgRef = React.useRef<SVGSVGElement | null>(null);
   const [view, setView] = React.useState({ x: viewBox.minX, y: viewBox.minY, w: viewBox.width });
   const [hoveredJunctionId, setHoveredJunctionId] = React.useState<string | null>(null);
+  const [selectedVehicleId, setSelectedVehicleId] = React.useState<string | null>(null);
+  const [isFollowingVehicle, setIsFollowingVehicle] = React.useState(false);
 
-  // Reset viewport when network geometry changes
-  React.useEffect(() => {
-    setView({ x: viewBox.minX, y: viewBox.minY, w: viewBox.width });
-  }, [viewBox]);
+  // Live emergency vehicle: resolve from 5 Hz vehicle telemetry stream first, fallback to REST
+  const liveEmergency = React.useMemo(() => {
+    const emvId = data.emergency?.vehicle?.vehicleId;
+    const fromVehicles = data.vehicles.find(
+      (v) => (emvId && v.id === emvId) || v.id.startsWith("emv-") || v.typeId.includes("emergency") || v.typeId.includes("ambulance")
+    );
+    if (fromVehicles) {
+      return {
+        vehicleId: fromVehicles.id,
+        positionX: fromVehicles.positionX,
+        positionY: fromVehicles.positionY,
+        angle: fromVehicles.angle ?? 0,
+        speedMps: fromVehicles.speed,
+        type: data.emergency?.vehicle?.type ?? "ambulance",
+      };
+    }
+    if (data.emergency?.live) {
+      return {
+        vehicleId: data.emergency.vehicle?.vehicleId ?? "ambulance",
+        positionX: data.emergency.live.positionX,
+        positionY: data.emergency.live.positionY,
+        angle: data.emergency.live.angle ?? 0,
+        speedMps: data.emergency.live.speedMps,
+        type: data.emergency.vehicle?.type ?? "ambulance",
+      };
+    }
+    if (data.emergency?.vehicle?.positionX != null && data.emergency?.vehicle?.positionY != null) {
+      return {
+        vehicleId: data.emergency.vehicle.vehicleId ?? "ambulance",
+        positionX: data.emergency.vehicle.positionX,
+        positionY: data.emergency.vehicle.positionY,
+        angle: 0,
+        speedMps: data.emergency.vehicle.speedMps ?? 0,
+        type: data.emergency.vehicle.type ?? "ambulance",
+      };
+    }
+    return null;
+  }, [data.emergency, data.vehicles]);
 
-  // FOLLOW EMERGENCY LOGIC: Smooth tracking without violent snaps
+  // Initial viewport setup on load
+  const initializedRef = React.useRef(false);
   React.useEffect(() => {
-    if (!isFollowingEmergency || !data.emergency?.live) return;
-    const emX = data.emergency.live.positionX;
-    const emY = flipY(data.emergency.live.positionY, geometry);
+    if (!initializedRef.current && viewBox.width > 0) {
+      setView({ x: viewBox.minX, y: viewBox.minY, w: viewBox.width });
+      initializedRef.current = true;
+    }
+  }, [viewBox.minX, viewBox.minY, viewBox.width]);
+
+  // FOLLOW LOGIC: Smooth tracking centered on followed vehicle
+  React.useEffect(() => {
+    if (!isFollowingEmergency && !isFollowingVehicle) return;
+
+    let targetX: number | null = null;
+    let targetY: number | null = null;
+
+    if (isFollowingEmergency && liveEmergency) {
+      targetX = liveEmergency.positionX;
+      targetY = flipY(liveEmergency.positionY, geometry);
+    } else if (isFollowingVehicle && selectedVehicleId) {
+      const v = data.vehicles.find((veh) => veh.id === selectedVehicleId);
+      if (v) {
+        targetX = v.positionX;
+        targetY = flipY(v.positionY, geometry);
+      }
+    }
+
+    if (targetX === null || targetY === null) return;
+
     const aspect = viewBox.height / viewBox.width;
-    const followW = viewBox.width * 0.42;
+    const followW = Math.max(160, Math.min(320, viewBox.width * 0.12));
 
     setView((prev) => {
-      // Lerp (smooth interpolation) towards target
-      const targetX = emX - followW / 2;
-      const targetY = emY - (followW * aspect) / 2;
+      const destX = targetX! - followW / 2;
+      const destY = targetY! - (followW * aspect) / 2;
       return {
-        x: prev.x + (targetX - prev.x) * 0.25,
-        y: prev.y + (targetY - prev.y) * 0.25,
-        w: prev.w + (followW - prev.w) * 0.25,
+        x: prev.x + (destX - prev.x) * 0.35,
+        y: prev.y + (destY - prev.y) * 0.35,
+        w: prev.w + (followW - prev.w) * 0.35,
       };
     });
-  }, [isFollowingEmergency, data.emergency?.live, geometry, viewBox]);
+  }, [isFollowingEmergency, isFollowingVehicle, liveEmergency, selectedVehicleId, data.vehicles, geometry, viewBox]);
+
+  // Toggle follow emergency with instant snap-to-target
+  const toggleFollowEmergency = React.useCallback(() => {
+    if (!isFollowingEmergency) {
+      if (liveEmergency) {
+        const emX = liveEmergency.positionX;
+        const emY = flipY(liveEmergency.positionY, geometry);
+        const aspect = viewBox.height / viewBox.width;
+        const followW = Math.max(160, Math.min(320, viewBox.width * 0.12));
+        setView({
+          x: emX - followW / 2,
+          y: emY - (followW * aspect) / 2,
+          w: followW,
+        });
+      }
+      setIsFollowingVehicle(false);
+      setIsFollowingEmergency(true);
+    } else {
+      setIsFollowingEmergency(false);
+    }
+  }, [isFollowingEmergency, liveEmergency, geometry, viewBox, setIsFollowingEmergency]);
+
+  // Toggle follow selected vehicle with instant snap-to-target
+  const toggleFollowVehicle = React.useCallback(() => {
+    if (!isFollowingVehicle) {
+      const v = data.vehicles.find((veh) => veh.id === selectedVehicleId);
+      if (v) {
+        const emX = v.positionX;
+        const emY = flipY(v.positionY, geometry);
+        const aspect = viewBox.height / viewBox.width;
+        const followW = Math.max(160, Math.min(320, viewBox.width * 0.12));
+        setView({
+          x: emX - followW / 2,
+          y: emY - (followW * aspect) / 2,
+          w: followW,
+        });
+      }
+      setIsFollowingEmergency(false);
+      setIsFollowingVehicle(true);
+    } else {
+      setIsFollowingVehicle(false);
+    }
+  }, [isFollowingVehicle, selectedVehicleId, data.vehicles, geometry, viewBox, setIsFollowingEmergency]);
 
   // Zoom controls
   const zoomIn = React.useCallback(() => {
+    setIsFollowingEmergency(false);
+    setIsFollowingVehicle(false);
     setView((prev) => {
       const factor = 0.75;
       const newW = clamp(prev.w * factor, viewBox.width / 40, viewBox.width * 1.5);
@@ -391,9 +512,11 @@ function NetworkCanvas({
         w: newW,
       };
     });
-  }, [viewBox]);
+  }, [viewBox, setIsFollowingEmergency]);
 
   const zoomOut = React.useCallback(() => {
+    setIsFollowingEmergency(false);
+    setIsFollowingVehicle(false);
     setView((prev) => {
       const factor = 1.33;
       const newW = clamp(prev.w * factor, viewBox.width / 40, viewBox.width * 1.5);
@@ -405,16 +528,18 @@ function NetworkCanvas({
         w: newW,
       };
     });
-  }, [viewBox]);
+  }, [viewBox, setIsFollowingEmergency]);
 
   const fitNetwork = React.useCallback(() => {
     setIsFollowingEmergency(false);
+    setIsFollowingVehicle(false);
     setView({ x: viewBox.minX, y: viewBox.minY, w: viewBox.width });
   }, [viewBox, setIsFollowingEmergency]);
 
   // FOCUS CORRIDOR: Fits emergency vehicle + all upcoming corridor junctions + destination
   const focusCorridor = React.useCallback(() => {
     setIsFollowingEmergency(false);
+    setIsFollowingVehicle(false);
     if (!data.emergency || !data.corridor) {
       fitNetwork();
       return;
@@ -571,18 +696,33 @@ function NetworkCanvas({
             <span className="hidden sm:inline">FIT NETWORK</span>
           </button>
 
-          {data.emergency && (
+          {(data.emergency || liveEmergency) && (
             <button
-              onClick={() => setIsFollowingEmergency(!isFollowingEmergency)}
+              onClick={toggleFollowEmergency}
               className={`flex items-center gap-1 rounded px-2 py-1 font-mono text-[10px] font-semibold transition-colors ${
                 isFollowingEmergency
-                  ? "bg-[#FF3B4E] text-[#05070B] font-bold"
+                  ? "bg-[#FF3B4E] text-[#05070B] font-bold shadow-[0_0_12px_rgba(255,59,78,0.5)]"
                   : "text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.15)]"
               }`}
-              title="Smoothly track emergency vehicle"
+              title="Center and track live emergency vehicle"
             >
               <Icons.CenterTarget className="h-3 w-3" />
-              <span>{isFollowingEmergency ? "FOLLOWING" : "FOLLOW EMERGENCY"}</span>
+              <span>{isFollowingEmergency ? "FOLLOWING EMERGENCY" : "FOLLOW EMERGENCY"}</span>
+            </button>
+          )}
+
+          {selectedVehicleId && !isFollowingEmergency && (
+            <button
+              onClick={toggleFollowVehicle}
+              className={`flex items-center gap-1 rounded px-2 py-1 font-mono text-[10px] font-semibold transition-colors ${
+                isFollowingVehicle
+                  ? "bg-[#42B8FF] text-[#05070B] font-bold shadow-[0_0_12px_rgba(66,184,255,0.5)]"
+                  : "text-[#42B8FF] hover:bg-[rgba(66,184,255,0.15)]"
+              }`}
+              title="Track selected vehicle"
+            >
+              <Icons.CenterTarget className="h-3 w-3" />
+              <span>{isFollowingVehicle ? `FOLLOWING ${selectedVehicleId}` : `FOLLOW ${selectedVehicleId}`}</span>
             </button>
           )}
 
@@ -654,12 +794,40 @@ function NetworkCanvas({
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
+        <defs>
+          <filter id="glow-green" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="glow-red" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <marker
+            id="route-arrow"
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="4.5"
+            markerHeight="4.5"
+            orient="auto"
+          >
+            <path d="M 0 1.5 L 7 5 L 0 8.5 L 2 5 Z" fill="#FF3B4E" />
+          </marker>
+        </defs>
+
         <rect
           x={view.x}
           y={view.y}
           width={view.w}
           height={view.w * (viewBox.height / viewBox.width)}
-          fill="#070A0F"
+          fill="#070B12"
         />
 
         {/* 1. Static Road Network */}
@@ -668,6 +836,9 @@ function NetworkCanvas({
         {/* 2. Dynamic TraCI Overlays */}
         <DynamicLayer
           data={data}
+          liveEmergency={liveEmergency}
+          selectedVehicleId={selectedVehicleId}
+          onSelectVehicle={setSelectedVehicleId}
           showTraffic={showTraffic}
           showSignals={showSignals}
           showVehicles={showVehicles}
@@ -695,14 +866,16 @@ const StaticLayer = React.memo(function StaticLayer({
   showFacilities: boolean;
 }) {
   const lanes = React.useMemo(() => {
-    const out: Array<{ key: string; points: string; width: number }> = [];
+    const out: Array<{ key: string; points: string; width: number; isMajor: boolean }> = [];
     for (const segment of geometry.segments) {
+      const isMajor = segment.laneCount >= 2;
       const laneWidth = laneStrokeWidth(segment.laneCount);
       for (const lane of segment.lanes) {
         out.push({
           key: lane.id,
           points: flippedPoints(lane.shape, geometry),
-          width: laneWidth,
+          width: isMajor ? laneWidth * 1.1 : laneWidth,
+          isMajor,
         });
       }
     }
@@ -711,18 +884,21 @@ const StaticLayer = React.memo(function StaticLayer({
 
   return (
     <g>
-      {/* Subtle Road Casing (clean dark charcoal) */}
-      {geometry.segments.map((segment) => (
-        <polyline
-          key={`casing-${segment.id}`}
-          points={flippedPoints(segment.coordinates, geometry)}
-          fill="none"
-          stroke="#111622"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={casingWidth(segment.laneCount)}
-        />
-      ))}
+      {/* Road Casings: Major roads thicker & brighter, minor roads thinner */}
+      {geometry.segments.map((segment) => {
+        const isMajor = segment.laneCount >= 2;
+        return (
+          <polyline
+            key={`casing-${segment.id}`}
+            points={flippedPoints(segment.coordinates, geometry)}
+            fill="none"
+            stroke={isMajor ? "#222D3E" : "#161E2B"}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={casingWidth(segment.laneCount) * (isMajor ? 1.15 : 1)}
+          />
+        );
+      })}
 
       {/* Individual lane polylines (precise SUMO lanes) */}
       {lanes.map((lane) => (
@@ -730,7 +906,7 @@ const StaticLayer = React.memo(function StaticLayer({
           key={lane.key}
           points={lane.points}
           fill="none"
-          stroke="#18202C"
+          stroke={lane.isMajor ? "#34435C" : "#222D3E"}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={lane.width}
@@ -781,6 +957,9 @@ const StaticLayer = React.memo(function StaticLayer({
 
 function DynamicLayer({
   data,
+  liveEmergency,
+  selectedVehicleId,
+  onSelectVehicle,
   showTraffic,
   showSignals,
   showVehicles,
@@ -792,6 +971,16 @@ function DynamicLayer({
   onHoverJunction,
 }: {
   data: SimulationMapData;
+  liveEmergency: {
+    vehicleId: string;
+    positionX: number;
+    positionY: number;
+    angle: number;
+    speedMps: number;
+    type: string;
+  } | null;
+  selectedVehicleId: string | null;
+  onSelectVehicle: (id: string | null) => void;
   showTraffic: boolean;
   showSignals: boolean;
   showVehicles: boolean;
@@ -820,7 +1009,6 @@ function DynamicLayer({
   );
   const signalById = new Map(data.signals.map((s) => [s.id, s] as const));
   const emergency = data.emergency;
-  const emergencyVehicleId = emergency?.vehicle?.vehicleId ?? null;
 
   return (
     <g>
@@ -848,33 +1036,52 @@ function DynamicLayer({
         geometry.segments
           .filter((segment) => routeSegmentIds.has(segment.id))
           .map((segment) => (
-            <polyline
-              key={`route-${segment.id}`}
-              points={flippedPoints(segment.coordinates, geometry)}
-              fill="none"
-              stroke="#FF3B4E"
-              strokeOpacity={0.85}
-              strokeLinecap="round"
-              strokeWidth={casingWidth(segment.laneCount) * 0.85}
-            />
+            <g key={`route-grp-${segment.id}`}>
+              <polyline
+                points={flippedPoints(segment.coordinates, geometry)}
+                fill="none"
+                stroke="rgba(255, 59, 78, 0.2)"
+                strokeLinecap="round"
+                strokeWidth={casingWidth(segment.laneCount) * 1.35}
+              />
+              <polyline
+                points={flippedPoints(segment.coordinates, geometry)}
+                fill="none"
+                stroke="#FF3B4E"
+                strokeOpacity={0.9}
+                strokeLinecap="round"
+                strokeWidth={casingWidth(segment.laneCount) * 0.78}
+                markerMid="url(#route-arrow)"
+                markerEnd="url(#route-arrow)"
+              />
+            </g>
           ))}
 
-      {/* 3. Predictive Green Corridor Flow */}
+      {/* 3. Predictive Green Corridor Connected Wave */}
       {showCorridor &&
         corridorApproaches.size > 0 &&
         geometry.segments
           .filter((segment) => corridorApproaches.has(segment.id))
           .map((segment) => (
-            <polyline
-              key={`corridor-${segment.id}`}
-              points={flippedPoints(segment.coordinates, geometry)}
-              fill="none"
-              stroke="#18D88B"
-              strokeOpacity={0.95}
-              strokeLinecap="round"
-              strokeWidth={casingWidth(segment.laneCount) * 0.92}
-              className="itms-corridor-flow"
-            />
+            <g key={`corridor-grp-${segment.id}`}>
+              <polyline
+                points={flippedPoints(segment.coordinates, geometry)}
+                fill="none"
+                stroke="rgba(24, 216, 139, 0.3)"
+                strokeLinecap="round"
+                strokeWidth={casingWidth(segment.laneCount) * 1.55}
+                filter="url(#glow-green)"
+              />
+              <polyline
+                points={flippedPoints(segment.coordinates, geometry)}
+                fill="none"
+                stroke="#18D88B"
+                strokeOpacity={0.95}
+                strokeLinecap="round"
+                strokeWidth={casingWidth(segment.laneCount) * 0.88}
+                className="itms-corridor-flow"
+              />
+            </g>
           ))}
 
       {/* 4. Clickable Intersections (Controlled + Uncontrolled) */}
@@ -885,22 +1092,42 @@ function DynamicLayer({
         const isSelected = selectedJunctionId === junction.id;
         const isHovered = hoveredJunctionId === junction.id;
 
-        const isApplied = corrSignal?.status === "APPLIED";
-        const isPending = corrSignal?.status === "PENDING";
-        const isPassed = corrSignal?.status === "PASSED";
+        const stage = corrSignal?.stage ?? (
+          corrSignal?.status === "APPLIED"
+            ? "GREEN"
+            : corrSignal?.status === "PASSED"
+            ? "PASSED"
+            : corrSignal?.status === "PENDING"
+            ? "PREPARING"
+            : "NORMAL"
+        );
+        const etaSec = corrSignal?.etaSeconds ? Math.max(0, Math.round(corrSignal.etaSeconds)) : null;
+
+        const isCurrentGreen = stage === "GREEN";
+        const isClearing = stage === "CLEARING";
+        const isPreparing = stage === "PREPARING";
+        const isDetected = stage === "DETECTED";
+        const isPassed = stage === "PASSED" || stage === "RESTORING";
+        const isCorridorActive = isCurrentGreen || isClearing || isPreparing || isDetected;
 
         let fillColor = "#1E293B"; // default uncontrolled
         if (junction.controlled && signal && showSignals) {
-          fillColor = isApplied
+          fillColor = isCurrentGreen
             ? "#18D88B"
-            : isPending
+            : isClearing
             ? "#FFB547"
+            : isPreparing
+            ? "#FFB547"
+            : isDetected
+            ? "#38BDF8"
             : isPassed
             ? "#475569"
             : signalDominantColor(signal.state);
         }
 
-        const r = signalRadius(geometry) * (isSelected ? 1.4 : isHovered ? 1.25 : 1);
+        const baseR = signalRadius(geometry);
+        const r = baseR * (isSelected ? 1.4 : isHovered ? 1.25 : isCurrentGreen ? 1.35 : isClearing || isPreparing ? 1.2 : 1);
+        const cy = flipY(junction.y, geometry);
 
         return (
           <g
@@ -917,7 +1144,7 @@ function DynamicLayer({
             {isSelected && (
               <circle
                 cx={junction.x}
-                cy={flipY(junction.y, geometry)}
+                cy={cy}
                 r={r * 1.8}
                 fill="none"
                 stroke="#42B8FF"
@@ -926,23 +1153,104 @@ function DynamicLayer({
               />
             )}
 
+            {/* Current Green large pulsating glow */}
+            {isCurrentGreen && (
+              <>
+                <circle
+                  cx={junction.x}
+                  cy={cy}
+                  r={r * 2.2}
+                  fill="rgba(24, 216, 139, 0.22)"
+                  stroke="#18D88B"
+                  strokeWidth={1.5}
+                  filter="url(#glow-green)"
+                  className="animate-pulse"
+                />
+                <circle
+                  cx={junction.x}
+                  cy={cy}
+                  r={r * 1.6}
+                  fill="none"
+                  stroke="#18D88B"
+                  strokeWidth={1}
+                />
+              </>
+            )}
+
+            {/* Clearing amber pulse */}
+            {isClearing && (
+              <circle
+                cx={junction.x}
+                cy={cy}
+                r={r * 1.8}
+                fill="rgba(255, 181, 71, 0.22)"
+                stroke="#FFB547"
+                strokeWidth={1.5}
+                className="animate-ping"
+              />
+            )}
+
+            {/* Preparing blue/amber pulse */}
+            {isPreparing && (
+              <circle
+                cx={junction.x}
+                cy={cy}
+                r={r * 1.5}
+                fill="rgba(66, 184, 255, 0.15)"
+                stroke="#42B8FF"
+                strokeWidth={1.2}
+                strokeDasharray="3 2"
+              />
+            )}
+
             {/* Junction circle */}
             <circle
               cx={junction.x}
-              cy={flipY(junction.y, geometry)}
+              cy={cy}
               r={r}
               fill={fillColor}
               stroke="#05070B"
               strokeWidth={1.5}
             />
 
+            {/* Corridor Status Badge Floating Above Junction */}
+            {isCorridorActive && (
+              <g transform={`translate(${junction.x}, ${cy - r - 12})`}>
+                <rect
+                  x={-34}
+                  y={-7}
+                  width={68}
+                  height={14}
+                  rx={3}
+                  fill={isCurrentGreen ? "#18D88B" : isClearing ? "#FFB547" : "#0E141D"}
+                  stroke={isCurrentGreen ? "#18D88B" : isClearing ? "#FFB547" : "#42B8FF"}
+                  strokeWidth={0.8}
+                />
+                <text
+                  x={0}
+                  y={3.5}
+                  textAnchor="middle"
+                  fontSize={8}
+                  fontWeight="bold"
+                  fill={isCurrentGreen || isClearing ? "#05070B" : "#42B8FF"}
+                  className="font-mono select-none"
+                >
+                  {isCurrentGreen
+                    ? `GREEN${etaSec !== null ? ` · ${etaSec}s` : ""}`
+                    : isClearing
+                    ? "CLEARING"
+                    : `PREP · ${etaSec ?? 0}s`}
+                </text>
+              </g>
+            )}
+
             {/* Human-readable label on map */}
             <text
               x={junction.x}
-              y={flipY(junction.y, geometry) - r - 3}
+              y={isCorridorActive ? cy - r - 16 : cy - r - 3}
               textAnchor="middle"
               fontSize={signalRadius(geometry) * 0.9}
-              fill={isSelected ? "#42B8FF" : isHovered ? "#F4F7FA" : "#94A3B8"}
+              fill={isSelected ? "#42B8FF" : isHovered ? "#F4F7FA" : isCurrentGreen ? "#18D88B" : isPreparing ? "#FFB547" : "#94A3B8"}
               className="font-mono font-bold select-none"
             >
               {meta.code}
@@ -951,12 +1259,12 @@ function DynamicLayer({
             {/* Hover Tooltip Card in SVG */}
             {isHovered && !isSelected && (
               <g
-                transform={`translate(${junction.x + 8}, ${flipY(junction.y, geometry) - 30})`}
+                transform={`translate(${junction.x + 8}, ${cy - 30})`}
                 className="pointer-events-none"
               >
                 <rect
-                  width={150}
-                  height={54}
+                  width={160}
+                  height={56}
                   rx={4}
                   fill="#0A0F16"
                   stroke="rgba(255,255,255,0.15)"
@@ -969,11 +1277,21 @@ function DynamicLayer({
                 <text x={8} y={30} fill="#8D9AAA" fontSize={8} className="font-mono">
                   {signal ? `Signal: ${signalDominantLabel(signal.state)}` : "Uncontrolled Crossing"}
                 </text>
-                <text x={8} y={44} fill={isApplied ? "#18D88B" : isPending ? "#FFB547" : "#5E6B7A"} fontSize={8} className="font-mono">
-                  {isApplied
-                    ? "Priority: GREEN (Corridor)"
-                    : isPending
-                    ? "Corridor: PREPARING"
+                <text
+                  x={8}
+                  y={44}
+                  fill={isCurrentGreen ? "#18D88B" : isPreparing || isClearing ? "#FFB547" : "#5E6B7A"}
+                  fontSize={8}
+                  className="font-mono font-semibold"
+                >
+                  {isCurrentGreen
+                    ? `Corridor: GREEN (ETA: ${etaSec ?? 0}s)`
+                    : isClearing
+                    ? "Corridor: CLEARING CROSS TRAFFIC"
+                    : isPreparing
+                    ? `Corridor: PREPARING (ETA: ${etaSec ?? 0}s)`
+                    : isPassed
+                    ? "Corridor: PASSED (Restored)"
                     : `SUMO ID: ${junction.id}`}
                 </text>
               </g>
@@ -982,38 +1300,79 @@ function DynamicLayer({
         );
       })}
 
-      {/* 5. General Vehicles (Muted Dots, Real TraCI coordinates) */}
+      {/* 5. General Vehicles (Interactive with Selection & Speeds) */}
       {showVehicles &&
         data.vehicles.map((vehicle) => {
-          if (vehicle.id === emergencyVehicleId) return null;
+          if (liveEmergency && vehicle.id === liveEmergency.vehicleId) return null;
+          if (vehicle.id.startsWith("emv-")) return null;
+          const isSelected = selectedVehicleId === vehicle.id;
+          const r = vehicleRadius(geometry, vehicle.typeId);
+          const vy = flipY(vehicle.positionY, geometry);
+
           return (
             <g
               key={`v-${vehicle.id}`}
-              style={{
-                transform: `translate(${vehicle.positionX}px, ${flipY(
-                  vehicle.positionY,
-                  geometry
-                )}px)`,
-                transition: "transform 200ms linear",
+              className="cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectVehicle(isSelected ? null : vehicle.id);
               }}
             >
+              {isSelected && (
+                <circle
+                  cx={vehicle.positionX}
+                  cy={vy}
+                  r={r * 2.8}
+                  fill="none"
+                  stroke="#42B8FF"
+                  strokeWidth={1.4}
+                  strokeDasharray="3 2"
+                />
+              )}
               <circle
-                r={vehicleRadius(geometry, vehicle.typeId)}
-                fill="#64748B"
-                fillOpacity={0.75}
+                cx={vehicle.positionX}
+                cy={vy}
+                r={isSelected ? r * 1.5 : r}
+                fill={isSelected ? "#42B8FF" : vehicle.typeId.includes("bus") ? "#F59E0B" : "#94A3B8"}
+                fillOpacity={isSelected ? 1 : 0.8}
               />
+              {isSelected && (
+                <g transform={`translate(${vehicle.positionX}, ${vy - r - 8})`}>
+                  <rect
+                    x={-35}
+                    y={-12}
+                    width={70}
+                    height={13}
+                    rx={2.5}
+                    fill="#0A0F16"
+                    fillOpacity={0.92}
+                    stroke="rgba(66, 184, 255, 0.5)"
+                    strokeWidth={0.8}
+                  />
+                  <text
+                    x={0}
+                    y={-3}
+                    textAnchor="middle"
+                    fontSize={7.5}
+                    fill="#42B8FF"
+                    className="font-mono font-bold select-none"
+                  >
+                    {`${vehicle.id} · ${Math.round(vehicle.speed * 3.6)} km/h`}
+                  </text>
+                </g>
+              )}
             </g>
           );
         })}
 
       {/* 6. Active Emergency Vehicle: Dominant Visual Hero */}
-      {showEmergencies && emergency && emergency.live && (
+      {showEmergencies && liveEmergency && (
         <EmergencyMarker
-          x={emergency.live.positionX}
-          y={flipY(emergency.live.positionY, geometry)}
-          angle={emergency.live.angle ?? 0}
-          label={getVehicleDisplay(emergency.vehicle?.vehicleId, emergency.vehicle?.type)}
-          speedMps={emergency.live.speedMps}
+          x={liveEmergency.positionX}
+          y={flipY(liveEmergency.positionY, geometry)}
+          angle={liveEmergency.angle}
+          label={getVehicleDisplay(liveEmergency.vehicleId, liveEmergency.type)}
+          speedMps={liveEmergency.speedMps}
           iconSize={iconSize(geometry)}
         />
       )}
@@ -1042,46 +1401,191 @@ function EmergencyMarker({
 }) {
   const kmh = Math.round(speedMps * 3.6);
   return (
-    <g
-      style={{
-        transform: `translate(${x}px, ${y}px)`,
-        transition: "transform 200ms linear",
-      }}
-      data-testid="emergency-marker"
-    >
+    <g transform={`translate(${round1(x)}, ${round1(y)})`} data-testid="emergency-marker">
       {/* Pulsing Siren Radar Halo */}
       <circle
         r={size * 1.5}
         fill="#FF3B4E"
-        fillOpacity={0.25}
+        fillOpacity={0.22}
         className="itms-emergency-halo"
       />
-      {/* Heading Direction Arrow */}
+      {/* Heading Direction Arrow & Oriented Vehicle Body */}
       <g transform={`rotate(${angle})`}>
-        <path
-          d={`M 0 ${-size * 1.15} L ${size * 0.6} ${size * 0.5} L 0 ${size * 0.1} L ${
-            -size * 0.6
-          } ${size * 0.5} Z`}
+        {/* Forward Heading Direction Chevron */}
+        <polygon
+          points={`0,${-size * 1.3} ${size * 0.48},${-size * 0.35} 0,${-size * 0.6} ${-size * 0.48},${-size * 0.35}`}
           fill="#FF3B4E"
-          fillOpacity={0.95}
+          stroke="#FFFFFF"
+          strokeWidth={0.8}
         />
+        {/* Vehicle Body Representation Attached to Road */}
+        <rect
+          x={-size * 0.36}
+          y={-size * 0.62}
+          width={size * 0.72}
+          height={size * 1.24}
+          rx={size * 0.15}
+          fill="#FFFFFF"
+          stroke="#FF3B4E"
+          strokeWidth={1.4}
+        />
+        {/* Red Cross on Roof */}
+        <rect x={-size * 0.08} y={-size * 0.22} width={size * 0.16} height={size * 0.44} fill="#FF3B4E" />
+        <rect x={-size * 0.22} y={-size * 0.08} width={size * 0.44} height={size * 0.16} fill="#FF3B4E" />
+        {/* Siren Strobe Lights */}
+        <circle cx={-size * 0.2} cy={-size * 0.45} r={size * 0.09} fill="#42B8FF" className="animate-ping" />
+        <circle cx={size * 0.2} cy={-size * 0.45} r={size * 0.09} fill="#FF3B4E" className="animate-ping" />
       </g>
-      {/* Ambulance Icon */}
-      <text textAnchor="middle" dominantBaseline="central" fontSize={size * 1.1}>
-        🚑
-      </text>
       {/* Speed & Human Label */}
-      <text
-        x={0}
-        y={size * 1.7}
-        textAnchor="middle"
-        fontSize={size * 0.52}
-        fill="#FFA4AE"
-        className="font-mono font-bold select-none"
-      >
-        {`${label} · ${kmh} km/h`}
-      </text>
+      <g transform={`translate(0, ${size * 1.5})`}>
+        <rect
+          x={-44}
+          y={-7}
+          width={88}
+          height={14}
+          rx={3}
+          fill="#0A0F16"
+          fillOpacity={0.92}
+          stroke="rgba(255, 59, 78, 0.4)"
+          strokeWidth={0.8}
+        />
+        <text
+          x={0}
+          y={3.5}
+          textAnchor="middle"
+          fontSize={size * 0.48}
+          fill="#FFA4AE"
+          className="font-mono font-bold select-none"
+        >
+          {`${label} · ${kmh} km/h`}
+        </text>
+      </g>
     </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Floating Active Corridor HUD Overlay
+// ---------------------------------------------------------------------------
+
+function ActiveCorridorHUD({
+  corridor,
+  emergency,
+}: {
+  corridor: CorridorDetail;
+  emergency: EmergencyEventDetail | null;
+}) {
+  const signals = corridor.signals ?? [];
+  const passedCount = signals.filter(
+    (s) => s.status === "PASSED" || s.stage === "PASSED" || s.stage === "RESTORING"
+  ).length;
+  const totalCount = signals.length;
+
+  const unpassedSignals = signals.filter(
+    (s) => s.status !== "PASSED" && s.stage !== "PASSED" && s.stage !== "RESTORING"
+  );
+  const currentSignal = unpassedSignals[0] ?? null;
+  const nextSignal = unpassedSignals[1] ?? null;
+  const upcomingSignal = unpassedSignals[2] ?? null;
+
+  const destEtaSeconds = emergency?.etas?.find((e) => e.isDestination)?.etaSeconds ?? null;
+  const destMeta = emergency ? getJunctionMeta(emergency.destinationJunction) : null;
+  const destName = destMeta?.name ?? "City Hospital";
+
+  const formatEta = (seconds: number | null) => {
+    if (seconds === null) return "--:--";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="rounded-xl border border-[rgba(24,216,139,0.35)] bg-[#0A0F16]/95 p-3 backdrop-blur-md shadow-2xl text-xs space-y-2 animate-in fade-in duration-200">
+      <div className="flex items-center justify-between pb-1.5 border-b border-[rgba(255,255,255,0.08)]">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-[#18D88B] shadow-[0_0_8px_#18D88B] animate-pulse" />
+          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[#18D88B]">
+            GREEN CORRIDOR ACTIVE
+          </span>
+        </div>
+        <span className="font-mono text-[10px] text-[#8D9AAA]">
+          {passedCount} / {totalCount} junctions
+        </span>
+      </div>
+
+      {/* Vehicle & Target Route */}
+      <div className="flex items-center justify-between font-mono text-[10px]">
+        <div className="text-[#F4F7FA] font-semibold truncate max-w-[130px]">
+          {emergency ? getVehicleDisplay(emergency.vehicle?.vehicleId, emergency.vehicle?.type) : "Ambulance"}
+        </div>
+        <div className="text-[#8D9AAA] flex items-center gap-1 text-[10px]">
+          <span>→</span>
+          <span className="text-[#42B8FF] font-semibold truncate max-w-[110px]">{destName}</span>
+        </div>
+      </div>
+
+      {/* CURRENT JUNCTION */}
+      {currentSignal ? (
+        <div className="rounded-lg border border-[#18D88B]/40 bg-[#18D88B]/10 p-2 font-mono">
+          <div className="flex items-center justify-between text-[9px] uppercase tracking-wider text-[#18D88B] font-bold">
+            <span>CURRENT</span>
+            <span className="rounded bg-[#18D88B] px-1.5 py-0.2 text-[9px] font-black text-[#05070B]">
+              {currentSignal.stage ?? (currentSignal.status === "APPLIED" ? "GREEN" : "ACTIVE")}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] font-bold text-[#F4F7FA]">
+            {getJunctionMeta(currentSignal.junctionId).fullName}
+          </div>
+          <div className="mt-0.5 text-[10px] text-[#8D9AAA]">
+            ETA: <span className="font-bold text-[#18D88B]">{Math.max(0, Math.round(currentSignal.etaSeconds))}s</span>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#121A24] p-1.5 font-mono text-center text-[#8D9AAA] text-[10px]">
+          All Corridor Junctions Cleared
+        </div>
+      )}
+
+      {/* NEXT JUNCTION */}
+      {nextSignal && (
+        <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#121A24] p-2 font-mono">
+          <div className="flex items-center justify-between text-[9px] uppercase tracking-wider text-[#FFB547] font-bold">
+            <span>NEXT</span>
+            <span className="text-[#FFB547]">
+              {nextSignal.stage ?? "PREPARING"}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] font-bold text-[#F4F7FA]">
+            {getJunctionMeta(nextSignal.junctionId).fullName}
+          </div>
+          <div className="mt-0.5 text-[10px] text-[#8D9AAA]">
+            ETA: <span className="font-bold text-[#F4F7FA]">{Math.max(0, Math.round(nextSignal.etaSeconds))}s</span>
+          </div>
+        </div>
+      )}
+
+      {/* UPCOMING JUNCTION(S) */}
+      {upcomingSignal && (
+        <div className="rounded-lg border border-[rgba(255,255,255,0.04)] bg-[#0E141D] p-1.5 font-mono">
+          <div className="text-[9px] uppercase tracking-wider text-[#5E6B7A]">UPCOMING</div>
+          <div className="text-[10px] text-[#8D9AAA] truncate">
+            {getJunctionMeta(upcomingSignal.junctionId).fullName}
+          </div>
+        </div>
+      )}
+
+      {/* Destination & Overall ETA Footer */}
+      <div className="pt-1.5 border-t border-[rgba(255,255,255,0.06)] flex items-center justify-between font-mono text-[10px]">
+        <div>
+          <span className="text-[#5E6B7A]">DESTINATION:</span>{" "}
+          <span className="text-[#F4F7FA] font-bold">{destName}</span>
+        </div>
+        <div>
+          <span className="text-[#5E6B7A]">ETA:</span>{" "}
+          <span className="text-[#FF3B4E] font-bold">{formatEta(destEtaSeconds)}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 

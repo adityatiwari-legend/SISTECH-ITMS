@@ -11,6 +11,7 @@ import {
   CompactSignalsPanel,
   CorridorChainPanel,
   AiDecisionTimeline,
+  CorridorEventTimeline,
 } from "@/components/panels";
 import {
   DisconnectedBanner,
@@ -207,6 +208,9 @@ export default function CommandCenterPage() {
               }}
             />
           </div>
+
+          {/* Compact Live Corridor Event Timeline */}
+          <CorridorEventTimeline events={mergedTrace} max={8} />
         </div>
 
         {/* RIGHT: Operational Side Panels */}
@@ -247,8 +251,8 @@ export default function CommandCenterPage() {
       {/* ================================================================== */}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 font-mono">
         <MetricCard
-          label="TRAFFIC VOLUME"
-          value={state.traffic ? `${state.traffic.summary.vehicleCount}` : "—"}
+          label="LIVE TRAFFIC"
+          value={state.traffic ? `${state.traffic.summary.vehicleCount} vehicles` : state.vehicles.length > 0 ? `${state.vehicles.length} vehicles` : "—"}
           sub={`${state.traffic?.summary.congestedSegments ?? 0} Congested Links`}
           color="#F4F7FA"
         />
@@ -259,22 +263,26 @@ export default function CommandCenterPage() {
           color="#18D88B"
         />
         <MetricCard
-          label="TOTAL QUEUE"
-          value={state.traffic ? `${state.traffic.summary.totalQueueLength}` : "—"}
-          sub="Waiting Vehicles"
-          color={state.traffic && state.traffic.summary.totalQueueLength > 50 ? "#FFB547" : "#F4F7FA"}
+          label="CONGESTION"
+          value={state.traffic?.summary.cityLevel ?? "NOMINAL"}
+          sub={`${state.traffic?.summary.totalQueueLength ?? 0} Waiting Vehicles`}
+          color={state.traffic?.summary.cityLevel === "CRITICAL" ? "#FF3B4E" : state.traffic?.summary.cityLevel === "HIGH" ? "#FFB547" : "#18D88B"}
         />
         <MetricCard
-          label="ACTIVE SIGNALS"
-          value={state.signals.length > 0 ? `${state.signals.length}` : "—"}
-          sub="TraCI Managed"
-          color="#42B8FF"
+          label="ACTIVE EMERGENCY"
+          value={activeEmergency ? "1 EN ROUTE" : "0 ACTIVE"}
+          sub={activeEmergency ? "Priority Active" : "Standby"}
+          color={activeEmergency ? "#FF3B4E" : "#8D9AAA"}
         />
         <MetricCard
-          label="GREEN CORRIDOR"
-          value={activeCorridor ? "ACTIVE" : "STANDBY"}
+          label="CORRIDOR"
+          value={
+            activeCorridor
+              ? `ACTIVE · ${activeCorridor.signals.filter((s) => s.status === "PASSED" || s.stage === "PASSED" || s.stage === "RESTORING").length}/${activeCorridor.signals.length}`
+              : "STANDBY"
+          }
           sub={activeCorridor ? `Corridor #${activeCorridor.id}` : "Ready to engage"}
-          color={activeCorridor ? "#8B7CFF" : "#5E6B7A"}
+          color={activeCorridor ? "#18D88B" : "#5E6B7A"}
         />
         <MetricCard
           label="EMERGENCY ETA"

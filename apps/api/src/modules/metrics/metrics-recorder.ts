@@ -40,6 +40,7 @@ export class MetricsRecorder {
   private emergencyTimeLoss = new Map<string, number>();
   private seenEventIds = new Set<number>();
   private eventListeners: Array<() => void> = [];
+  private readonly metricsHistory = new Map<number, SimulationMetrics>();
 
   constructor(options: {
     config: AppConfig;
@@ -190,6 +191,8 @@ export class MetricsRecorder {
       completedAtIso,
     };
 
+    this.metricsHistory.set(runId, metrics);
+
     try {
       await this.repository.upsertRunMetrics(metrics);
       this.logger.info("Run metrics recorded", {
@@ -216,6 +219,11 @@ export class MetricsRecorder {
   /** Declares the control regime of the current/next run (compare runner). */
   setRunMode(mode: SimulationMetrics["mode"]): void {
     this.runMode = mode;
+  }
+
+  /** Retrieves in-memory recorded run metrics (fallback when DB is unavailable). */
+  getRunMetrics(runId: number): SimulationMetrics | null {
+    return this.metricsHistory.get(runId) ?? null;
   }
 }
 

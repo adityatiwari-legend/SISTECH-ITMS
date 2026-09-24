@@ -13,6 +13,7 @@ import type {
   WsEvent,
 } from "@itms/types";
 import { api, ApiError, checkBackendHealth, wsUrl } from "./api";
+import { getJunctionMeta } from "./naming";
 
 /**
  * Live ITMS state: REST bootstrap + polls, WebSocket events, honest
@@ -147,6 +148,7 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
     let listPollTimer: NodeJS.Timeout | null = null;
     let reconnectAttempt = 0;
     let lastHeartbeatAt = 0;
+    const lastSignalStages = new Map<string, string>();
 
     const safeRest = async <T,>(call: () => Promise<T>): Promise<T | null> => {
       try {
@@ -318,6 +320,50 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
         case "corridor:created":
         case "corridor:update": {
           const payload = event.payload as Record<string, unknown>;
+          const signals = Array.isArray(payload.signals)
+            ? (payload.signals as Array<{ junctionId: string; status: string; stage?: string; etaSeconds?: number }>)
+            : [];
+
+          // Track stage changes per junction for live timeline trace
+          for (const s of signals) {
+            const currentStage = s.stage ?? (s.status === "APPLIED" ? "GREEN" : s.status === "PASSED" ? "PASSED" : undefined);
+            if (!currentStage) continue;
+            const prevStage = lastSignalStages.get(s.junctionId);
+            if (prevStage !== currentStage) {
+              lastSignalStages.set(s.junctionId, currentStage);
+              const meta = getJunctionMeta(s.junctionId);
+              let msg = "";
+              let kind: DecisionEvent["kind"] = "signal.applied";
+              if (currentStage === "PREPARING") {
+                msg = `${meta.code} preparation started`;
+              } else if (currentStage === "CLEARING") {
+                msg = `${meta.code} cross traffic clearing`;
+              } else if (currentStage === "GREEN") {
+                msg = `${meta.code} GREEN`;
+              } else if (currentStage === "PASSED") {
+                msg = `Ambulance passed ${meta.code}`;
+                kind = "signal.passed";
+              } else if (currentStage === "RESTORING") {
+                msg = `${meta.code} restoring normal control`;
+                kind = "signal.passed";
+              }
+              if (msg) {
+                dispatch({
+                  type: "trace",
+                  payload: {
+                    ts: event.ts,
+                    kind,
+                    message: msg,
+                    refs: {
+                      signalId: s.junctionId,
+                      corridorId: typeof payload.corridorId === "number" ? payload.corridorId : undefined,
+                    },
+                  },
+                });
+              }
+            }
+          }
+
           dispatch({
             type: "trace",
             payload: {
@@ -395,21 +441,21 @@ export function useItms(): { state: ItmsLiveState; refreshAll(): Promise<void> }
 function describeEvent(type: WsEvent<unknown>["type"], payload: Record<string, unknown>): string {
   switch (type) {
     case "emergency:created":
-      return `Emergency event ${String(payload.eventId)} created (${String(payload.type)}, ${String(payload.priority)}, ${String(payload.origin)} → ${String(payload.destination)}).`;
+      return `Emergency detected`;
     case "emergency:update":
-      return `Emergency event ${String(payload.eventId)} is now ${String(payload.status)}.`;
+      return `Emergency vehicle ${String(payload.status)}`;
     case "route:updated":
-      return `Route calculated for event ${String(payload.eventId)} (${Array.isArray(payload.segments) ? payload.segments.length : 0} segments, ETA ≈ ${String(payload.estimatedTravelTimeS ?? "?")} s).`;
+      return `Route calculated (${Array.isArray(payload.segments) ? payload.segments.length : 0} road links)`;
     case "route:switched":
-      return `Route switched for event ${String(payload.eventId)}: ${String(payload.reason)} (ETA ${String(payload.oldEtaS)}s → ${String(payload.newEtaS)}s).`;
+      return `Route dynamically optimized: ${String(payload.reason ?? "congestion bypass")}`;
     case "corridor:created":
-      return `Corridor ${String(payload.corridorId)} planned for event ${String(payload.eventId)}.`;
+      return `Green corridor planned`;
     case "corridor:update": {
       const status = String(payload.status ?? "update");
       const applied = Array.isArray(payload.signals)
         ? (payload.signals as Array<{ status: string }>).filter((signal) => signal.status === "APPLIED").length
         : 0;
-      return `Corridor ${String(payload.corridorId)} ${status.toLowerCase()}${applied > 0 ? ` — ${applied} signal(s) commanded` : ""}.`;
+      return `Green corridor ${status.toLowerCase()}${applied > 0 ? ` (${applied} priority hold)` : ""}`;
     }
     default:
       return type;

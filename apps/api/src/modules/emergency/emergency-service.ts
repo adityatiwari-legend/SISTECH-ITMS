@@ -55,6 +55,8 @@ interface ActiveEmergency {
   arrivedSimTimeS: number | null;
   /** Dynamic route switches so far (safeguard). */
   switchCount: number;
+  /** Last recognized non-internal route edge index (survives intersection internal edges). */
+  lastKnownRouteIndex: number;
 }
 
 /** In-memory runtime snapshot of an emergency (no database access). */
@@ -164,8 +166,12 @@ export class EmergencyService {
               roadId: liveVehicle.roadId,
               laneId: liveVehicle.laneId,
               routeIndex: liveVehicle.roadId.startsWith(":")
-                ? -1
-                : emergency.routeEdges.indexOf(liveVehicle.roadId),
+                ? emergency.lastKnownRouteIndex
+                : (() => {
+                    const idx = emergency.routeEdges.indexOf(liveVehicle.roadId);
+                    if (idx >= 0) emergency.lastKnownRouteIndex = idx;
+                    return emergency.lastKnownRouteIndex;
+                  })(),
             }
           : null,
     };
@@ -271,6 +277,7 @@ export class EmergencyService {
       emergency.routeRowId = routeId;
     }
     emergency.switchCount += 1;
+    emergency.lastKnownRouteIndex = 0;
 
     this.bus.broadcast("route:switched", {
       eventId: input.eventId,
@@ -418,6 +425,7 @@ export class EmergencyService {
       activatedSimTimeS: null,
       arrivedSimTimeS: null,
       switchCount: 0,
+      lastKnownRouteIndex: 0,
     });
     this.priorityByEvent.set(persisted.event.id, body.priority);
     this.persistedStatusByEvent.set(persisted.event.id, "created");
@@ -722,9 +730,14 @@ export class EmergencyService {
   }
 
   private mapLive(emergency: ActiveEmergency, live: VehicleSnapshot): EmergencyEventDetail["live"] {
-    const routeIndex = live.roadId.startsWith(":")
-      ? -1
-      : emergency.routeEdges.indexOf(live.roadId);
+    let routeIndex = emergency.lastKnownRouteIndex;
+    if (!live.roadId.startsWith(":")) {
+      const idx = emergency.routeEdges.indexOf(live.roadId);
+      if (idx >= 0) {
+        emergency.lastKnownRouteIndex = idx;
+        routeIndex = idx;
+      }
+    }
     return {
       simTimeSeconds: this.manager.getStatusSnapshot().simTimeSeconds,
       positionX: live.positionX,
@@ -740,16 +753,16 @@ export class EmergencyService {
   }
 
   private remainingDistance(emergency: ActiveEmergency, routeIndex: number, live: VehicleSnapshot): number {
-    if (routeIndex < 0) {
-      // Unknown position within the route (internal edge or off-route):
-      // report the full route distance as a conservative estimate.
-      return emergency.routeLengths.reduce((sum, length) => sum + length, 0);
+    const isInternal = live.roadId.startsWith(":");
+    const effectiveIndex = Math.max(0, Math.min(emergency.routeEdges.length - 1, routeIndex));
+    let remaining = 0;
+    if (!isInternal) {
+      const segmentId = emergency.routeEdges[effectiveIndex]!;
+      const edge = this.routeEngine.getGraph().getEdge(segmentId);
+      const positionOnEdge = edge !== null ? Math.min(live.lanePosition, edge.distanceM) : 0;
+      remaining = edge !== null ? Math.max(0, edge.distanceM - positionOnEdge) : 0;
     }
-    const segmentId = emergency.routeEdges[routeIndex]!;
-    const edge = this.routeEngine.getGraph().getEdge(segmentId);
-    const positionOnEdge = edge !== null ? Math.min(live.lanePosition, edge.distanceM) : 0;
-    let remaining = edge !== null ? Math.max(0, edge.distanceM - positionOnEdge) : 0;
-    for (let index = routeIndex + 1; index < emergency.routeLengths.length; index++) {
+    for (let index = effectiveIndex + 1; index < emergency.routeLengths.length; index++) {
       remaining += emergency.routeLengths[index]!;
     }
     return remaining;
@@ -762,55 +775,49 @@ export class EmergencyService {
    */
   private computeEtas(emergency: ActiveEmergency, live: VehicleSnapshot): EmergencyEta[] {
     const graph = this.routeEngine.getGraph();
-    const routeIndex = live.roadId.startsWith(":")
-      ? -1
-      : emergency.routeEdges.indexOf(live.roadId);
-    if (routeIndex < 0) {
-      // Position within the route unknown (crossing an intersection):
-      // fall back to full-route ETAs from the origin side is misleading;
-      // report ETAs starting at the first route edge instead.
-      return this.fullRouteEtas(emergency);
+    let routeIndex = emergency.lastKnownRouteIndex;
+    if (!live.roadId.startsWith(":")) {
+      const idx = emergency.routeEdges.indexOf(live.roadId);
+      if (idx >= 0) {
+        emergency.lastKnownRouteIndex = idx;
+        routeIndex = idx;
+      }
     }
 
     const etas: EmergencyEta[] = [];
     let time = 0;
     let distance = 0;
+    const isInternal = live.roadId.startsWith(":");
 
     // Partial progress on the current edge.
-    const currentSegmentId = emergency.routeEdges[routeIndex]!;
-    const currentEdge = graph.getEdge(currentSegmentId);
-    if (currentEdge === null) {
-      return this.fullRouteEtas(emergency);
+    if (!isInternal && routeIndex < emergency.routeEdges.length) {
+      const currentSegmentId = emergency.routeEdges[routeIndex]!;
+      const currentEdge = graph.getEdge(currentSegmentId);
+      if (currentEdge !== null) {
+        const positionOnEdge = Math.min(live.lanePosition, currentEdge.distanceM);
+        const remainingM = Math.max(0, currentEdge.distanceM - positionOnEdge);
+        const liveSecondsPerMeter = live.speed > 0.5 ? 1 / live.speed : null;
+        const currentCost = this.routeEngine.edgeCost(currentSegmentId);
+        const secondsPerMeter = liveSecondsPerMeter ?? currentCost.costSeconds / Math.max(1, currentEdge.distanceM);
+        time += remainingM * secondsPerMeter;
+        distance += remainingM;
+        this.pushEtaIfRelevant(etas, graph, emergency, currentEdge.toJunction, time, distance);
+      }
     }
-    const positionOnEdge = Math.min(live.lanePosition, currentEdge.distanceM);
-    const remainingM = Math.max(0, currentEdge.distanceM - positionOnEdge);
-    // Remaining time on the current edge uses the vehicle's LIVE speed when
-    // it is moving: emergency vehicles travel faster than the
-    // congestion-adjusted cost model assumes (other traffic yields), which
-    // otherwise overestimates the ETA and delays corridor windows. The cost
-    // model remains the fallback (speed 0 / stopped).
-    const liveSecondsPerMeter = live.speed > 0.5 ? 1 / live.speed : null;
-    const currentCost = this.routeEngine.edgeCost(currentSegmentId);
-    const secondsPerMeter = liveSecondsPerMeter ?? currentCost.costSeconds / Math.max(1, currentEdge.distanceM);
-    time += remainingM * secondsPerMeter;
-    distance += remainingM;
-    this.pushEtaIfRelevant(etas, graph, emergency, currentEdge.toJunction, time, distance);
 
-    // Future edges: the cost model reflects the MIXED-traffic average speed,
-    // but an emergency vehicle with priority progresses substantially faster
-    // than ordinary traffic on the same edges. Calibrate the remaining-route
-    // ETA with the vehicle's demonstrated pace: scale each edge's cost-model
-    // time by the ratio between the cost-model speed of the CURRENT edge and
-    // the vehicle's actual speed on it (bounded to [0.5, 1.0]), and never go
-    // below the edge's free-flow time (physical lower bound).
+    const currentSegmentId = emergency.routeEdges[routeIndex];
+    const currentCost = currentSegmentId ? this.routeEngine.edgeCost(currentSegmentId) : null;
+    const currentEdge = currentSegmentId ? graph.getEdge(currentSegmentId) : null;
+    const liveSecondsPerMeter = live.speed > 0.5 ? 1 / live.speed : null;
     const costSpeed =
-      currentCost.costSeconds > 0 && currentEdge.distanceM > 0
+      currentCost && currentCost.costSeconds > 0 && currentEdge && currentEdge.distanceM > 0
         ? currentEdge.distanceM / currentCost.costSeconds
         : 0;
     const progressFactor =
       liveSecondsPerMeter !== null && costSpeed > 0.1
         ? Math.min(Math.max(costSpeed / live.speed, 0.5), 1.0)
         : 1.0;
+
     for (let index = routeIndex + 1; index < emergency.routeEdges.length; index++) {
       const segmentId = emergency.routeEdges[index]!;
       const cost = this.routeEngine.edgeCost(segmentId);

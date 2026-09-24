@@ -1,7 +1,9 @@
-﻿import type {
+import type {
   CongestionLevel,
   CorridorDetail,
+  CorridorJunctionMode,
   CorridorSignalPlanEntry,
+  CorridorSignalStage,
   CorridorState,
   EmergencyEta,
   EmergencyPriority,
@@ -28,7 +30,7 @@ import { planCorridor, type PlannerJunctionInputs } from "./corridor-planner.ts"
 /**
  * Green corridor orchestration (Phases.md 5).
  *
- * PLANNING â†’ VALIDATING â†’ ACTIVE â†’ (REPLANNING) â†’ COMPLETED / CANCELLED / FAILED
+ * PLANNING → VALIDATING → ACTIVE → (REPLANNING) → COMPLETED / CANCELLED / FAILED
  *
  * The executor runs after every simulation step while a corridor is ACTIVE:
  *  - junctions are applied just before the vehicle's ETA window opens
@@ -45,7 +47,7 @@ interface CorridorJunctionRuntime {
   sequenceIndex: number;
   approachSegmentId: string;
   routeEdgeIndex: number;
-  mode: "switch" | "extend" | "noop";
+  mode: CorridorJunctionMode;
   corridorState: string | null;
   requiresClearance: boolean;
   plannedGreenStartS: number | null;
@@ -55,6 +57,7 @@ interface CorridorJunctionRuntime {
   appliedState: string | null;
   /** Set while a yellow clearance step is in progress. */
   clearanceAppliedAtS: number | null;
+  passedAtSimTimeS: number | null;
 }
 
 interface CorridorRuntime {
@@ -348,6 +351,7 @@ export class CorridorService {
       skipReason: entry.skipReason,
       appliedState: null,
       clearanceAppliedAtS: null,
+      passedAtSimTimeS: null,
     };
   }
 
@@ -375,12 +379,12 @@ export class CorridorService {
         if (junction.status === "APPLIED") {
           // The green window was open when the vehicle arrived: the vehicle
           // used it — mark it passed and restore the normal program.
-          await this.markPassed(corridor, junction);
+          await this.markPassed(corridor, junction, simTime);
         } else if (junction.status === "PENDING" && junction.mode === "extend") {
           // Extend window anchored at the normal switch point, but the
           // vehicle arrived BEFORE the switch: it passed on the normal
           // program's green (that green covered it). Honest outcome: PASSED.
-          await this.markPassed(corridor, junction);
+          await this.markPassed(corridor, junction, simTime);
         } else if (junction.status === "PENDING") {
           // Junctions still pending never opened their window before arrival:
           // mark them honestly instead of leaving dangling PENDING state.
@@ -415,7 +419,7 @@ export class CorridorService {
 
       // Passage detection: the vehicle's route index moved beyond this edge.
       if (junction.routeEdgeIndex >= 0 && emergency.live.routeIndex > junction.routeEdgeIndex) {
-        await this.markPassed(corridor, junction);
+        await this.markPassed(corridor, junction, simTime);
         changed = true;
         continue;
       }
@@ -602,8 +606,9 @@ export class CorridorService {
     }
   }
 
-  private async markPassed(corridor: CorridorRuntime, junction: CorridorJunctionRuntime): Promise<void> {
+  private async markPassed(corridor: CorridorRuntime, junction: CorridorJunctionRuntime, simTime?: number): Promise<void> {
     junction.status = "PASSED";
+    junction.passedAtSimTimeS = simTime ?? this.manager.getStatusSnapshot().simTimeSeconds;
     if (junction.appliedState !== null) {
       await this.restoreSignal(junction);
     }
@@ -667,15 +672,26 @@ export class CorridorService {
   /** Cancels an active corridor: restores all signals, marks CANCELLED. */
   async cancelCorridor(corridorId: number, reason: string | null): Promise<CorridorDetail> {
     const corridor = this.runtime.get(corridorId);
-    if (corridor === undefined) {
-      const row = await this.repository.getCorridor(corridorId);
-      if (row === null) {
-        throw new AppError(404, "unknown_corridor", `Unknown corridor ${corridorId}.`);
-      }
-      throw new AppError(409, "corridor_not_active", `Corridor ${corridorId} is ${row.status} and cannot be cancelled.`);
+    if (corridor !== undefined) {
+      await this.finishCorridor(corridor, "CANCELLED", reason ?? "Cancelled by operator.");
+      return this.getCorridor(corridorId);
     }
-    await this.finishCorridor(corridor, "CANCELLED", reason ?? "Cancelled by operator.");
-    return this.getCorridor(corridorId);
+    const row = await this.repository.getCorridor(corridorId);
+    if (row === null) {
+      throw new AppError(404, "unknown_corridor", `Unknown corridor ${corridorId}.`);
+    }
+    if (row.status === "ACTIVE" || row.status === "PLANNING" || row.status === "REPLANNING" || row.status === "VALIDATING") {
+      await this.repository.setStatus(corridorId, "CANCELLED", "cancelled_at", reason ?? "Cancelled by operator.");
+      this.bus.broadcast("corridor:update", {
+        corridorId,
+        eventId: row.event_id,
+        status: "CANCELLED",
+        simTimeSeconds: this.manager.getStatusSnapshot().simTimeSeconds,
+        signals: [],
+      });
+      return this.getCorridor(corridorId);
+    }
+    throw new AppError(409, "corridor_not_active", `Corridor ${corridorId} is already ${row.status} and cannot be cancelled.`);
   }
 
   /** Activates a corridor that exists but is not executing (e.g. replan). */
@@ -732,6 +748,7 @@ export class CorridorService {
       skipReason: row.skip_reason,
       appliedState: row.applied_state,
       clearanceAppliedAtS: null,
+      passedAtSimTimeS: null,
     };
   }
 
@@ -808,6 +825,7 @@ export class CorridorService {
         skipReason: corridorState === null ? "The approach has no controlled links." : null,
         appliedState: null,
         clearanceAppliedAtS: null,
+        passedAtSimTimeS: null,
       };
       corridor.junctions.push(runtimeJunction);
       if (runtimeJunction.status === "PENDING") {
@@ -871,7 +889,10 @@ export class CorridorService {
           .map((signal) => ({ junctionId: signal.signal_id, reason: signal.skip_reason ?? "unknown" })),
         failures: row.last_error !== null ? [row.last_error] : [],
       },
-      signals: signals.map((signal) => this.mapSignal(signal)),
+      signals: signals.map((signal) => {
+        const runtimeJunc = runtime?.junctions.find((j) => j.sequenceIndex === signal.sequence_index);
+        return this.mapSignal(signal, runtimeJunc, runtime?.status === "ACTIVE" ? this.manager.getStatusSnapshot().simTimeSeconds : undefined);
+      }),
       live:
         runtime !== null
           ? {
@@ -897,7 +918,15 @@ export class CorridorService {
     return details;
   }
 
-  private mapSignal(signal: CorridorSignalRow): CorridorSignalPlanEntry {
+  private mapSignal(
+    signal: CorridorSignalRow,
+    runtimeJunction?: CorridorJunctionRuntime,
+    simTime?: number,
+  ): CorridorSignalPlanEntry {
+    const stage = runtimeJunction && simTime !== undefined
+      ? this.deriveJunctionStage(runtimeJunction, simTime, signal.eta_seconds ?? null)
+      : (signal.status === "APPLIED" ? "GREEN" : signal.status === "PASSED" ? "PASSED" : "NORMAL");
+
     return {
       sequenceIndex: signal.sequence_index,
       junctionId: signal.signal_id,
@@ -905,6 +934,7 @@ export class CorridorService {
       approachSegmentId: signal.approach_segment_id,
       etaSeconds: signal.eta_seconds ?? 0,
       mode: signal.mode,
+      stage,
       plannedGreenStartS: signal.planned_green_start_s,
       plannedGreenEndS: signal.planned_green_end_s,
       corridorState: signal.planned_state,
@@ -919,26 +949,73 @@ export class CorridorService {
     };
   }
 
+  private deriveJunctionStage(
+    junction: CorridorJunctionRuntime,
+    simTime: number,
+    etaSeconds: number | null,
+  ): CorridorSignalStage {
+    if (junction.status === "PASSED") {
+      if (junction.passedAtSimTimeS !== null && simTime - junction.passedAtSimTimeS < 6) {
+        return "RESTORING";
+      }
+      return "PASSED";
+    }
+    if (junction.status === "SKIPPED" || junction.status === "NOOP") {
+      return "NORMAL";
+    }
+    if (junction.status === "APPLIED") {
+      return "GREEN";
+    }
+    if (junction.clearanceAppliedAtS !== null) {
+      return "CLEARING";
+    }
+    if (etaSeconds !== null && etaSeconds > 0) {
+      const clearanceTime = junction.requiresClearance ? this.config.corridorClearanceYellowS : 0;
+      const requiredPreparationTime = clearanceTime + 3 + 4;
+      if (etaSeconds <= requiredPreparationTime + 8) {
+        return "PREPARING";
+      }
+      if (etaSeconds <= this.config.corridorEtaPlanHorizonS) {
+        return "DETECTED";
+      }
+    }
+    return "NORMAL";
+  }
+
   private corridorUpdatePayload(
     corridor: CorridorRuntime,
     simTime: number,
     emergency: EmergencyRuntimeSnapshot | null,
   ) {
+    const etas = emergency ? this.emergencyService.getEtas(corridor.eventId) : null;
+    const etaByJunction = new Map<string, EmergencyEta>();
+    if (etas !== null) {
+      for (const e of etas) etaByJunction.set(e.junctionId, e);
+    }
+
     return {
       corridorId: corridor.corridorId,
       eventId: corridor.eventId,
       status: corridor.status,
       simTimeSeconds: simTime,
       emergencyStatus: emergency?.status ?? null,
-      signals: corridor.junctions.map((junction) => ({
-        junctionId: junction.junctionId,
-        sequenceIndex: junction.sequenceIndex,
-        status: junction.status,
-        plannedGreenStartS: junction.plannedGreenStartS,
-        plannedGreenEndS: junction.plannedGreenEndS,
-        appliedState: junction.appliedState,
-        skipReason: junction.skipReason,
-      })),
+      signals: corridor.junctions.map((junction) => {
+        const etaObj = etaByJunction.get(junction.junctionId);
+        const etaSec = etaObj ? etaObj.etaSeconds : null;
+        const stage = this.deriveJunctionStage(junction, simTime, etaSec);
+        return {
+          junctionId: junction.junctionId,
+          sequenceIndex: junction.sequenceIndex,
+          status: junction.status,
+          stage,
+          etaSeconds: etaSec,
+          distanceM: etaObj ? etaObj.distanceM : null,
+          plannedGreenStartS: junction.plannedGreenStartS,
+          plannedGreenEndS: junction.plannedGreenEndS,
+          appliedState: junction.appliedState,
+          skipReason: junction.skipReason,
+        };
+      }),
     };
   }
 }

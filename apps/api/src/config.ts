@@ -306,7 +306,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     vultrApiKey: env.VULTR_SERVERLESS_INFERENCE_API_KEY || null,
     vultrModel: env.VULTR_INFERENCE_MODEL || "deepseek-v4.1-flash",
 
-    corridorGreenLeadS: readNumber(env, "CORRIDOR_GREEN_LEAD_S", 5, 0, 120),
+    corridorGreenLeadS: readNumber(env, "CORRIDOR_GREEN_LEAD_S", 12, 0, 120),
     corridorGreenTrailS: readNumber(env, "CORRIDOR_GREEN_TRAIL_S", 12, 0, 120),
     corridorMinGreenWindowS: readNumber(env, "CORRIDOR_MIN_GREEN_WINDOW_S", 8, 1, 120),
     corridorMaxGreenWindowS: readNumber(env, "CORRIDOR_MAX_GREEN_WINDOW_S", 30, 1, 300),

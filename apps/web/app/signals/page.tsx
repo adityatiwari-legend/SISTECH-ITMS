@@ -139,85 +139,151 @@ export default function SignalsPage() {
           />
         </Panel>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredSignals.map((signal) => {
             const meta = getJunctionMeta(signal.id);
-            const corridor = corridorBySignal.get(signal.id) ?? null;
-            const remaining = Math.max(0, signal.nextSwitchAtSeconds - simTime);
+            const activeCorridor = state.corridors.find(
+              (c) => c.status === "ACTIVE" || c.status === "REPLANNING" || c.status === "PLANNING"
+            );
+            const corrSignal = activeCorridor?.signals.find((s) => s.junctionId === signal.id) ?? null;
+            const isCorridor = corrSignal !== null;
+            const remaining = Math.max(0, Math.round(signal.nextSwitchAtSeconds - simTime));
             const isGreen = /[gG]/.test(signal.state);
             const isYellow = /[yY]/.test(signal.state);
             const currentPhase = isGreen ? "GREEN" : isYellow ? "YELLOW" : "RED";
+
+            const stage = corrSignal?.stage ?? (
+              corrSignal?.status === "APPLIED"
+                ? "GREEN"
+                : corrSignal?.status === "PASSED"
+                ? "PASSED"
+                : isCorridor
+                ? "PREPARING"
+                : "NORMAL"
+            );
+            const etaSec = corrSignal ? Math.max(0, Math.round(corrSignal.etaSeconds)) : null;
+
+            const activeEmergency = state.emergencies.find(
+              (e) => e.status === "active" || e.status === "created"
+            );
+            const emvName = activeEmergency?.vehicle?.vehicleId ?? "EMV-55452";
+
+            let corridorStateLabel = "NORMAL CONTROL";
+            let whyThisSignal = `Signal operating on normal actuated cycle based on measured queue of ${signal.queueLength} vehicles.`;
+
+            if (stage === "GREEN") {
+              corridorStateLabel = "AMBULANCE APPROACHING (GREEN HOLD)";
+              whyThisSignal = `Signal was changed to green because emergency vehicle ${emvName} is approaching in ${etaSec ?? 0} seconds.`;
+            } else if (stage === "CLEARING") {
+              corridorStateLabel = "CLEARING CROSS TRAFFIC";
+              whyThisSignal = `Cross-traffic is being cleared safely with yellow interval so emergency vehicle ${emvName} receives uninterrupted green.`;
+            } else if (stage === "PREPARING" || stage === "DETECTED") {
+              corridorStateLabel = "PREPARING FOR ARRIVAL";
+              whyThisSignal = `Intersection is preparing for incoming emergency vehicle ${emvName} (ETA ${etaSec ?? 0}s). Phase adjustments underway within safety limits.`;
+            } else if (stage === "PASSED" || stage === "RESTORING") {
+              corridorStateLabel = "PASSED · RESTORING NORMAL";
+              whyThisSignal = `Emergency vehicle ${emvName} has cleared the junction. Actuated cycle is safely restoring normal traffic progression.`;
+            }
 
             return (
               <div
                 key={signal.id}
                 onClick={() => setSelectedSignal(signal)}
-                className={`itms-panel itms-hover cursor-pointer rounded-xl p-3.5 transition-all ${
-                  corridor ? "border-[rgba(139,124,255,0.5)] bg-[rgba(139,124,255,0.04)]" : ""
+                className={`itms-panel itms-hover cursor-pointer rounded-xl p-3.5 transition-all flex flex-col justify-between ${
+                  isCorridor ? "border-[rgba(24,216,139,0.5)] bg-[rgba(24,216,139,0.03)] shadow-lg" : ""
                 }`}
               >
-                {/* Card Top: Human-Readable Name & Traffic Light */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-bold text-[#F4F7FA]">
-                      {meta.fullName}
-                    </span>
-                    <div className="font-mono text-[10px] text-[#5E6B7A]">
-                      SUMO ID: {signal.id}
+                <div>
+                  {/* Card Header: Human Name Primary, SUMO ID Secondary */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-bold text-[#F4F7FA] leading-tight">
+                        {meta.fullName}
+                      </div>
+                      <div className="font-mono text-[10px] text-[#5E6B7A] mt-0.5">
+                        SUMO ID: {signal.id}
+                      </div>
+                    </div>
+                    <SignalLightVisual state={signal.state} size="md" />
+                  </div>
+
+                  {/* Core Metrics: Current & Mode */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[rgba(255,255,255,0.06)] pt-2 font-mono text-xs">
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider text-[#5E6B7A]">CURRENT</span>
+                      <div
+                        className="font-bold text-[11px] mt-0.5"
+                        style={{ color: isGreen ? "#18D88B" : isYellow ? "#FFB547" : "#FF3B4E" }}
+                      >
+                        {currentPhase} · {remaining}s left
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider text-[#5E6B7A]">MODE</span>
+                      <div className="font-bold text-[11px] mt-0.5">
+                        {isCorridor ? (
+                          <span className="text-[#18D88B]">GREEN CORRIDOR</span>
+                        ) : (
+                          <span className="text-[#8D9AAA]">NORMAL ACTUATED</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <SignalLightVisual state={signal.state} size="md" />
+
+                  {/* Corridor State & ETA */}
+                  <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-[rgba(255,255,255,0.04)] pt-2 font-mono text-xs">
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider text-[#5E6B7A]">CORRIDOR STATE</span>
+                      <div className="font-semibold text-[10px] text-[#F4F7FA] mt-0.5 truncate" title={corridorStateLabel}>
+                        {corridorStateLabel}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider text-[#5E6B7A]">ETA</span>
+                      <div className="font-bold text-[11px] text-[#42B8FF] mt-0.5">
+                        {etaSec !== null ? `${etaSec}s` : "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Queue Length */}
+                  <div className="mt-2 text-xs font-mono text-[#8D9AAA]">
+                    <span className="text-[9px] uppercase tracking-wider text-[#5E6B7A]">QUEUE:</span>{" "}
+                    <span className="font-bold text-[#F4F7FA]">{signal.queueLength}</span> vehicles
+                  </div>
+
+                  {/* WHY THIS SIGNAL? Card */}
+                  <div className="mt-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#070B12] p-2.5">
+                    <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#8B7CFF] flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#8B7CFF]" />
+                      <span>WHY THIS SIGNAL?</span>
+                    </div>
+                    <p className="mt-1 text-[11px] font-sans leading-relaxed text-[#CBD5E1]">
+                      &ldquo;{whyThisSignal}&rdquo;
+                    </p>
+                  </div>
                 </div>
 
-                {/* Status Badges */}
-                <div className="mt-3 flex items-center justify-between border-t border-[rgba(255,255,255,0.06)] pt-2 font-mono text-xs">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] uppercase text-[#5E6B7A]">Current Phase</span>
-                    <span
-                      className="font-bold tracking-wide"
-                      style={{
-                        color: isGreen ? "#18D88B" : isYellow ? "#FFB547" : "#FF3B4E",
-                      }}
-                    >
-                      {currentPhase} · {remaining.toFixed(0)}s left
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] uppercase text-[#5E6B7A]">Mode</span>
-                    <span>
-                      {corridor ? (
-                        <span className="font-bold text-[#8B7CFF]">CORRIDOR PRIORITY</span>
-                      ) : (
-                        <span className="text-[#8D9AAA]">NORMAL CONTROL</span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Queue & Quick Actions */}
-                <div className="mt-2.5 flex items-center justify-between border-t border-[rgba(255,255,255,0.04)] pt-2 font-mono text-[11px]">
-                  <div className="text-[#8D9AAA]">
-                    Queue: <span className="font-bold text-[#F4F7FA]">{signal.queueLength}</span> veh
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openCopilot(`Why is ${meta.code} (${meta.name}) in this signal phase?`, { intersectionId: signal.id });
-                      }}
-                      className="text-[10px] text-[#8B7CFF] hover:underline"
-                    >
-                      Why this signal?
-                    </button>
-                    <Link
-                      href="/"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-[10px] text-[#42B8FF] hover:underline"
-                    >
-                      View on Map →
-                    </Link>
-                  </div>
+                {/* Bottom Action Footer */}
+                <div className="mt-3 flex items-center justify-between border-t border-[rgba(255,255,255,0.04)] pt-2 font-mono text-[10px]">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openCopilot(`Explain why ${meta.code} (${meta.name}) is in state ${signal.state}`, {
+                        intersectionId: signal.id,
+                      });
+                    }}
+                    className="text-[#8B7CFF] hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <span>✦ Ask AI Copilot</span>
+                  </button>
+                  <Link
+                    href="/"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[#42B8FF] hover:underline"
+                  >
+                    View on Map →
+                  </Link>
                 </div>
               </div>
             );

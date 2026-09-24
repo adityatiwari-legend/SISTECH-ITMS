@@ -9,8 +9,8 @@ const compareBodySchema = {
   required: ["type", "origin", "destination", "priority"],
   properties: {
     type: { type: "string", enum: ["ambulance", "fire_engine", "police"] },
-    origin: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9]{0,15}$" },
-    destination: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9]{0,15}$" },
+    origin: { type: "string", pattern: "^[A-Za-z0-9_#][A-Za-z0-9_#.-]{0,127}$" },
+    destination: { type: "string", pattern: "^[A-Za-z0-9_#][A-Za-z0-9_#.-]{0,127}$" },
     priority: { type: "string", enum: ["critical", "high", "normal"] },
     warmupSeconds: { type: "number", minimum: 0, maximum: 600 },
     durationCapSeconds: { type: "number", minimum: 30, maximum: 7200 },

@@ -106,23 +106,52 @@ export async function simulationRoutes(
   });
 
   app.get("/api/vehicles", async () => {
-    requireActive();
     return { vehicles: manager.getVehicles() };
   });
 
   app.get("/api/signals", async () => {
-    requireActive();
-    return { signals: manager.getSignals() };
+    const live = manager.getSignals();
+    if (live.length > 0) {
+      return { signals: live };
+    }
+    const catalog = manager.getCatalog();
+    if (catalog !== null && catalog.signals.length > 0) {
+      return {
+        signals: catalog.signals.map((sig) => ({
+          id: sig.id,
+          program: sig.programId || "0",
+          state: sig.phases[0]?.state ?? "G",
+          phaseIndex: 0,
+          phaseDurationSeconds: sig.phases[0]?.durationS ?? 30,
+          nextSwitchAtSeconds: sig.phases[0]?.durationS ?? 30,
+          queueLength: 0,
+          controlledLanes: [],
+        })),
+      };
+    }
+    return { signals: [] };
   });
 
   app.get("/api/signals/:id", { schema: { params: signalIdParamSchema } }, async (request) => {
-    requireActive();
     const { id } = request.params as { id: string };
     const signal = manager.getSignal(id);
-    if (signal === null) {
-      throw new AppError(404, "unknown_signal", `Unknown traffic signal "${id}".`);
+    if (signal !== null) {
+      return signal;
     }
-    return signal;
+    const catalogSig = manager.getCatalog()?.signals.find((s) => s.id === id);
+    if (catalogSig) {
+      return {
+        id: catalogSig.id,
+        program: catalogSig.programId || "0",
+        state: catalogSig.phases[0]?.state ?? "G",
+        phaseIndex: 0,
+        phaseDurationSeconds: catalogSig.phases[0]?.durationS ?? 30,
+        nextSwitchAtSeconds: catalogSig.phases[0]?.durationS ?? 30,
+        queueLength: 0,
+        controlledLanes: [],
+      };
+    }
+    throw new AppError(404, "unknown_signal", `Unknown traffic signal "${id}".`);
   });
 
   app.post(

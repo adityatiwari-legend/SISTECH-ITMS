@@ -406,6 +406,16 @@ export type CorridorJunctionMode = "switch" | "extend" | "noop";
 /** Per-junction execution status. */
 export type CorridorSignalStatus = "PENDING" | "APPLIED" | "PASSED" | "SKIPPED" | "NOOP";
 
+/** Rolling approach corridor stage for live human-centered visualization. */
+export type CorridorSignalStage =
+  | "NORMAL"
+  | "DETECTED"
+  | "PREPARING"
+  | "CLEARING"
+  | "GREEN"
+  | "PASSED"
+  | "RESTORING";
+
 /** One junction's planned green window inside a corridor. */
 export interface CorridorSignalPlanEntry {
   sequenceIndex: number;
@@ -416,6 +426,9 @@ export interface CorridorSignalPlanEntry {
   /** Emergency ETA at this junction in seconds (relative to planning time). */
   etaSeconds: number;
   mode: CorridorJunctionMode;
+  /** Rolling corridor execution stage (human-readable lifecycle). */
+  stage?: CorridorSignalStage;
+  distanceToEmergencyM?: number | null;
   /** Absolute simulation-time green window [start, end] (null for PENDING). */
   plannedGreenStartS: number | null;
   plannedGreenEndS: number | null;
@@ -526,6 +539,17 @@ export interface RouteSwitchRecord {
 export interface ComparisonResult {
   jobId: string;
   status: "queued" | "running" | "completed" | "failed";
+  stage?:
+    | "preparing"
+    | "running_baseline"
+    | "baseline_complete"
+    | "resetting"
+    | "running_itms"
+    | "itms_complete"
+    | "comparing"
+    | "completed"
+    | "failed";
+  stageMessage?: string;
   error: string | null;
   input: {
     type: EmergencyType;

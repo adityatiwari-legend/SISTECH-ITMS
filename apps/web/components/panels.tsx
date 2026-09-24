@@ -584,3 +584,81 @@ export function AiDecisionTimeline({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// 6. COMPACT CORRIDOR EVENT TIMELINE (UNDER MAP)
+// ---------------------------------------------------------------------------
+
+export function CorridorEventTimeline({
+  events,
+  max = 8,
+}: {
+  events: DecisionEvent[];
+  max?: number;
+}) {
+  const filtered = events
+    .filter((e) =>
+      e.kind.startsWith("signal") ||
+      e.kind.startsWith("corridor") ||
+      e.kind.startsWith("emergency") ||
+      e.kind.startsWith("route")
+    )
+    .slice(0, max);
+
+  if (filtered.length === 0) {
+    return (
+      <div className="flex items-center justify-between border-t border-[rgba(255,255,255,0.06)] bg-[#070B12] px-3.5 py-2 font-mono text-[10px] text-[#5E6B7A]">
+        <span>Corridor Timeline: Standby for emergency dispatch and predictive signal transitions…</span>
+        <span className="text-[#8D9AAA]">SUMO · TraCI Interlock Active</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-[rgba(255,255,255,0.08)] bg-[#070B12] px-3 py-2">
+      <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[rgba(255,255,255,0.04)] font-mono text-[9px] uppercase tracking-wider text-[#5E6B7A]">
+        <span className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#18D88B] animate-pulse" />
+          <span className="font-bold text-[#8D9AAA]">LIVE CORRIDOR EVENT TIMELINE</span>
+        </span>
+        <span>PRE-CLEARING & ROLLING SIGNAL PROGRESSION</span>
+      </div>
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+        {filtered.map((item, i) => {
+          const time = wallClock(item.ts);
+          const isGreen = item.message.includes("GREEN");
+          const isClearing = item.message.includes("clearing");
+          const isPrep = item.message.includes("preparation");
+          const isPassed = item.message.includes("passed");
+          const isRoute = item.message.includes("Route");
+          const isEm = item.message.includes("Emergency");
+
+          const badgeColor = isGreen
+            ? "border-[#18D88B]/40 bg-[#18D88B]/10 text-[#18D88B]"
+            : isClearing
+            ? "border-[#FFB547]/40 bg-[#FFB547]/10 text-[#FFB547]"
+            : isPrep
+            ? "border-[#42B8FF]/40 bg-[#42B8FF]/10 text-[#42B8FF]"
+            : isPassed
+            ? "border-[#8D9AAA]/30 bg-[#121A24] text-[#8D9AAA]"
+            : isEm
+            ? "border-[#FF3B4E]/40 bg-[#FF3B4E]/10 text-[#FF3B4E]"
+            : isRoute
+            ? "border-[#42B8FF]/40 bg-[#42B8FF]/10 text-[#42B8FF]"
+            : "border-[rgba(255,255,255,0.08)] bg-[#0E141D] text-[#8B7CFF]";
+
+          return (
+            <div
+              key={`${item.ts}-${i}`}
+              className={`flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[10px] ${badgeColor} backdrop-blur-sm`}
+            >
+              <span className="font-bold text-[#F4F7FA]">{time}</span>
+              <span className="font-medium text-white/90">{item.message}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+

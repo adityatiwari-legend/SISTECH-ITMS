@@ -91,6 +91,8 @@ export class ScenarioComparisonService {
     const job: ComparisonResult = {
       jobId: randomUUID(),
       status: "queued",
+      stage: "preparing",
+      stageMessage: "Queued for execution...",
       error: null,
       input: {
         type: body.type,
@@ -114,26 +116,54 @@ export class ScenarioComparisonService {
   private async executeJob(job: ComparisonResult): Promise<void> {
     this.activeJob = job.jobId;
     job.status = "running";
+    job.stage = "preparing";
+    job.stageMessage = "Preparing benchmark environment...";
     try {
-      // ---- run 1: baseline (no ITMS intervention) ----
+      // ---- stage: running_baseline ----
+      job.stage = "running_baseline";
+      job.stageMessage = "Running baseline simulation (uncoordinated normal signal control)...";
       this.metricsRecorder.setRunMode("baseline");
       job.baseline.runId = await this.runSingle(
         job,
         { corridor: false, rerouting: false },
       );
 
-      // ---- run 2: ITMS (identical initial conditions) ----
+      // ---- stage: baseline_complete ----
+      job.stage = "baseline_complete";
+      job.stageMessage = "Baseline run complete. Recording baseline metrics...";
+
+      // ---- stage: resetting ----
+      job.stage = "resetting";
+      job.stageMessage = "Resetting simulation with identical seed, demand, and departure conditions...";
+
+      // ---- stage: running_itms ----
+      job.stage = "running_itms";
+      job.stageMessage = "Running ITMS simulation (Traffic Prediction + Dynamic Routing + Predictive Green Corridor)...";
       this.metricsRecorder.setRunMode("itms");
       job.itms.runId = await this.runSingle(
         job,
         { corridor: true, rerouting: true },
       );
 
-      // ---- comparison from the persisted measured metrics ----
-      const baselineMetrics = job.baseline.runId !== null ? await this.metricsRepository.getRunMetrics(job.baseline.runId) : null;
-      const itmsMetrics = job.itms.runId !== null ? await this.metricsRepository.getRunMetrics(job.itms.runId) : null;
-      job.baseline.metrics = baselineMetrics !== null ? toSimulationMetrics(baselineMetrics) : null;
-      job.itms.metrics = itmsMetrics !== null ? toSimulationMetrics(itmsMetrics) : null;
+      // ---- stage: itms_complete ----
+      job.stage = "itms_complete";
+      job.stageMessage = "ITMS run complete. Recording ITMS metrics...";
+
+      // ---- stage: comparing ----
+      job.stage = "comparing";
+      job.stageMessage = "Comparing results and calculating performance deltas...";
+
+      const dbBaseline = job.baseline.runId !== null ? await this.metricsRepository.getRunMetrics(job.baseline.runId) : null;
+      const memBaseline = job.baseline.runId !== null ? this.metricsRecorder.getRunMetrics(job.baseline.runId) : null;
+      const baselineMetrics = dbBaseline !== null ? toSimulationMetrics(dbBaseline) : memBaseline;
+
+      const dbItms = job.itms.runId !== null ? await this.metricsRepository.getRunMetrics(job.itms.runId) : null;
+      const memItms = job.itms.runId !== null ? this.metricsRecorder.getRunMetrics(job.itms.runId) : null;
+      const itmsMetrics = dbItms !== null ? toSimulationMetrics(dbItms) : memItms;
+
+      job.baseline.metrics = baselineMetrics;
+      job.itms.metrics = itmsMetrics;
+
       if (job.baseline.metrics !== null && job.itms.metrics !== null) {
         const delta = (a: number | null, b: number | null): number | null =>
           a !== null && b !== null ? Math.round((b - a) * 100) / 100 : null;
@@ -147,6 +177,8 @@ export class ScenarioComparisonService {
         };
       }
       job.status = "completed";
+      job.stage = "completed";
+      job.stageMessage = "Benchmark complete! Measured comparative results ready.";
       job.completedAtIso = new Date().toISOString();
       await this.persistComparison(job);
       this.logger.info("Comparison completed", {
@@ -157,7 +189,9 @@ export class ScenarioComparisonService {
       });
     } catch (err) {
       job.status = "failed";
+      job.stage = "failed";
       job.error = err instanceof Error ? err.message : String(err);
+      job.stageMessage = `Benchmark failed: ${job.error}`;
       job.completedAtIso = new Date().toISOString();
       this.logger.error("Comparison failed", { jobId: job.jobId, error: job.error });
     } finally {
