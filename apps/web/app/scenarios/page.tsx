@@ -10,6 +10,8 @@ import {
   Panel,
   DisconnectedBanner,
 } from "@/components/ui";
+import { getJunctionMeta } from "@/lib/naming";
+import { AiCopilotModal } from "@/components/AiCopilotModal";
 import {
   scenarioForTrafficLevel,
   type EmergencyPriority,
@@ -31,31 +33,9 @@ interface ScenarioPreset {
 
 const PRESETS: ScenarioPreset[] = [
   {
-    id: "normal-flow",
-    name: "Normal Traffic Flow",
-    description: "Standard morning commuter volume with nominal actuated signal coordination and baseline speeds.",
-    trafficLevel: "low",
-    type: "ambulance",
-    priority: "normal",
-    mode: "with-itms",
-    badge: "LOW DEMAND",
-    badgeColor: "#18D88B",
-  },
-  {
-    id: "rush-hour",
-    name: "Peak Rush Hour",
-    description: "Dense urban traffic with queue buildup at core intersections. Stress-tests adaptive priority waves.",
-    trafficLevel: "high",
-    type: "ambulance",
-    priority: "critical",
-    mode: "with-itms",
-    badge: "HEAVY CONGESTION",
-    badgeColor: "#FFB547",
-  },
-  {
-    id: "critical-ambulance",
-    name: "Critical Medical Priority",
-    description: "High-urgency EMS dispatch across congested arterial corridors with proactive signal green holds.",
+    id: "emergency-response",
+    name: "EMERGENCY RESPONSE",
+    description: "Standard high-priority ambulance transit with live A* route calculation and proactive corridor preemption.",
     trafficLevel: "medium",
     type: "ambulance",
     priority: "critical",
@@ -64,26 +44,59 @@ const PRESETS: ScenarioPreset[] = [
     badgeColor: "#FF3B4E",
   },
   {
+    id: "heavy-traffic",
+    name: "HEAVY TRAFFIC",
+    description: "High vehicle density grid evaluating queue dissipation and downstream green-wave coordination.",
+    trafficLevel: "high",
+    type: "ambulance",
+    priority: "high",
+    mode: "with-itms",
+    badge: "HEAVY FLOW",
+    badgeColor: "#FFB547",
+  },
+  {
+    id: "rush-hour",
+    name: "RUSH HOUR",
+    description: "Peak-demand morning volume testing multi-intersection holding against severe civilian cross-traffic.",
+    trafficLevel: "high",
+    type: "ambulance",
+    priority: "critical",
+    mode: "with-itms",
+    badge: "GRIDLOCK TEST",
+    badgeColor: "#FFB547",
+  },
+  {
     id: "fire-response",
-    name: "Heavy Engine Rescue",
-    description: "Multi-ton fire engine dispatch requiring extended turning clearance and broad intersection preemption.",
+    name: "FIRE RESPONSE",
+    description: "Heavy rescue fire engine mission requiring wide intersection turn clearance and extended phase duration.",
     trafficLevel: "medium",
     type: "fire_engine",
     priority: "critical",
     mode: "with-itms",
-    badge: "SPECIAL VEHICLE",
+    badge: "FIRE RESCUE",
     badgeColor: "#FF3B4E",
   },
   {
-    id: "baseline-unassisted",
-    name: "Unassisted Baseline Run",
-    description: "Simulation without ITMS green corridor intervention. Establishes the uncoordinated control standard.",
+    id: "multiple-emergencies",
+    name: "MULTIPLE EMERGENCIES",
+    description: "Concurrent emergency dispatches evaluating multi-corridor arbitration and dynamic priority scheduling.",
     trafficLevel: "medium",
+    type: "police",
+    priority: "critical",
+    mode: "with-itms",
+    badge: "MULTI-MISSION",
+    badgeColor: "#42B8FF",
+  },
+  {
+    id: "corridor-stress-test",
+    name: "CORRIDOR STRESS TEST",
+    description: "Cross-network traversal with maximum demand to stress-test downstream queue clearance and safety limits.",
+    trafficLevel: "high",
     type: "ambulance",
     priority: "critical",
-    mode: "no-intervention",
-    badge: "BASELINE REGIME",
-    badgeColor: "#8D9AAA",
+    mode: "with-itms",
+    badge: "STRESS TEST",
+    badgeColor: "#8B7CFF",
   },
 ];
 
@@ -95,7 +108,14 @@ const TYPES: Array<{ value: EmergencyType; label: string; icon: string }> = [
 
 export default function ScenariosPage() {
   const { state, refreshAll } = useItms();
-  const [selectedPreset, setSelectedPreset] = React.useState<string>("normal-flow");
+  const [selectedPreset, setSelectedPreset] = React.useState<string>("emergency-response");
+  const [copilotOpen, setCopilotOpen] = React.useState(false);
+  const [copilotPrompt, setCopilotPrompt] = React.useState<string | undefined>(undefined);
+
+  const openCopilot = (prompt?: string) => {
+    setCopilotPrompt(prompt);
+    setCopilotOpen(true);
+  };
 
   // Custom scenario state
   const [type, setType] = React.useState<EmergencyType>("ambulance");
@@ -213,6 +233,16 @@ export default function ScenariosPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <ActionButton
+            onClick={() =>
+              openCopilot(
+                "What are the best scenarios to demonstrate ITMS green corridor performance under high traffic?"
+              )
+            }
+            color="#8B7CFF"
+          >
+            ✦ Ask AI Copilot
+          </ActionButton>
           <ActionButton onClick={() => void resetAll()} disabled={running} color="#8D9AAA">
             ↻ Reset Simulation
           </ActionButton>
@@ -235,14 +265,14 @@ export default function ScenariosPage() {
         <div className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-[#5E6B7A]">
           Standardized Reproducible Presets
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {PRESETS.map((preset) => {
             const isSelected = selectedPreset === preset.id;
             return (
               <div
                 key={preset.id}
                 onClick={() => loadPreset(preset)}
-                className={`itms-panel itms-hover cursor-pointer p-3.5 transition-all flex flex-col justify-between ${
+                className={`itms-panel itms-hover cursor-pointer p-4 transition-all flex flex-col justify-between ${
                   isSelected ? "border-[#42B8FF] bg-[#121A24] shadow-[0_0_15px_rgba(66,184,255,0.2)]" : ""
                 }`}
               >
@@ -253,16 +283,17 @@ export default function ScenariosPage() {
                       <span className="font-mono text-[9px] font-bold text-[#42B8FF]">SELECTED</span>
                     )}
                   </div>
-                  <div className="mt-2 font-mono text-sm font-bold text-[#F4F7FA]">
+                  <div className="mt-2.5 font-mono text-sm font-bold text-[#F4F7FA]">
                     {preset.name}
                   </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-[#8D9AAA]">
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#8D9AAA]">
                     {preset.description}
                   </p>
                 </div>
 
-                <div className="mt-3 border-t border-[rgba(255,255,255,0.06)] pt-2 font-mono text-[10px] text-[#5E6B7A]">
-                  {preset.mode === "with-itms" ? "✓ Corridor Enabled" : "✕ Baseline Only"}
+                <div className="mt-3.5 border-t border-[rgba(255,255,255,0.06)] pt-2 font-mono text-[10px] text-[#5E6B7A] flex items-center justify-between">
+                  <span>{preset.mode === "with-itms" ? "✓ Corridor Enabled" : "✕ Baseline Only"}</span>
+                  <span className="text-[#42B8FF]">DEMAND: {preset.trafficLevel.toUpperCase()}</span>
                 </div>
               </div>
             );
@@ -310,11 +341,14 @@ export default function ScenariosPage() {
               onChange={(e) => setOrigin(e.target.value)}
               className="rounded border border-[rgba(255,255,255,0.12)] bg-[#0E141D] p-2 text-[#F4F7FA]"
             >
-              {controlled.map((j) => (
-                <option key={j} value={j}>
-                  Intersection {j}
-                </option>
-              ))}
+              {controlled.map((j) => {
+                const meta = getJunctionMeta(j);
+                return (
+                  <option key={j} value={j}>
+                    {meta.shortId} — {meta.name} (SUMO: {j})
+                  </option>
+                );
+              })}
             </select>
           </label>
 
@@ -325,11 +359,14 @@ export default function ScenariosPage() {
               onChange={(e) => setDestination(e.target.value)}
               className="rounded border border-[rgba(255,255,255,0.12)] bg-[#0E141D] p-2 text-[#F4F7FA]"
             >
-              {controlled.map((j) => (
-                <option key={j} value={j}>
-                  Intersection {j}
-                </option>
-              ))}
+              {controlled.map((j) => {
+                const meta = getJunctionMeta(j);
+                return (
+                  <option key={j} value={j}>
+                    {meta.shortId} — {meta.name} (SUMO: {j})
+                  </option>
+                );
+              })}
             </select>
           </label>
 
@@ -374,7 +411,7 @@ export default function ScenariosPage() {
 
         <div className="mt-4 flex items-center justify-between border-t border-[rgba(255,255,255,0.06)] pt-3 font-mono text-[11px] text-[#8D9AAA]">
           <span>
-            Target: {origin || "—"} → {destination || "—"} · {trafficLevel.toUpperCase()} Demand
+            Target: {origin ? `${getJunctionMeta(origin).shortId} (${getJunctionMeta(origin).name})` : "—"} → {destination ? `${getJunctionMeta(destination).shortId} (${getJunctionMeta(destination).name})` : "—"} · {trafficLevel.toUpperCase()} Demand
           </span>
           <ActionButton
             onClick={() => void executeScenario()}
@@ -386,6 +423,12 @@ export default function ScenariosPage() {
           </ActionButton>
         </div>
       </Panel>
+
+      <AiCopilotModal
+        isOpen={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        initialPrompt={copilotPrompt}
+      />
     </div>
   );
 }

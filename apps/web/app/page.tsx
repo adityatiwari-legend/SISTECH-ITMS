@@ -18,6 +18,7 @@ import {
   Panel,
   StaleBanner,
 } from "@/components/ui";
+import { AiCopilotModal } from "@/components/AiCopilotModal";
 import { formatSpeed, simClock } from "@/lib/format";
 import type { NetworkGeometryResponse, DecisionEvent } from "@itms/types";
 
@@ -26,6 +27,22 @@ export default function CommandCenterPage() {
   const [geometry, setGeometry] = React.useState<NetworkGeometryResponse | null>(null);
   const [geometryError, setGeometryError] = React.useState<string | null>(null);
   const [decisions, setDecisions] = React.useState<DecisionEvent[]>([]);
+
+  // AI Copilot state
+  const [copilotOpen, setCopilotOpen] = React.useState(false);
+  const [copilotQuestion, setCopilotQuestion] = React.useState<string | undefined>(undefined);
+  const [copilotContext, setCopilotContext] = React.useState<
+    { intersectionId?: string; emergencyId?: number; decisionId?: string } | undefined
+  >(undefined);
+
+  const openCopilot = (
+    question?: string,
+    context?: { intersectionId?: string; emergencyId?: number; decisionId?: string }
+  ) => {
+    setCopilotQuestion(question);
+    setCopilotContext(context);
+    setCopilotOpen(true);
+  };
 
   // Authoritative geometry fetch
   React.useEffect(() => {
@@ -89,25 +106,25 @@ export default function CommandCenterPage() {
   const destinationEtaSeconds = activeEmergency?.etas?.find((e) => e.isDestination)?.etaSeconds ?? null;
 
   return (
-    <div className="flex min-h-full flex-col gap-3 p-4">
+    <div className="flex min-h-full flex-col gap-3 p-4 font-sans">
       {/* ================================================================== */}
-      {/* 1. TOP SYSTEM COCKPIT HEADER                                       */}
+      {/* 1. TOP SYSTEM BAR                                                  */}
       {/* ================================================================== */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2.5 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="h-2 w-2 rounded-full bg-[#18D88B] shadow-[0_0_8px_#18D88B]" />
+          <div className="h-2.5 w-2.5 rounded-full bg-[#18D88B] shadow-[0_0_8px_#18D88B]" />
           <div>
-            <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
-              COMMAND CENTER
+            <h1 className="text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
+              Command Center
             </h1>
-            <p className="font-mono text-[10px] text-[#5E6B7A]">
-              AUTONOMOUS REAL-TIME CORRIDOR & TRAFFIC DISPATCH
+            <p className="text-[11px] text-[#8D9AAA]">
+              Intelligent Operations & Emergency Priority
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
-          <div className="flex items-center gap-2 rounded bg-[#0E141D] px-2.5 py-1 border border-[rgba(255,255,255,0.06)]">
+        <div className="flex flex-wrap items-center gap-2.5 font-mono text-[11px]">
+          <div className="flex items-center gap-2 rounded-lg bg-[#0E141D] px-2.5 py-1 border border-[rgba(255,255,255,0.06)]">
             <span className="text-[#5E6B7A]">SIMULATION:</span>
             <span
               className="font-bold uppercase"
@@ -117,18 +134,29 @@ export default function CommandCenterPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 rounded bg-[#0E141D] px-2.5 py-1 border border-[rgba(255,255,255,0.06)]">
-            <span className="text-[#5E6B7A]">NETWORK:</span>
+          <div className="flex items-center gap-2 rounded-lg bg-[#0E141D] px-2.5 py-1 border border-[rgba(255,255,255,0.06)]">
+            <span className="text-[#5E6B7A]">CITY TWIN:</span>
             <span className="font-bold text-[#42B8FF]">
-              {geometry?.demoCity?.toUpperCase() ?? "SUMO GRID"}
+              {geometry?.demoCity?.toUpperCase() ?? "BHOPAL"}
             </span>
           </div>
 
+          {/* AI Copilot Trigger Button */}
+          <button
+            onClick={() => openCopilot()}
+            className="flex items-center gap-1.5 rounded-lg border border-[#8B7CFF]/40 bg-[rgba(139,124,255,0.12)] px-3 py-1 font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.22)] transition-colors"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>AI COPILOT</span>
+          </button>
+
           <Link
             href="/simulator"
-            className="flex items-center gap-1 rounded border border-[rgba(66,184,255,0.3)] bg-[rgba(66,184,255,0.1)] px-3 py-1 font-semibold text-[#42B8FF] hover:bg-[rgba(66,184,255,0.2)] transition-colors"
+            className="flex items-center gap-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#0E141D] px-3 py-1 text-[#8D9AAA] hover:text-[#F4F7FA] hover:bg-[#121A24] transition-colors"
           >
-            <span>Simulation Controls</span>
+            <span>Simulator</span>
             <span>→</span>
           </Link>
         </div>
@@ -140,33 +168,34 @@ export default function CommandCenterPage() {
         <StaleBanner label="Simulation telemetry updating…" />
       )}
       {geometryError && (
-        <div className="rounded border border-[rgba(255,71,87,0.3)] bg-[rgba(255,71,87,0.08)] p-2 font-mono text-[11px] text-[#FF4757]">
-          ⚠ SUMO Network Geometry Error: {geometryError}
+        <div className="rounded-lg border border-[rgba(255,71,87,0.3)] bg-[rgba(255,71,87,0.08)] p-2.5 text-xs text-[#FF4757]">
+          ⚠ Traffic Network Unavailable: Unable to load live simulation geometry.
         </div>
       )}
 
       {/* ================================================================== */}
-      {/* 2. MAIN COCKPIT GRID: LIVE SUMO MAP + HERO OPERATION PANELS       */}
+      {/* 2. MAIN COCKPIT: LIVE TRAFFIC MAP + OPERATIONAL PANELS             */}
       {/* ================================================================== */}
-      <div className="grid min-h-[500px] flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.95fr)_minmax(0,1fr)]">
-        {/* LEFT / CENTER: Authoritative Live SUMO Simulation Map */}
-        <div className="itms-panel min-h-[460px] overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2 font-mono text-xs">
+      <div className="grid min-h-[520px] flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.95fr)_minmax(0,1fr)]">
+        {/* LEFT / CENTER: Authoritative Live Simulation Map */}
+        <div className="itms-panel min-h-[460px] overflow-hidden flex flex-col rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#0A0F16]">
+          <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2.5 font-mono text-xs">
             <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#18D88B]" />
-              <span className="font-semibold text-[#F4F7FA]">SUMO AUTHORITATIVE LIVE TWIN</span>
+              <span className="h-2 w-2 rounded-full bg-[#18D88B]" />
+              <span className="font-semibold text-[#F4F7FA] uppercase tracking-wider">LIVE TRAFFIC SIMULATION</span>
             </div>
             <div className="flex items-center gap-3 text-[10px] text-[#8D9AAA]">
-              <span>TraCI Sync: 5 Hz (200ms)</span>
+              <span>TraCI Sync: 5 Hz</span>
               <span>·</span>
-              <span>Vector SVG</span>
+              <span>Vector SVG World</span>
             </div>
           </div>
 
-          <div className="relative flex-1 min-h-[400px]">
+          <div className="relative flex-1 min-h-[420px]">
             <SimulationMap
               className="absolute inset-0 h-full w-full"
               highlightTraffic
+              onOpenCopilot={openCopilot}
               data={{
                 geometry,
                 trafficSegments: state.traffic?.segments ?? [],
@@ -180,59 +209,71 @@ export default function CommandCenterPage() {
           </div>
         </div>
 
-        {/* RIGHT: Operational Control Panels */}
+        {/* RIGHT: Operational Side Panels */}
         <div className="flex flex-col gap-3 overflow-y-auto">
-          {/* 1. Active Emergency Panel */}
-          <ActiveEmergencyPanel emergency={activeEmergency} sim={sim} />
+          {/* 1. Active Emergency Priority Panel */}
+          <ActiveEmergencyPanel
+            emergency={activeEmergency}
+            sim={sim}
+            onOpenCopilot={(q, ctx) => openCopilot(q, ctx)}
+          />
 
-          {/* 2. Predictive Green Corridor Chain */}
-          <CorridorChainPanel corridor={activeCorridor} />
+          {/* 2. Predictive Green Corridor Progression */}
+          <CorridorChainPanel
+            corridor={activeCorridor}
+            onOpenCopilot={(q) => openCopilot(q)}
+          />
 
-          {/* 3. Compact Signal Grid */}
-          <CompactSignalsPanel signals={state.signals} max={6} />
+          {/* 3. Traffic Signals Control Grid */}
+          <CompactSignalsPanel
+            signals={state.signals}
+            max={6}
+            onOpenCopilot={(q, ctx) => openCopilot(q, ctx)}
+          />
 
-          {/* 4. AI Decision & Forecast Summary */}
+          {/* 4. Traffic Prediction & Decision Summary */}
           <AiPanel
             predictions={state.predictions}
             traffic={state.traffic}
             corridors={state.corridors}
             sim={sim}
+            onOpenCopilot={() => openCopilot("Explain the current traffic prediction and signal coordination strategy.")}
           />
         </div>
       </div>
 
       {/* ================================================================== */}
-      {/* 3. LIVE METRICS ROW (6 KPIs)                                       */}
+      {/* 3. LIVE METRICS ROW                                                */}
       {/* ================================================================== */}
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 font-mono">
         <MetricCard
-          label="TRAFFIC DENSITY"
+          label="TRAFFIC VOLUME"
           value={state.traffic ? `${state.traffic.summary.vehicleCount}` : "—"}
-          sub={`${state.traffic?.summary.congestedSegments ?? 0} Congested Segments`}
+          sub={`${state.traffic?.summary.congestedSegments ?? 0} Congested Links`}
           color="#F4F7FA"
         />
         <MetricCard
-          label="AVG VEHICLE SPEED"
+          label="AVERAGE SPEED"
           value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
-          sub="City-Wide Velocity"
+          sub="City-Wide Average"
           color="#18D88B"
         />
         <MetricCard
           label="TOTAL QUEUE"
           value={state.traffic ? `${state.traffic.summary.totalQueueLength}` : "—"}
-          sub="Halted Vehicles"
+          sub="Waiting Vehicles"
           color={state.traffic && state.traffic.summary.totalQueueLength > 50 ? "#FFB547" : "#F4F7FA"}
         />
         <MetricCard
-          label="SIGNALS COORDINATED"
+          label="ACTIVE SIGNALS"
           value={state.signals.length > 0 ? `${state.signals.length}` : "—"}
-          sub="TraCI Managed TLS"
+          sub="TraCI Managed"
           color="#42B8FF"
         />
         <MetricCard
           label="GREEN CORRIDOR"
           value={activeCorridor ? "ACTIVE" : "STANDBY"}
-          sub={activeCorridor ? `Corridor #${activeCorridor.id}` : "Awaiting Dispatch"}
+          sub={activeCorridor ? `Corridor #${activeCorridor.id}` : "Ready to engage"}
           color={activeCorridor ? "#8B7CFF" : "#5E6B7A"}
         />
         <MetricCard
@@ -247,7 +288,7 @@ export default function CommandCenterPage() {
           sub={
             destinationEtaSeconds !== null && sim
               ? simClock(sim.simTimeSeconds, destinationEtaSeconds)
-              : "No Active Priority"
+              : "No Active Emergency"
           }
           color={destinationEtaSeconds !== null ? "#FF3B4E" : "#8D9AAA"}
         />
@@ -257,26 +298,52 @@ export default function CommandCenterPage() {
       {/* 4. AI DECISION TRACE TIMELINE                                      */}
       {/* ================================================================== */}
       <Panel
-        title="AI Decision Trace (Live System Actions)"
-        subtitle="Zero Mock Data · Explainable Autonomous Traffic Engineering"
+        title="AI Decision Trace"
+        subtitle="Chronological Autonomous Traffic Actions"
         ai
         right={
-          <Link
-            href="/ai"
-            className="font-mono text-[10px] font-semibold uppercase text-[#8B7CFF] hover:underline"
-          >
-            Detailed Intelligence →
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => openCopilot("Summarize the recent autonomous traffic decisions and explains why they were taken.")}
+              className="text-[10px] font-mono text-[#8B7CFF] hover:underline"
+            >
+              Explain Decisions with AI →
+            </button>
+            <Link
+              href="/ai"
+              className="font-mono text-[10px] font-semibold uppercase text-[#8D9AAA] hover:text-[#F4F7FA]"
+            >
+              Full History →
+            </Link>
+          </div>
         }
       >
         {mergedTrace.length === 0 ? (
           <div className="py-4 text-center font-mono text-xs text-[#5E6B7A]">
-            No automated decisions triggered yet. Start the simulation or dispatch an emergency vehicle to view real-time A* routing, ETA calibration, and signal priority actions.
+            No automated decisions triggered yet. Start the simulation or dispatch an emergency unit to observe real-time A* routing, queue prediction, and signal priority actions.
           </div>
         ) : (
-          <AiDecisionTimeline events={mergedTrace} max={6} />
+          <AiDecisionTimeline
+            events={mergedTrace}
+            max={6}
+            onExplainEvent={(ev) =>
+              openCopilot(`Explain why this automated decision occurred: "${ev.message}"`, {
+                decisionId: ev.kind,
+              })
+            }
+          />
         )}
       </Panel>
+
+      {/* ================================================================== */}
+      {/* 5. AI COPILOT MODAL                                                */}
+      {/* ================================================================== */}
+      <AiCopilotModal
+        isOpen={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        initialQuestion={copilotQuestion}
+        context={copilotContext}
+      />
     </div>
   );
 }

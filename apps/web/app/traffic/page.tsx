@@ -22,9 +22,12 @@ import {
   Panel,
   DisconnectedBanner,
   StaleBanner,
+  ActionButton,
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { CONGESTION_COLORS, CONGESTION_LABELS, formatSpeed } from "@/lib/format";
+import { getJunctionMeta, getRoadMeta } from "@/lib/naming";
+import { AiCopilotModal } from "@/components/AiCopilotModal";
 import type { NetworkGeometryResponse } from "@itms/types";
 
 interface TrendPoint {
@@ -38,6 +41,13 @@ export default function TrafficPage() {
   const { state, refreshAll } = useItms();
   const [geometry, setGeometry] = React.useState<NetworkGeometryResponse | null>(null);
   const [trend, setTrend] = React.useState<TrendPoint[]>([]);
+  const [copilotOpen, setCopilotOpen] = React.useState(false);
+  const [copilotPrompt, setCopilotPrompt] = React.useState<string | undefined>(undefined);
+
+  const openCopilot = (prompt?: string) => {
+    setCopilotPrompt(prompt);
+    setCopilotOpen(true);
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -89,14 +99,20 @@ export default function TrafficPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
         <div>
           <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
-            TRAFFIC INTELLIGENCE
+            LIVE TRAFFIC MONITOR
           </h1>
           <p className="font-mono text-[10px] text-[#5E6B7A]">
-            CITY-WIDE MACRO DENSITY, BOTTLENECK LOCALIZATION & LINK CONGESTION
+            Real-time vehicle density, corridor bottlenecks, and road velocity telemetry
           </p>
         </div>
 
         <div className="flex items-center gap-3">
+          <ActionButton
+            onClick={() => openCopilot("What is causing the current traffic congestion and which intersections are most affected?")}
+            color="#8B7CFF"
+          >
+            ✦ Ask AI Copilot
+          </ActionButton>
           {traffic?.stale && state.connection !== "offline" && <StaleBanner />}
           {state.connection === "offline" && <DisconnectedBanner />}
         </div>
@@ -153,7 +169,7 @@ export default function TrafficPage() {
             {/* Traffic Map Viewport */}
             <div className="itms-panel min-h-[420px] overflow-hidden flex flex-col">
               <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2 font-mono text-xs">
-                <span className="font-semibold text-[#F4F7FA]">CONGESTION MAP OVERLAY</span>
+                <span className="font-semibold text-[#F4F7FA]">LIVE CONGESTION MAP</span>
                 <span className="text-[10px] text-[#8D9AAA]">Real-time per-lane measurements</span>
               </div>
               <div className="relative flex-1 min-h-[380px]">
@@ -244,27 +260,35 @@ export default function TrafficPage() {
                   </div>
                 ) : (
                   <div className="max-h-48 overflow-y-auto space-y-1.5">
-                    {congested.map((seg) => (
-                      <div
-                        key={seg.segmentId}
-                        className="flex items-center justify-between rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2 font-mono text-xs"
-                      >
-                        <div>
-                          <div className="font-semibold text-[#F4F7FA]">
-                            {seg.fromJunction} → {seg.toJunction}
+                    {congested.map((seg) => {
+                      const road = getRoadMeta(seg.segmentId);
+                      const fromJunc = getJunctionMeta(seg.fromJunction);
+                      const toJunc = getJunctionMeta(seg.toJunction);
+                      return (
+                        <div
+                          key={seg.segmentId}
+                          className="flex items-center justify-between rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2 font-mono text-xs"
+                        >
+                          <div>
+                            <div className="font-semibold text-[#F4F7FA]">
+                              {road.name}
+                            </div>
+                            <div className="text-[10px] text-[#42B8FF]">
+                              {fromJunc.shortId} ({fromJunc.name}) → {toJunc.shortId} ({toJunc.name})
+                            </div>
+                            <div className="text-[9px] text-[#5E6B7A]">
+                              {seg.vehicleCount} vehicles · Queue: {seg.queueLength} · SUMO: {seg.segmentId}
+                            </div>
                           </div>
-                          <div className="text-[10px] text-[#5E6B7A]">
-                            {seg.vehicleCount} vehicles · Queue: {seg.queueLength}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#8D9AAA]">{formatSpeed(seg.avgSpeedMps)}</span>
+                            <Badge color={CONGESTION_COLORS[seg.congestion]}>
+                              {CONGESTION_LABELS[seg.congestion]}
+                            </Badge>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[#8D9AAA]">{formatSpeed(seg.avgSpeedMps)}</span>
-                          <Badge color={CONGESTION_COLORS[seg.congestion]}>
-                            {CONGESTION_LABELS[seg.congestion]}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </Panel>
@@ -275,14 +299,14 @@ export default function TrafficPage() {
           {/* 4. TRAFFIC BY ROAD SEGMENT DATA TABLE                          */}
           {/* ============================================================== */}
           <Panel
-            title={`Road Network Segment Inventory (${traffic.segments.length} Links)`}
+            title={`Road Network Inventory (${traffic.segments.length} Links)`}
             subtitle="Full Link-by-Link Velocity, Queue, and Flow Breakdown"
           >
             <div className="overflow-x-auto">
               <table className="w-full text-left font-mono text-xs">
                 <thead>
                   <tr className="border-b border-[rgba(255,255,255,0.08)] text-[10px] uppercase text-[#5E6B7A]">
-                    <th className="py-2 pr-4">Road Segment</th>
+                    <th className="py-2 pr-4">Road / Corridor</th>
                     <th className="py-2 pr-4">From → To</th>
                     <th className="py-2 pr-4">Vehicles</th>
                     <th className="py-2 pr-4">Mean Velocity</th>
@@ -292,34 +316,49 @@ export default function TrafficPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {traffic.segments.map((seg) => (
-                    <tr
-                      key={seg.segmentId}
-                      className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[#0E141D] transition-colors"
-                    >
-                      <td className="py-2 pr-4 font-semibold text-[#F4F7FA]">{seg.segmentId}</td>
-                      <td className="py-2 pr-4 text-[#8D9AAA]">
-                        {seg.fromJunction} → {seg.toJunction}
-                      </td>
-                      <td className="py-2 pr-4 text-[#F4F7FA]">{seg.vehicleCount}</td>
-                      <td className="py-2 pr-4 text-[#18D88B]">{formatSpeed(seg.avgSpeedMps)}</td>
-                      <td className="py-2 pr-4 text-[#FFB547]">{seg.queueLength}</td>
-                      <td className="py-2 pr-4 text-[#8D9AAA]">
-                        {seg.flowRatePerHour > 0 ? `${Math.round(seg.flowRatePerHour)} veh/h` : "—"}
-                      </td>
-                      <td className="py-2">
-                        <Badge color={CONGESTION_COLORS[seg.congestion]}>
-                          {CONGESTION_LABELS[seg.congestion]}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
+                  {traffic.segments.map((seg) => {
+                    const road = getRoadMeta(seg.segmentId);
+                    const fromJunc = getJunctionMeta(seg.fromJunction);
+                    const toJunc = getJunctionMeta(seg.toJunction);
+                    return (
+                      <tr
+                        key={seg.segmentId}
+                        className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[#0E141D] transition-colors"
+                      >
+                        <td className="py-2 pr-4 font-semibold text-[#F4F7FA]">
+                          <div>{road.name}</div>
+                          <div className="text-[9px] font-normal text-[#5E6B7A]">SUMO ID: {seg.segmentId}</div>
+                        </td>
+                        <td className="py-2 pr-4 text-[#8D9AAA]">
+                          <span className="text-[#42B8FF]">{fromJunc.shortId}</span> → <span className="text-[#42B8FF]">{toJunc.shortId}</span>
+                        </td>
+                        <td className="py-2 pr-4 text-[#F4F7FA]">{seg.vehicleCount}</td>
+                        <td className="py-2 pr-4 text-[#18D88B]">{formatSpeed(seg.avgSpeedMps)}</td>
+                        <td className="py-2 pr-4 text-[#FFB547]">{seg.queueLength}</td>
+                        <td className="py-2 pr-4 text-[#8D9AAA]">
+                          {seg.flowRatePerHour > 0 ? `${Math.round(seg.flowRatePerHour)} veh/h` : "—"}
+                        </td>
+                        <td className="py-2">
+                          <Badge color={CONGESTION_COLORS[seg.congestion]}>
+                            {CONGESTION_LABELS[seg.congestion]}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </Panel>
         </>
       )}
+
+      {/* AI Copilot Interactive Dialog */}
+      <AiCopilotModal
+        isOpen={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        initialPrompt={copilotPrompt}
+      />
     </div>
   );
 }

@@ -21,14 +21,23 @@ import {
   MetricCard,
   Panel,
   Badge,
+  ActionButton,
 } from "@/components/ui";
 import { formatSeconds, formatSpeed } from "@/lib/format";
+import { AiCopilotModal } from "@/components/AiCopilotModal";
 import type { AnalyticsResponse } from "@itms/types";
 
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = React.useState<AnalyticsResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [copilotOpen, setCopilotOpen] = React.useState(false);
+  const [copilotPrompt, setCopilotPrompt] = React.useState<string | undefined>(undefined);
+
+  const openCopilot = (prompt?: string) => {
+    setCopilotPrompt(prompt);
+    setCopilotOpen(true);
+  };
 
   const load = React.useCallback(async (): Promise<void> => {
     try {
@@ -104,9 +113,21 @@ export default function AnalyticsPage() {
             MEASURED SYSTEM BENCHMARKS OVER {analytics.runsRecorded} RECORDED RUNS
           </p>
         </div>
-        <Badge color="#42B8FF" solid>
-          {analytics.runsRecorded} RUNS COMPILED
-        </Badge>
+        <div className="flex items-center gap-2">
+          <ActionButton
+            onClick={() =>
+              openCopilot(
+                "Explain the performance comparison between baseline unassisted traffic and ITMS predictive green corridor mode. Include time saved, delay reduction, and signal preemption impact."
+              )
+            }
+            color="#8B7CFF"
+          >
+            ✦ Explain with AI
+          </ActionButton>
+          <Badge color="#42B8FF" solid>
+            {analytics.runsRecorded} RUNS COMPILED
+          </Badge>
+        </div>
       </div>
 
       {/* ================================================================== */}
@@ -270,6 +291,12 @@ export default function AnalyticsPage() {
           </table>
         </div>
       </Panel>
+
+      <AiCopilotModal
+        isOpen={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        initialPrompt={copilotPrompt}
+      />
     </div>
   );
 }

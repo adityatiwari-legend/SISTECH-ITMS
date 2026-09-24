@@ -11,39 +11,43 @@ import type {
 } from "@itms/types";
 import { useItms } from "@/lib/store";
 import { Badge, EmptyState, KeyValue, Panel, ProgressBar, SignalLightVisual } from "./ui";
-import { formatDistance, formatSpeed, simClock, vehicleLabel, wallClock } from "@/lib/format";
+import { formatDistance, formatSpeed, simClock, wallClock } from "@/lib/format";
+import { getJunctionMeta, getVehicleDisplay } from "@/lib/naming";
 
 // ---------------------------------------------------------------------------
-// 1. ACTIVE EMERGENCY PANEL (Hero Side Panel)
+// 1. ACTIVE EMERGENCY PANEL (Human-Centered Hero Panel)
 // ---------------------------------------------------------------------------
 
 export function ActiveEmergencyPanel({
   emergency,
   sim,
   onViewRoute,
+  onOpenCopilot,
 }: {
   emergency: EmergencyEventDetail | null;
   sim: { simTimeSeconds: number } | null;
   onViewRoute?: () => void;
+  onOpenCopilot?: (question?: string, context?: { emergencyId?: number }) => void;
 }) {
   const { state } = useItms();
+  const [showTechnicalDetails, setShowTechnicalDetails] = React.useState(false);
 
   if (emergency === null) {
     return (
       <Panel
-        title="Active Emergency"
+        title="Active Emergency Response"
         subtitle="Priority Vehicle Monitoring"
         right={<Badge color="#5E6B7A">STANDBY</Badge>}
       >
         <EmptyState
-          title="No Emergency Active"
-          hint="Dispatch an emergency vehicle from Simulation or Emergencies page to engage predictive green corridors."
+          title="No Active Emergency"
+          hint="The traffic network is operating normally. Dispatch an emergency unit from Simulation or Emergencies to engage predictive green corridors."
           action={
             <Link
               href="/emergencies"
-              className="inline-flex rounded border border-[rgba(255,255,255,0.12)] bg-[#121A24] px-3 py-1 font-mono text-[11px] font-semibold uppercase text-[#42B8FF] hover:border-[#42B8FF] transition-colors"
+              className="inline-flex rounded-lg border border-[rgba(255,255,255,0.12)] bg-[#121A24] px-3.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-[#42B8FF] hover:border-[#42B8FF] transition-colors"
             >
-              Dispatch Emergency
+              Dispatch Emergency Unit
             </Link>
           }
         />
@@ -60,10 +64,16 @@ export function ActiveEmergencyPanel({
     emergency.etas?.[emergency.etas.length - 1] ??
     null;
 
-  const currentJunction = emergency.live?.roadId ? emergency.live.roadId.split("_")[0] : emergency.originJunction;
-  const nextJunction = destinationEta?.junctionId ?? emergency.destinationJunction;
+  const currentRaw = emergency.live?.roadId ? emergency.live.roadId.split("_")[0] : emergency.originJunction;
+  const nextRaw = destinationEta?.junctionId ?? emergency.destinationJunction;
 
-  // Approximate route progress calculation
+  const originMeta = getJunctionMeta(emergency.originJunction);
+  const destMeta = getJunctionMeta(emergency.destinationJunction);
+  const currentMeta = getJunctionMeta(currentRaw);
+  const nextMeta = getJunctionMeta(nextRaw);
+  const vehicleTitle = getVehicleDisplay(emergency.vehicle?.vehicleId ?? `EMV-${emergency.id}`, emergency.type);
+
+  // Route progress calculation
   const totalDist = emergency.route?.totalLengthM ?? 1;
   const remDist = emergency.live?.remainingDistanceM ?? totalDist;
   const progressPercent = Math.min(100, Math.max(0, Math.round(((totalDist - remDist) / totalDist) * 100)));
@@ -77,34 +87,32 @@ export function ActiveEmergencyPanel({
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 animate-ping rounded-full bg-[#FF3B4E]" />
           <Badge color="#FF3B4E" solid>
-            {emergency.status}
+            {emergency.status.toUpperCase()}
           </Badge>
         </div>
       }
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 font-sans">
         {/* Main Vehicle Header Card */}
-        <div className="rounded-lg border border-[rgba(255,59,78,0.3)] bg-[rgba(255,59,78,0.06)] p-3">
+        <div className="rounded-xl border border-[rgba(255,59,78,0.3)] bg-[rgba(255,59,78,0.06)] p-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🚑</span>
-              <div>
-                <div className="font-mono text-base font-bold tracking-tight text-[#FF3B4E]">
-                  {vehicleLabel(emergency.vehicle?.vehicleId ?? `event-${emergency.id}`)}
-                </div>
-                <div className="font-mono text-[10px] uppercase text-[#8D9AAA]">
-                  {emergency.type.replace("_", " ")}
-                </div>
+            <div>
+              <div className="font-sans text-base font-bold tracking-tight text-[#FF3B4E]">
+                {vehicleTitle}
+              </div>
+              <div className="font-mono text-[10px] uppercase text-[#8D9AAA] tracking-wide mt-0.5">
+                Priority: <span className="font-bold text-[#F4F7FA]">{emergency.priority.toUpperCase()}</span> · En Route
               </div>
             </div>
             <div className="text-right">
-              <Badge color={emergency.priority === "critical" ? "#FF3B4E" : "#FFB547"}>
-                {emergency.priority}
-              </Badge>
-              {activeCorridor && (
-                <div className="mt-1 font-mono text-[9px] font-bold text-[#8B7CFF]">
+              {activeCorridor ? (
+                <span className="rounded bg-[#8B7CFF]/15 px-2 py-0.5 font-mono text-[10px] font-bold text-[#8B7CFF] border border-[#8B7CFF]/30">
                   CORRIDOR #{activeCorridor.id} ACTIVE
-                </div>
+                </span>
+              ) : (
+                <span className="rounded bg-[#5E6B7A]/15 px-2 py-0.5 font-mono text-[10px] text-[#8D9AAA]">
+                  STANDARD ROUTING
+                </span>
               )}
             </div>
           </div>
@@ -112,23 +120,24 @@ export function ActiveEmergencyPanel({
           {/* Route Progress Bar */}
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between font-mono text-[10px]">
-              <span className="text-[#8D9AAA]">Route Progress</span>
+              <span className="text-[#8D9AAA]">Mission Progress</span>
               <span className="font-bold text-[#F4F7FA]">{progressPercent}%</span>
             </div>
-            <ProgressBar progress={progressPercent} color="#FF3B4E" height={5} />
+            <ProgressBar progress={progressPercent} color="#FF3B4E" height={6} />
           </div>
         </div>
 
         {/* Telemetry Metrics Grid */}
         <div className="grid grid-cols-2 gap-2 font-mono text-xs">
-          <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2">
+          <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
             <div className="text-[10px] uppercase text-[#5E6B7A]">Speed</div>
             <div className="mt-0.5 text-sm font-bold text-[#F4F7FA]">
               {formatSpeed(emergency.live?.speedMps ?? emergency.vehicle?.speedMps ?? null)}
             </div>
           </div>
-          <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2">
-            <div className="text-[10px] uppercase text-[#5E6B7A]">ETA (Sim)</div>
+
+          <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+            <div className="text-[10px] uppercase text-[#5E6B7A]">Destination ETA</div>
             <div className="mt-0.5 text-sm font-bold text-[#18D88B]">
               {destinationEta
                 ? `${destinationEta.etaSeconds.toFixed(0)}s (${simClock(
@@ -138,30 +147,46 @@ export function ActiveEmergencyPanel({
                 : "Calculating…"}
             </div>
           </div>
-          <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2">
-            <div className="text-[10px] uppercase text-[#5E6B7A]">Current Sector</div>
-            <div className="mt-0.5 font-bold text-[#F4F7FA] truncate">
-              {currentJunction}
+
+          <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+            <div className="text-[10px] uppercase text-[#5E6B7A]">Current Location</div>
+            <div className="mt-0.5 font-semibold text-[#F4F7FA] truncate" title={currentMeta.fullName}>
+              {currentMeta.code} · {currentMeta.name}
             </div>
           </div>
-          <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2">
+
+          <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
             <div className="text-[10px] uppercase text-[#5E6B7A]">Next Junction</div>
-            <div className="mt-0.5 font-bold text-[#42B8FF] truncate">
-              {nextJunction}
+            <div className="mt-0.5 font-semibold text-[#42B8FF] truncate" title={nextMeta.fullName}>
+              {nextMeta.code} · {nextMeta.name}
             </div>
           </div>
         </div>
 
-        {/* Detailed Route Breakdown */}
-        <div className="space-y-1">
-          <KeyValue label="Origin">{emergency.originJunction}</KeyValue>
-          <KeyValue label="Destination">{emergency.destinationJunction}</KeyValue>
-          <KeyValue label="Remaining Distance">
+        {/* Human-Readable Route Breakdown */}
+        <div className="space-y-1 text-xs">
+          <KeyValue label="Origin Hub">{originMeta.fullName}</KeyValue>
+          <KeyValue label="Destination">{destMeta.fullName}</KeyValue>
+          <KeyValue label="Distance Remaining">
             {formatDistance(emergency.live?.remainingDistanceM ?? null)}
           </KeyValue>
-          <KeyValue label="Route Segments">
-            {emergency.route?.edgeCount ? `${emergency.route.edgeCount} links (${formatDistance(emergency.route.totalLengthM)})` : "—"}
-          </KeyValue>
+        </div>
+
+        {/* Technical Data Disclosure Toggle */}
+        <div>
+          <button
+            onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+            className="text-[10px] font-mono text-[#5E6B7A] hover:text-[#8D9AAA] transition-colors"
+          >
+            {showTechnicalDetails ? "▼ Hide Technical Details" : "▶ Show Technical Details (SUMO IDs)"}
+          </button>
+          {showTechnicalDetails && (
+            <div className="mt-1.5 rounded bg-[#05070B] border border-[rgba(255,255,255,0.06)] p-2 font-mono text-[10px] text-[#8D9AAA] space-y-1">
+              <div>SUMO Vehicle ID: {emergency.vehicle?.vehicleId ?? "—"}</div>
+              <div>Route Edges: {emergency.route?.segments.map((s) => s.segmentId).join(", ") || "—"}</div>
+              <div>TraCI Road: {emergency.live?.roadId ?? "—"} (Lane: {emergency.live?.laneId ?? "—"})</div>
+            </div>
+          )}
         </div>
 
         {/* Action Controls */}
@@ -169,16 +194,26 @@ export function ActiveEmergencyPanel({
           {onViewRoute && (
             <button
               onClick={onViewRoute}
-              className="flex-1 rounded border border-[rgba(255,255,255,0.12)] bg-[#121A24] py-1.5 font-mono text-[11px] font-semibold uppercase text-[#F4F7FA] hover:border-[#42B8FF] hover:text-[#42B8FF] transition-colors"
+              className="flex-1 rounded-lg border border-[rgba(255,255,255,0.12)] bg-[#121A24] py-1.5 font-mono text-[11px] font-semibold uppercase text-[#F4F7FA] hover:border-[#42B8FF] hover:text-[#42B8FF] transition-colors"
             >
               Focus On Map
             </button>
           )}
+
+          {onOpenCopilot && (
+            <button
+              onClick={() => onOpenCopilot("Explain the current emergency progress and upcoming signals.", { emergencyId: emergency.id })}
+              className="flex-1 rounded-lg border border-[#8B7CFF]/40 bg-[rgba(139,124,255,0.12)] py-1.5 font-mono text-[11px] font-semibold uppercase text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.22)] transition-colors"
+            >
+              Ask Copilot
+            </button>
+          )}
+
           <Link
             href="/corridors"
-            className="flex-1 text-center rounded border border-[rgba(139,124,255,0.4)] bg-[rgba(139,124,255,0.1)] py-1.5 font-mono text-[11px] font-semibold uppercase text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.18)] transition-colors"
+            className="text-center rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#0E141D] px-3 py-1.5 font-mono text-[11px] text-[#8D9AAA] hover:text-[#F4F7FA] hover:bg-[#121A24] transition-colors"
           >
-            Corridor Logic →
+            Corridor →
           </Link>
         </div>
       </div>
@@ -187,24 +222,26 @@ export function ActiveEmergencyPanel({
 }
 
 // ---------------------------------------------------------------------------
-// 2. GREEN CORRIDOR CHAIN PANEL
+// 2. GREEN CORRIDOR CHAIN PANEL (Human-Centered Progression)
 // ---------------------------------------------------------------------------
 
 export function CorridorChainPanel({
   corridor,
+  onOpenCopilot,
 }: {
   corridor: CorridorDetail | null;
+  onOpenCopilot?: (question?: string) => void;
 }) {
   if (corridor === null) {
     return (
       <Panel
         title="Predictive Green Corridor"
         subtitle="Adaptive Priority Signaling"
-        right={<Badge color="#5E6B7A">INACTIVE</Badge>}
+        right={<Badge color="#5E6B7A">STANDBY</Badge>}
       >
         <EmptyState
           title="No Corridor Active"
-          hint="Corridors calculate rolling green signal waves automatically when an emergency vehicle is active."
+          hint="A predictive green wave will engage automatically when an emergency vehicle is en route."
         />
       </Panel>
     );
@@ -214,6 +251,9 @@ export function CorridorChainPanel({
   const current = ordered.find((s) => s.status === "APPLIED") ?? null;
   const upcoming = ordered.filter((s) => s.status === "PENDING");
   const next = upcoming[0] ?? null;
+
+  const currentMeta = current ? getJunctionMeta(current.junctionId) : null;
+  const nextMeta = next ? getJunctionMeta(next.junctionId) : null;
 
   return (
     <Panel
@@ -229,112 +269,125 @@ export function CorridorChainPanel({
         </Badge>
       }
     >
-      <div className="flex flex-col gap-3">
-        {/* Quick Current / Next Intersections */}
-        {(current !== null || next !== null) && (
+      <div className="flex flex-col gap-3 font-sans">
+        {/* Current & Upcoming Node Badges */}
+        {(currentMeta !== null || nextMeta !== null) && (
           <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
-            <div className="rounded border border-[rgba(24,216,139,0.3)] bg-[rgba(24,216,139,0.06)] p-2">
+            <div className="rounded-lg border border-[rgba(24,216,139,0.3)] bg-[rgba(24,216,139,0.06)] p-2">
               <div className="uppercase text-[#5E6B7A]">Current Wave (Green)</div>
-              <div className="mt-0.5 text-xs font-bold text-[#18D88B]">
-                {current ? current.junctionId : "—"}
+              <div className="mt-0.5 text-xs font-bold text-[#18D88B] truncate">
+                {currentMeta ? currentMeta.fullName : "Clear Ahead"}
               </div>
             </div>
-            <div className="rounded border border-[rgba(255,181,71,0.3)] bg-[rgba(255,181,71,0.06)] p-2">
-              <div className="uppercase text-[#5E6B7A]">Next Up</div>
-              <div className="mt-0.5 text-xs font-bold text-[#FFB547]">
-                {next ? next.junctionId : "End of Route"}
+            <div className="rounded-lg border border-[rgba(255,181,71,0.3)] bg-[rgba(255,181,71,0.06)] p-2">
+              <div className="uppercase text-[#5E6B7A]">Preparing Next</div>
+              <div className="mt-0.5 text-xs font-bold text-[#FFB547] truncate">
+                {nextMeta ? nextMeta.fullName : "Destination Base"}
               </div>
             </div>
           </div>
         )}
 
         {/* Visual Corridor Node Flow */}
-        <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#070A0F] p-2.5">
+        <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#070A0F] p-3">
           <div className="mb-2 font-mono text-[9px] uppercase tracking-wider text-[#5E6B7A]">
-            Priority Progression
+            Priority Progression Wave
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 font-mono text-sm">
+          <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs">
             <span title="Origin">🚑</span>
-            {ordered.map((signal) => (
-              <React.Fragment key={signal.junctionId}>
-                <span className="text-[#5E6B7A]">→</span>
-                <span
-                  className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold"
-                  style={
-                    signal.status === "APPLIED"
-                      ? {
-                          borderColor: "rgba(24,216,139,0.5)",
-                          backgroundColor: "rgba(24,216,139,0.15)",
-                          color: "#18D88B",
-                        }
-                      : signal.status === "PASSED"
-                      ? {
-                          borderColor: "rgba(255,255,255,0.1)",
-                          backgroundColor: "rgba(255,255,255,0.04)",
-                          color: "#8D9AAA",
-                        }
-                      : {
-                          borderColor: "rgba(255,181,71,0.3)",
-                          backgroundColor: "rgba(255,181,71,0.08)",
-                          color: "#FFB547",
-                        }
-                  }
-                  title={`${signal.junctionId} — ${signal.status}`}
-                >
+            {ordered.map((signal) => {
+              const meta = getJunctionMeta(signal.junctionId);
+              const isApplied = signal.status === "APPLIED";
+              const isPassed = signal.status === "PASSED";
+
+              return (
+                <React.Fragment key={signal.junctionId}>
+                  <span className="text-[#5E6B7A]">→</span>
                   <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{
-                      backgroundColor:
-                        signal.status === "APPLIED"
-                          ? "#18D88B"
-                          : signal.status === "PASSED"
-                          ? "#5E6B7A"
-                          : "#FFB547",
-                    }}
-                  />
-                  {signal.junctionId}
-                </span>
-              </React.Fragment>
-            ))}
+                    className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold transition-all"
+                    style={
+                      isApplied
+                        ? {
+                            borderColor: "rgba(24,216,139,0.5)",
+                            backgroundColor: "rgba(24,216,139,0.15)",
+                            color: "#18D88B",
+                          }
+                        : isPassed
+                        ? {
+                            borderColor: "rgba(255,255,255,0.1)",
+                            backgroundColor: "rgba(255,255,255,0.04)",
+                            color: "#8D9AAA",
+                          }
+                        : {
+                            borderColor: "rgba(255,181,71,0.3)",
+                            backgroundColor: "rgba(255,181,71,0.08)",
+                            color: "#FFB547",
+                          }
+                    }
+                    title={`${meta.fullName} — ${signal.status}`}
+                  >
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{
+                        backgroundColor: isApplied ? "#18D88B" : isPassed ? "#5E6B7A" : "#FFB547",
+                      }}
+                    />
+                    {meta.code}
+                  </span>
+                </React.Fragment>
+              );
+            })}
             <span className="text-[#5E6B7A]">→</span>
             <span title="Destination">🏥</span>
           </div>
         </div>
 
-        {/* Detailed Intersection Window Schedule */}
-        <div className="max-h-36 overflow-y-auto space-y-1">
-          {ordered.map((signal) => (
-            <div
-              key={signal.sequenceIndex}
-              className="flex items-center justify-between border-b border-[rgba(255,255,255,0.05)] py-1 font-mono text-[10px] last:border-0"
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-[#F4F7FA]">{signal.junctionId}</span>
-                <span className="text-[#5E6B7A]">via {signal.approachSegmentId}</span>
+        {/* Intersection Window Schedule */}
+        <div className="max-h-36 overflow-y-auto space-y-1.5">
+          {ordered.map((signal) => {
+            const meta = getJunctionMeta(signal.junctionId);
+            return (
+              <div
+                key={signal.sequenceIndex}
+                className="flex items-center justify-between border-b border-[rgba(255,255,255,0.05)] py-1 font-mono text-[10px] last:border-0"
+              >
+                <div>
+                  <div className="font-semibold text-[#F4F7FA]">{meta.fullName}</div>
+                  <div className="text-[9px] text-[#5E6B7A]">Approach: {signal.approachSegmentId}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#8D9AAA]">
+                    {signal.plannedGreenStartS !== null
+                      ? `${signal.plannedGreenStartS.toFixed(0)}s–${signal.plannedGreenEndS?.toFixed(0)}s`
+                      : "Rolling"}
+                  </span>
+                  <Badge
+                    color={
+                      signal.status === "APPLIED"
+                        ? "#18D88B"
+                        : signal.status === "PASSED"
+                        ? "#8D9AAA"
+                        : signal.status === "SKIPPED"
+                        ? "#FFB547"
+                        : "#42B8FF"
+                    }
+                  >
+                    {signal.status}
+                  </Badge>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[#8D9AAA]">
-                  {signal.plannedGreenStartS !== null
-                    ? `${signal.plannedGreenStartS.toFixed(0)}s–${signal.plannedGreenEndS?.toFixed(0)}s`
-                    : "Rolling"}
-                </span>
-                <Badge
-                  color={
-                    signal.status === "APPLIED"
-                      ? "#18D88B"
-                      : signal.status === "PASSED"
-                      ? "#8D9AAA"
-                      : signal.status === "SKIPPED"
-                      ? "#FFB547"
-                      : "#42B8FF"
-                  }
-                >
-                  {signal.status}
-                </Badge>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {onOpenCopilot && (
+          <button
+            onClick={() => onOpenCopilot("Explain why the green corridor was planned with this sequence.")}
+            className="w-full rounded-lg border border-[#8B7CFF]/30 bg-[rgba(139,124,255,0.1)] py-1.5 font-mono text-[10px] font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.2)] transition-colors"
+          >
+            Explain Corridor Logic with AI →
+          </button>
+        )}
       </div>
     </Panel>
   );
@@ -347,43 +400,56 @@ export function CorridorChainPanel({
 export function CompactSignalsPanel({
   signals,
   max = 6,
+  onOpenCopilot,
 }: {
   signals: SignalSnapshot[];
   max?: number;
+  onOpenCopilot?: (question?: string, context?: { intersectionId?: string }) => void;
 }) {
   return (
     <Panel
-      title="Traffic Signals"
+      title="Traffic Signal Control"
       subtitle={`${signals.length} Signalized Intersections`}
       right={
         <Link
           href="/signals"
           className="font-mono text-[10px] uppercase font-semibold text-[#42B8FF] hover:underline"
         >
-          View All →
+          View All Signals →
         </Link>
       }
     >
       {signals.length === 0 ? (
-        <EmptyState title="No Live Signals" hint="Start simulation to receive TraCI signal telemetry." />
+        <EmptyState title="No Live Signal Data" hint="Start the simulation to receive live signal telemetry." />
       ) : (
         <div className="grid grid-cols-2 gap-2">
-          {signals.slice(0, max).map((signal) => (
-            <div
-              key={signal.id}
-              className="itms-hover flex items-center justify-between rounded border border-[rgba(255,255,255,0.08)] bg-[#0E141D] p-2"
-            >
-              <div>
-                <div className="font-mono text-xs font-semibold text-[#F4F7FA]">
-                  {signal.id}
+          {signals.slice(0, max).map((signal) => {
+            const meta = getJunctionMeta(signal.id);
+            return (
+              <div
+                key={signal.id}
+                className="flex items-center justify-between rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0E141D] p-2.5 transition-all hover:border-[rgba(255,255,255,0.15)]"
+              >
+                <div className="min-w-0 pr-1">
+                  <div className="font-semibold text-xs text-[#F4F7FA] truncate" title={meta.fullName}>
+                    {meta.fullName}
+                  </div>
+                  <div className="font-mono text-[9px] text-[#5E6B7A]">
+                    Queue: {signal.queueLength} veh
+                  </div>
+                  {onOpenCopilot && (
+                    <button
+                      onClick={() => onOpenCopilot(`Why is ${meta.code} in this phase?`, { intersectionId: signal.id })}
+                      className="mt-1 text-[9px] font-mono text-[#8B7CFF] hover:underline"
+                    >
+                      Why this signal?
+                    </button>
+                  )}
                 </div>
-                <div className="font-mono text-[9px] text-[#5E6B7A]">
-                  Q: {signal.queueLength} veh
-                </div>
+                <SignalLightVisual state={signal.state} size="sm" />
               </div>
-              <SignalLightVisual state={signal.state} size="sm" />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Panel>
@@ -399,18 +465,20 @@ export function AiPanel({
   traffic,
   corridors,
   sim,
+  onOpenCopilot,
 }: {
   predictions: PredictionUpdatePayload | null;
   traffic: { summary: { cityLevel: string; vehicleCount: number; congestedSegments: number } } | null;
   corridors: CorridorDetail[];
   sim: { status: string; simTimeSeconds: number } | null;
+  onOpenCopilot?: () => void;
 }) {
   const activeCorridor = corridors.find((c) => c.status === "ACTIVE") ?? null;
   const prediction = predictions?.predictions.find((p) => p.source === "ml") ?? predictions?.predictions[0] ?? null;
 
   const forecastStr = prediction
-    ? `${prediction.source.toUpperCase()} · ${prediction.horizons.map((h) => h.predictedVehicleCount).join(" → ")} veh`
-    : "Model inference active";
+    ? `${prediction.source === "ml" ? "XGBoost ML" : "Prediction Engine"} · ${prediction.horizons.map((h) => h.predictedVehicleCount).join(" → ")} veh`
+    : "Traffic Prediction Active";
 
   const signalsCoordinated = activeCorridor
     ? activeCorridor.signals.filter((s) => s.status === "APPLIED" || s.status === "PASSED").length
@@ -418,22 +486,34 @@ export function AiPanel({
 
   return (
     <Panel
-      title="AI Decision & Forecast"
-      subtitle="Neural Routing & Optimization"
+      title="Traffic Prediction & Decision Engine"
+      subtitle="AI Traffic Intelligence"
       ai
-      right={<Badge color="#8B7CFF">{sim?.status ?? "IDLE"}</Badge>}
+      right={
+        <div className="flex items-center gap-2">
+          {onOpenCopilot && (
+            <button
+              onClick={onOpenCopilot}
+              className="rounded bg-[#8B7CFF]/15 border border-[#8B7CFF]/30 px-2 py-0.5 font-mono text-[9px] font-bold text-[#8B7CFF] hover:bg-[#8B7CFF]/25 transition-all"
+            >
+              ASK COPILOT
+            </button>
+          )}
+          <Badge color="#8B7CFF">{sim?.status ?? "IDLE"}</Badge>
+        </div>
+      }
     >
-      <div className="space-y-1">
-        <KeyValue label="Traffic Forecast">{forecastStr}</KeyValue>
+      <div className="space-y-1.5 font-sans text-xs">
+        <KeyValue label="Traffic Prediction">{forecastStr}</KeyValue>
         <KeyValue label="Corridor State">
           {activeCorridor ? (
-            <span className="text-[#8B7CFF] font-bold">OPTIMIZED (Corridor #{activeCorridor.id})</span>
+            <span className="text-[#8B7CFF] font-bold">Optimized Priority (Corridor #{activeCorridor.id})</span>
           ) : (
-            "Nominal Coordination"
+            "Standard Traffic Flow"
           )}
         </KeyValue>
         <KeyValue label="Coordinated Signals">
-          {signalsCoordinated > 0 ? `${signalsCoordinated} Intersections` : "None (Idle)"}
+          {signalsCoordinated > 0 ? `${signalsCoordinated} Intersections Scheduled` : "None (Nominal)"}
         </KeyValue>
         <KeyValue label="City Congestion">{traffic?.summary.cityLevel ?? "NOMINAL"}</KeyValue>
         <KeyValue label="Simulation Time">
@@ -442,8 +522,8 @@ export function AiPanel({
       </div>
 
       {predictions?.predictions.some((p) => p.lastError !== null) && (
-        <div className="mt-2.5 rounded border border-[rgba(255,181,71,0.3)] bg-[rgba(255,181,71,0.08)] p-2 font-mono text-[10px] text-[#FFB547]">
-          Deterministic estimation active (ML fallback mode).
+        <div className="mt-2.5 rounded-lg border border-[rgba(255,181,71,0.3)] bg-[rgba(255,181,71,0.08)] p-2 font-mono text-[10px] text-[#FFB547]">
+          Prediction Engine running in high-reliability mode.
         </div>
       )}
     </Panel>
@@ -457,34 +537,48 @@ export function AiPanel({
 export function AiDecisionTimeline({
   events,
   max = 6,
+  onExplainEvent,
 }: {
   events: DecisionEvent[];
   max?: number;
+  onExplainEvent?: (event: DecisionEvent) => void;
 }) {
   return (
     <div className="space-y-1.5 font-mono text-[11px]">
       {events.slice(0, max).map((event, idx) => (
         <div
           key={`${event.ts}-${idx}`}
-          className="flex items-center gap-2.5 rounded border border-[rgba(255,255,255,0.05)] bg-[#0A0F16] px-2.5 py-1.5"
+          className="flex items-center justify-between gap-2.5 rounded-lg border border-[rgba(255,255,255,0.05)] bg-[#0A0F16] px-3 py-2"
         >
-          <span className="text-[10px] text-[#5E6B7A] shrink-0">
-            {wallClock(event.ts)}
-          </span>
-          <Badge
-            color={
-              event.kind.includes("emergency")
-                ? "#FF3B4E"
-                : event.kind.includes("corridor")
-                ? "#8B7CFF"
-                : event.kind.includes("signal")
-                ? "#18D88B"
-                : "#42B8FF"
-            }
-          >
-            {event.kind}
-          </Badge>
-          <span className="text-[#F4F7FA] truncate">{event.message}</span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-[10px] text-[#5E6B7A] shrink-0">
+              {wallClock(event.ts)}
+            </span>
+            <Badge
+              color={
+                event.kind.includes("emergency")
+                  ? "#FF3B4E"
+                  : event.kind.includes("corridor")
+                  ? "#8B7CFF"
+                  : event.kind.includes("signal")
+                  ? "#18D88B"
+                  : "#42B8FF"
+              }
+            >
+              {event.kind.replace(".", " · ")}
+            </Badge>
+            <span className="text-[#F4F7FA] truncate">{event.message}</span>
+          </div>
+
+          {onExplainEvent && (
+            <button
+              onClick={() => onExplainEvent(event)}
+              className="shrink-0 rounded bg-[#121A24] border border-[rgba(255,255,255,0.08)] px-2 py-0.5 text-[9px] text-[#8B7CFF] hover:border-[#8B7CFF]/50 transition-colors"
+              title="Explain this decision with AI"
+            >
+              Explain
+            </button>
+          )}
         </div>
       ))}
     </div>

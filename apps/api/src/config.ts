@@ -54,6 +54,10 @@ export interface AppConfig {
   simStartHour: number;
   simStartDayOfWeek: number;
 
+  // AI Copilot (Vultr Serverless Inference)
+  vultrApiKey?: string | null;
+  vultrModel?: string;
+
   // Phase 5 — predictive rolling green corridor
   /** Green window starts this many seconds before the emergency ETA. */
   corridorGreenLeadS: number;
@@ -298,6 +302,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     predictionStaleAfterSeconds: readNumber(env, "PREDICTION_STALE_AFTER_SECONDS", 10, 1, 3600),
     simStartHour: readNumber(env, "ITMS_SIM_START_HOUR", 8, 0, 23),
     simStartDayOfWeek: readNumber(env, "ITMS_SIM_START_DAY_OF_WEEK", 2, 0, 6),
+
+    vultrApiKey: env.VULTR_SERVERLESS_INFERENCE_API_KEY || null,
+    vultrModel: env.VULTR_INFERENCE_MODEL || "deepseek-v4.1-flash",
 
     corridorGreenLeadS: readNumber(env, "CORRIDOR_GREEN_LEAD_S", 5, 0, 120),
     corridorGreenTrailS: readNumber(env, "CORRIDOR_GREEN_TRAIL_S", 12, 0, 120),

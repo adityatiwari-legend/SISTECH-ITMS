@@ -13,13 +13,24 @@ import {
   DisconnectedBanner,
   Stat,
 } from "@/components/ui";
-import { simClock, vehicleLabel, wallClock } from "@/lib/format";
+import { AiCopilotModal } from "@/components/AiCopilotModal";
+import { simClock, wallClock } from "@/lib/format";
+import { getJunctionMeta, getVehicleDisplay } from "@/lib/naming";
 import type { CorridorDetail } from "@itms/types";
 
 export default function CorridorsPage() {
   const { state, refreshAll } = useItms();
   const [busyId, setBusyId] = React.useState<number | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+
+  // AI Copilot state
+  const [copilotOpen, setCopilotOpen] = React.useState(false);
+  const [copilotQuestion, setCopilotQuestion] = React.useState<string | undefined>(undefined);
+
+  const openCopilot = (q?: string) => {
+    setCopilotQuestion(q);
+    setCopilotOpen(true);
+  };
 
   const corridors = state.corridors;
   const activeCorridor = corridors.find((c) => c.status === "ACTIVE") ?? null;
@@ -60,21 +71,27 @@ export default function CorridorsPage() {
   );
 
   return (
-    <div className="flex min-h-full flex-col gap-4 p-4">
+    <div className="flex min-h-full flex-col gap-4 p-4 font-sans">
       {/* ================================================================== */}
       {/* 1. HEADER & KPI OVERVIEW                                           */}
       {/* ================================================================== */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3 shadow-sm">
         <div>
-          <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
-            PREDICTIVE GREEN CORRIDOR
+          <h1 className="text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
+            Predictive Green Corridor
           </h1>
-          <p className="font-mono text-[10px] text-[#5E6B7A]">
-            ADAPTIVE MULTI-INTERSECTION EMERGENCY PRIORITY & WAVE CLEARANCE
+          <p className="text-[11px] text-[#8D9AAA]">
+            Adaptive multi-intersection emergency priority & rolling green wave clearance
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => openCopilot("Explain how the predictive green corridor optimizes signal timings and prevents cross-traffic gridlock.")}
+            className="flex items-center gap-1.5 rounded-lg border border-[#8B7CFF]/40 bg-[rgba(139,124,255,0.12)] px-3 py-1 font-mono text-xs font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.22)] transition-all"
+          >
+            <span>Ask Copilot</span>
+          </button>
           {activeCorridor && (
             <Badge color="#8B7CFF" solid>
               CORRIDOR #{activeCorridor.id} ACTIVE
@@ -87,7 +104,7 @@ export default function CorridorsPage() {
       {state.connection === "offline" && <DisconnectedBanner />}
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 font-mono">
         <Stat
           label="ACTIVE CORRIDORS"
           value={activeCount}
@@ -103,24 +120,25 @@ export default function CorridorsPage() {
           label="SIGNALS COORDINATED"
           value={signalsCoordinated}
           color="#18D88B"
-          sub="Junction Preemptions"
+          sub="Preempted Intersections"
         />
         <Stat
-          label="ALGORITHM"
-          value="ROLLING A*"
+          label="CONTROL ALGORITHM"
+          value="A* + TraCI"
           color="#42B8FF"
-          sub="Dynamic TraCI Windows"
+          sub="Conflict-Free Windows"
         />
       </div>
 
       {/* ================================================================== */}
-      {/* 2. ACTIVE CORRIDOR SHOWCASE (Project USP)                          */}
+      {/* 2. ACTIVE CORRIDOR SHOWCASE (Visual USP Hero)                      */}
       {/* ================================================================== */}
       {activeCorridor ? (
         <ActiveCorridorShowcase
           corridor={activeCorridor}
           busy={busyId === activeCorridor.id}
           onCancel={() => void cancel(activeCorridor.id)}
+          onOpenCopilot={openCopilot}
         />
       ) : (
         <Panel title="Active Green Corridor Wave" subtitle="Real-time Multi-junction Lock">
@@ -156,6 +174,13 @@ export default function CorridorsPage() {
           </div>
         )}
       </Panel>
+
+      {/* AI Copilot Modal */}
+      <AiCopilotModal
+        isOpen={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        initialQuestion={copilotQuestion}
+      />
     </div>
   );
 }
@@ -164,10 +189,12 @@ function ActiveCorridorShowcase({
   corridor,
   busy,
   onCancel,
+  onOpenCopilot,
 }: {
   corridor: CorridorDetail;
   busy: boolean;
   onCancel: () => void;
+  onOpenCopilot: (q?: string) => void;
 }) {
   const { state } = useItms();
   const ordered = [...corridor.signals].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
@@ -175,11 +202,14 @@ function ActiveCorridorShowcase({
   const passedCount = ordered.filter((s) => s.status === "PASSED").length;
   const progressPercent = Math.min(
     100,
-    Math.round(((passedCount + (current ? 0.5 : 0)) / ordered.length) * 100)
+    Math.round(((passedCount + (current ? 0.5 : 0)) / Math.max(1, ordered.length)) * 100)
   );
 
   const activeEmergency = state.emergencies.find((e) => e.id === corridor.eventId);
   const etaSeconds = activeEmergency?.etas?.find((e) => e.isDestination)?.etaSeconds ?? 0;
+  const originMeta = getJunctionMeta(corridor.originJunction);
+  const destMeta = getJunctionMeta(corridor.destinationJunction);
+  const vehicleTitle = getVehicleDisplay(corridor.vehicleId ?? `EMV-${corridor.eventId}`);
 
   return (
     <Panel
@@ -188,6 +218,12 @@ function ActiveCorridorShowcase({
       ai
       right={
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => onOpenCopilot(`Explain why Corridor #${corridor.id} has this exact signal timing and clearance schedule.`)}
+            className="rounded-lg bg-[rgba(139,124,255,0.15)] border border-[#8B7CFF]/30 px-3 py-1 font-mono text-[11px] font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.25)] transition-all"
+          >
+            Explain with AI
+          </button>
           <ActionButton onClick={onCancel} disabled={busy} color="#FF4757">
             Abort Corridor
           </ActionButton>
@@ -196,15 +232,15 @@ function ActiveCorridorShowcase({
     >
       <div className="flex flex-col gap-4">
         {/* Top Summary Banner */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 rounded-lg border border-[rgba(139,124,255,0.3)] bg-[rgba(139,124,255,0.06)] p-3 font-mono text-xs">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 rounded-xl border border-[rgba(139,124,255,0.3)] bg-[rgba(139,124,255,0.06)] p-3.5 font-mono text-xs">
           <div>
-            <span className="text-[10px] uppercase text-[#5E6B7A]">Target Vehicle</span>
+            <span className="text-[10px] uppercase text-[#5E6B7A]">Emergency Unit</span>
             <div className="mt-0.5 text-sm font-bold text-[#FF3B4E]">
-              {vehicleLabel(corridor.vehicleId ?? `event-${corridor.eventId}`)}
+              {vehicleTitle}
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase text-[#5E6B7A]">Route Progression</span>
+            <span className="text-[10px] uppercase text-[#5E6B7A]">Wave Progression</span>
             <div className="mt-0.5 text-sm font-bold text-[#8B7CFF]">{progressPercent}%</div>
           </div>
           <div>
@@ -215,8 +251,8 @@ function ActiveCorridorShowcase({
           </div>
           <div>
             <span className="text-[10px] uppercase text-[#5E6B7A]">Origin → Destination</span>
-            <div className="mt-0.5 font-semibold text-[#F4F7FA] truncate">
-              {corridor.originJunction} → {corridor.destinationJunction}
+            <div className="mt-0.5 font-semibold text-[#F4F7FA] truncate" title={`${originMeta.fullName} → ${destMeta.fullName}`}>
+              {originMeta.code} → {destMeta.code}
             </div>
           </div>
         </div>
@@ -229,58 +265,60 @@ function ActiveCorridorShowcase({
         {/* ============================================================== */}
         {/* VISUAL CORRIDOR TIMELINE PROGRESSION                          */}
         {/* ============================================================== */}
-        <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#070A0F] p-4">
+        <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#070A0F] p-4">
           <div className="mb-3 font-mono text-xs font-semibold uppercase tracking-wider text-[#5E6B7A]">
             Green Corridor Wave Progression
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 font-mono">
+          <div className="flex flex-wrap items-center justify-between gap-2 font-mono">
             {/* Origin Node */}
-            <div className="flex flex-col items-center">
+            <div className="flex flex-col items-center min-w-[70px]">
               <span className="text-xl">🚑</span>
-              <span className="mt-1 text-[10px] font-semibold text-[#8D9AAA]">DISPATCH</span>
-              <span className="text-[9px] text-[#5E6B7A]">{corridor.originJunction}</span>
+              <span className="mt-1 text-[11px] font-bold text-[#FF3B4E]">DISPATCH</span>
+              <span className="text-[9px] text-[#5E6B7A]">{originMeta.code}</span>
             </div>
 
             {/* Intermediate Signal Nodes */}
-            {ordered.map((signal, index) => {
+            {ordered.map((signal) => {
+              const meta = getJunctionMeta(signal.junctionId);
               const isApplied = signal.status === "APPLIED";
               const isPassed = signal.status === "PASSED";
-              const isSkipped = signal.status === "SKIPPED";
+              const isPending = signal.status === "PENDING";
 
               return (
                 <React.Fragment key={signal.junctionId}>
-                  <div className="flex flex-col items-center flex-1 min-w-[60px]">
+                  <div className="flex flex-col items-center flex-1 min-w-[80px]">
                     <div className="flex items-center w-full">
                       <div
-                        className={`h-0.5 w-full ${
-                          isPassed || isApplied
-                            ? "bg-[#18D88B]"
-                            : "bg-[rgba(255,255,255,0.1)]"
+                        className={`h-1 w-full ${
+                          isPassed || isApplied ? "bg-[#18D88B]" : "bg-[rgba(255,255,255,0.1)]"
                         }`}
                       />
                       <span
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all ${
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all ${
                           isApplied
                             ? "border-[#18D88B] bg-[#18D88B]/20 text-[#18D88B] shadow-[0_0_12px_#18D88B]"
                             : isPassed
                             ? "border-[rgba(255,255,255,0.2)] bg-[#121A24] text-[#8D9AAA]"
-                            : isSkipped
+                            : isPending
                             ? "border-[#FFB547] bg-[#FFB547]/20 text-[#FFB547]"
                             : "border-[rgba(255,255,255,0.1)] bg-[#0E141D] text-[#5E6B7A]"
                         }`}
                       >
-                        {isPassed ? "✓" : isApplied ? "🟢" : index + 1}
+                        {isPassed ? "✓" : isApplied ? "🟢" : "⏳"}
                       </span>
                       <div
-                        className={`h-0.5 w-full ${
+                        className={`h-1 w-full ${
                           isPassed ? "bg-[#18D88B]" : "bg-[rgba(255,255,255,0.1)]"
                         }`}
                       />
                     </div>
                     <div className="mt-1.5 text-center">
                       <div className="text-[11px] font-bold text-[#F4F7FA]">
-                        {signal.junctionId}
+                        {meta.code}
+                      </div>
+                      <div className="text-[9px] text-[#8D9AAA] truncate max-w-[80px]" title={meta.name}>
+                        {meta.name}
                       </div>
                       <Badge
                         color={
@@ -288,12 +326,12 @@ function ActiveCorridorShowcase({
                             ? "#18D88B"
                             : isPassed
                             ? "#8D9AAA"
-                            : isSkipped
+                            : isPending
                             ? "#FFB547"
                             : "#42B8FF"
                         }
                       >
-                        {isApplied ? "CURRENT" : signal.status}
+                        {isApplied ? "CURRENT — GREEN" : isPassed ? "PASSED" : isPending ? "PREPARING" : signal.status}
                       </Badge>
                     </div>
                   </div>
@@ -302,10 +340,10 @@ function ActiveCorridorShowcase({
             })}
 
             {/* Destination Node */}
-            <div className="flex flex-col items-center">
+            <div className="flex flex-col items-center min-w-[70px]">
               <span className="text-xl">🏥</span>
-              <span className="mt-1 text-[10px] font-semibold text-[#8D9AAA]">FACILITY</span>
-              <span className="text-[9px] text-[#5E6B7A]">{corridor.destinationJunction}</span>
+              <span className="mt-1 text-[11px] font-bold text-[#18D88B]">DESTINATION</span>
+              <span className="text-[9px] text-[#5E6B7A]">{destMeta.code}</span>
             </div>
           </div>
         </div>
@@ -315,46 +353,49 @@ function ActiveCorridorShowcase({
           <table className="w-full text-left font-mono text-xs">
             <thead>
               <tr className="border-b border-[rgba(255,255,255,0.08)] text-[10px] uppercase text-[#5E6B7A]">
-                <th className="py-2 pr-3">Seq</th>
-                <th className="py-2 pr-3">Junction</th>
-                <th className="py-2 pr-3">Approach Road</th>
-                <th className="py-2 pr-3">Estimated Window</th>
-                <th className="py-2 pr-3">Control Mode</th>
-                <th className="py-2 pr-3">Signal State</th>
+                <th className="py-2.5 pr-3">Seq</th>
+                <th className="py-2.5 pr-3">Junction</th>
+                <th className="py-2.5 pr-3">SUMO ID</th>
+                <th className="py-2.5 pr-3">Approach Road</th>
+                <th className="py-2.5 pr-3">Scheduled Window</th>
+                <th className="py-2.5 pr-3">Mode</th>
                 <th className="py-2">Status</th>
               </tr>
             </thead>
             <tbody>
-              {ordered.map((sig) => (
-                <tr key={sig.sequenceIndex} className="border-b border-[rgba(255,255,255,0.04)]">
-                  <td className="py-2 pr-3 text-[#5E6B7A]">{sig.sequenceIndex + 1}</td>
-                  <td className="py-2 pr-3 font-bold text-[#F4F7FA]">{sig.junctionId}</td>
-                  <td className="py-2 pr-3 text-[#8D9AAA]">{sig.approachSegmentId}</td>
-                  <td className="py-2 pr-3 text-[#18D88B]">
-                    {sig.plannedGreenStartS !== null
-                      ? `${sig.plannedGreenStartS.toFixed(0)}s – ${sig.plannedGreenEndS?.toFixed(0)}s`
-                      : "Rolling ETA"}
-                  </td>
-                  <td className="py-2 pr-3 text-[#8D9AAA] uppercase text-[10px]">{sig.mode}</td>
-                  <td className="py-2 pr-3 text-[#42B8FF]">{sig.corridorState ?? "G"}</td>
-                  <td className="py-2">
-                    <Badge
-                      color={
-                        sig.status === "APPLIED"
-                          ? "#18D88B"
-                          : sig.status === "PASSED"
-                          ? "#8D9AAA"
-                          : sig.status === "SKIPPED"
-                          ? "#FFB547"
-                          : "#42B8FF"
-                      }
-                      solid={sig.status === "APPLIED"}
-                    >
-                      {sig.status}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
+              {ordered.map((sig) => {
+                const meta = getJunctionMeta(sig.junctionId);
+                return (
+                  <tr key={sig.sequenceIndex} className="border-b border-[rgba(255,255,255,0.04)]">
+                    <td className="py-2.5 pr-3 text-[#5E6B7A]">{sig.sequenceIndex + 1}</td>
+                    <td className="py-2.5 pr-3 font-semibold text-[#F4F7FA]">{meta.fullName}</td>
+                    <td className="py-2.5 pr-3 text-[#5E6B7A]">{sig.junctionId}</td>
+                    <td className="py-2.5 pr-3 text-[#8D9AAA]">{sig.approachSegmentId}</td>
+                    <td className="py-2.5 pr-3 text-[#18D88B]">
+                      {sig.plannedGreenStartS !== null
+                        ? `${sig.plannedGreenStartS.toFixed(0)}s – ${sig.plannedGreenEndS?.toFixed(0)}s`
+                        : "Rolling Window"}
+                    </td>
+                    <td className="py-2.5 pr-3 text-[#8D9AAA] uppercase text-[10px]">{sig.mode}</td>
+                    <td className="py-2.5">
+                      <Badge
+                        color={
+                          sig.status === "APPLIED"
+                            ? "#18D88B"
+                            : sig.status === "PASSED"
+                            ? "#8D9AAA"
+                            : sig.status === "SKIPPED"
+                            ? "#FFB547"
+                            : "#42B8FF"
+                        }
+                        solid={sig.status === "APPLIED"}
+                      >
+                        {sig.status === "APPLIED" ? "CURRENT — GREEN" : sig.status === "PENDING" ? "PREPARING" : sig.status}
+                      </Badge>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -377,9 +418,11 @@ function CorridorArchiveCard({
   const ordered = [...corridor.signals].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
   const canActivate = corridor.status === "PLANNING" || corridor.status === "VALIDATING";
   const canCancel = corridor.status === "ACTIVE" || corridor.status === "REPLANNING";
+  const originMeta = getJunctionMeta(corridor.originJunction);
+  const destMeta = getJunctionMeta(corridor.destinationJunction);
 
   return (
-    <div className="itms-panel p-3.5 border-[rgba(255,255,255,0.06)] bg-[#0A0F16]">
+    <div className="itms-panel rounded-xl p-3.5 border-[rgba(255,255,255,0.06)] bg-[#0A0F16]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm font-bold text-[#F4F7FA]">
@@ -397,7 +440,7 @@ function CorridorArchiveCard({
             {corridor.status}
           </Badge>
           <span className="font-mono text-xs text-[#8D9AAA]">
-            {vehicleLabel(corridor.vehicleId ?? `event-${corridor.eventId}`)} · Event #{corridor.eventId}
+            {getVehicleDisplay(corridor.vehicleId ?? `EMV-${corridor.eventId}`)} · Mission #{corridor.eventId}
           </span>
         </div>
 
@@ -419,7 +462,7 @@ function CorridorArchiveCard({
         <div>
           Origin → Destination:{" "}
           <span className="text-[#F4F7FA]">
-            {corridor.originJunction} → {corridor.destinationJunction}
+            {originMeta.code} → {destMeta.code}
           </span>
         </div>
         <div>
@@ -434,10 +477,10 @@ function CorridorArchiveCard({
 
       {/* Signal chain nodes preview */}
       <div className="mt-2 flex flex-wrap items-center gap-1 font-mono text-[11px] text-[#5E6B7A]">
-        <span>Route:</span>
+        <span>Wave:</span>
         {ordered.map((s) => (
           <span key={s.junctionId} className="rounded bg-[#0E141D] px-1.5 py-0.5 text-[#8D9AAA]">
-            {s.junctionId} ({s.status})
+            {getJunctionMeta(s.junctionId).code} ({s.status})
           </span>
         ))}
       </div>

@@ -12,6 +12,8 @@ import { corridorRoutes } from "./modules/corridor/routes.ts";
 import { scenarioRoutes } from "./modules/scenarios/routes.ts";
 import { systemRoutes } from "./modules/system/routes.ts";
 import { websocketRoutes } from "./modules/websocket/routes.ts";
+import { aiRoutes } from "./modules/ai/routes.ts";
+import { AiCopilotService } from "./modules/ai/copilot-service.ts";
 import type { SimulationManager } from "./modules/simulation/simulation-manager.ts";
 import type { TrafficService } from "./modules/traffic/traffic-service.ts";
 import type { EmergencyService } from "./modules/emergency/emergency-service.ts";
@@ -124,6 +126,18 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     facilitiesPath: deps.facilitiesPath!,
   });
   await app.register(websocketRoutes, { bus: deps.wsBus });
+
+  const copilotService = new AiCopilotService({
+    config: deps.config,
+    logger: deps.logger,
+    manager: deps.manager,
+    emergencyService: deps.emergencyService,
+    corridorService: deps.corridorService,
+    trafficService: deps.trafficService,
+    predictionService: deps.predictionService,
+    db: deps.db,
+  });
+  await app.register(aiRoutes, { copilotService });
 
   return app;
 }

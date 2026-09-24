@@ -137,4 +137,11 @@ export const api = {
   getAnalytics: () => request<AnalyticsResponse>("/api/analytics"),
   getDecisions: () => request<{ events: DecisionEvent[] }>("/api/decisions"),
   getSystem: () => request<SystemOverview>("/api/system"),
+
+  // AI Copilot (Vultr Serverless Inference)
+  askAiCopilot: (question: string, context?: { intersectionId?: string; emergencyId?: number; decisionId?: string; focus?: string }) =>
+    request<{ answer: string; citations: string[]; source: string; model: string; timestamp: string }>("/api/ai/copilot", {
+      method: "POST",
+      body: JSON.stringify({ question, context }),
+    }),
 };

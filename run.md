@@ -66,6 +66,10 @@ npm install
    PREDICTION_SERVICE_URL=http://127.0.0.1:8100
    ITMS_DEMO=city
    DEMO_CITY=Bhopal
+
+   # Optional Vultr Serverless Inference (AI Copilot live LLM)
+   # VULTR_SERVERLESS_INFERENCE_API_KEY=your_key
+   # VULTR_INFERENCE_MODEL=deepseek-v4.1-flash
    ```
 
 3. **Frontend Web Environment**:
