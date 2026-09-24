@@ -91,6 +91,7 @@ export class CorridorService {
   private readonly bus: WsBus;
   private readonly catalog: NetworkCatalog;
   private readonly constraints: CorridorConstraints;
+  private readonly mobileRepo?: import("../../database/repositories/mobile-repository.ts").MobileRepository;
 
   private runtime = new Map<number, CorridorRuntime>();
   private eventListeners: Array<() => void> = [];
@@ -105,6 +106,7 @@ export class CorridorService {
     repository: CorridorRepository;
     bus: WsBus;
     catalog: NetworkCatalog;
+    mobileRepo?: import("../../database/repositories/mobile-repository.ts").MobileRepository;
   }) {
     this.config = options.config;
     this.logger = options.logger;
@@ -115,6 +117,7 @@ export class CorridorService {
     this.repository = options.repository;
     this.bus = options.bus;
     this.catalog = options.catalog;
+    this.mobileRepo = options.mobileRepo;
     const config = options.config;
     this.constraints = {
       minPriority: config.corridorMinPriority,
@@ -163,6 +166,17 @@ export class CorridorService {
     for (const existing of this.runtime.values()) {
       if (existing.eventId === eventId && (existing.status === "ACTIVE" || existing.status === "PLANNING" || existing.status === "VALIDATING")) {
         throw new AppError(409, "corridor_already_active", `Event ${eventId} already has an active corridor (${existing.corridorId}).`);
+      }
+    }
+
+    if (this.mobileRepo) {
+      const authorized = await this.mobileRepo.isCorridorAuthorizedForEvent(eventId);
+      if (!authorized) {
+        throw new AppError(
+          403,
+          "corridor_not_authorized",
+          `Emergency event ${eventId} is not authorized for corridor activation. Verification required.`,
+        );
       }
     }
 
@@ -705,6 +719,16 @@ export class CorridorService {
     }
     if (row.status !== "PLANNING" && row.status !== "VALIDATING") {
       throw new AppError(409, "not_activatable", `Corridor ${corridorId} is ${row.status}; only PLANNING/VALIDATING corridors can be activated.`);
+    }
+    if (this.mobileRepo) {
+      const authorized = await this.mobileRepo.isCorridorAuthorizedForEvent(row.event_id);
+      if (!authorized) {
+        throw new AppError(
+          403,
+          "corridor_not_authorized",
+          `Corridor ${corridorId} (emergency event ${row.event_id}) has not been authorized. Verification required.`,
+        );
+      }
     }
     const emergency = this.emergencyService.getEmergencyRuntime(row.event_id);
     if (emergency === null) {

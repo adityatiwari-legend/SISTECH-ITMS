@@ -3,6 +3,7 @@ import type {
   EmergencyEta,
   EmergencyEventDetail,
   EmergencyVehicleRecord,
+  MobileEmergencyMeta,
   RouteSummary,
   VehicleSnapshot,
 } from "@itms/types";
@@ -324,30 +325,39 @@ export class EmergencyService {
   async createEmergency(body: CreateEmergencyBody): Promise<EmergencyEventDetail> {
     const status = this.manager.getStatusSnapshot();
     if (status.status !== "running" && status.status !== "paused") {
-      throw new AppError(
-        409,
-        "simulation_not_running",
-        `An emergency requires a running simulation (current status: ${status.status}).`,
-      );
-    }
-
-    const endpointProblem = this.routeEngine.validateEndpoints(body.origin, body.destination);
-    if (endpointProblem !== null) {
-      throw new AppError(422, "invalid_emergency_route", describeRouteProblem(endpointProblem));
-    }
-
-    let route: ComputedRoute;
-    try {
-      route = this.routeEngine.computeRoute(body.origin, body.destination);
-    } catch (err) {
-      if (err instanceof RouteError) {
-        throw new AppError(422, "invalid_emergency_route", err.message);
+      if (!body.driverId) {
+        throw new AppError(
+          409,
+          "simulation_not_running",
+          `An emergency requires a running simulation (current status: ${status.status}).`,
+        );
       }
-      throw err;
+      this.logger.warn("Simulation unavailable for mobile driver emergency - running in GPS telemetry mode");
     }
-    const routeProblems = this.routeEngine.validateRoute(route);
-    if (routeProblems.length > 0) {
-      throw new AppError(500, "route_validation_failed", describeRouteProblem(routeProblems[0]!));
+
+    const origin = body.origin ?? "I1";
+    const destination = body.destination ?? "I6";
+
+    let route: ComputedRoute | null = null;
+    const endpointProblem = this.routeEngine.validateEndpoints(origin, destination);
+    if (endpointProblem === null) {
+      try {
+        const computed = this.routeEngine.computeRoute(origin, destination);
+        const routeProblems = this.routeEngine.validateRoute(computed);
+        if (routeProblems.length === 0) {
+          route = computed;
+        }
+      } catch (err) {
+        if (!body.driverId && status.status === "running") {
+          if (err instanceof RouteError) {
+            throw new AppError(422, "invalid_emergency_route", err.message);
+          }
+          throw err;
+        }
+        this.logger.warn("Route compute skipped for driver app emergency", { origin, destination });
+      }
+    } else if (!body.driverId && status.status === "running") {
+      throw new AppError(422, "invalid_emergency_route", describeRouteProblem(endpointProblem));
     }
 
     this.sequence += 1;
@@ -362,23 +372,30 @@ export class EmergencyService {
         {
           type: body.type,
           priority: body.priority,
-          originJunction: body.origin,
-          destinationJunction: body.destination,
+          originJunction: origin,
+          destinationJunction: destination,
           vehicleId,
           runId: this.getRunId(),
+          driverId: body.driverId ?? null,
+          fleetVehicleId: body.vehicleId ? Number(body.vehicleId) : null,
+          hospitalId: body.destinationHospitalId ? Number(body.destinationHospitalId) : null,
+          patientCondition: body.patientCondition ?? null,
+          severity: body.severity ?? "codeRed",
         },
-        {
-          edges: route.segments.map((segment) => ({
-            segmentId: segment.segmentId,
-            fromJunction: segment.fromJunction,
-            toJunction: segment.toJunction,
-            lengthM: segment.lengthM,
-            costSeconds: segment.costSeconds,
-            congestion: segment.congestion,
-          })),
-          estimatedTravelTimeS: route.estimatedTravelTimeS,
-          freeFlowTravelTimeS: route.freeFlowTravelTimeS,
-        },
+        route
+          ? {
+              edges: route.segments.map((segment) => ({
+                segmentId: segment.segmentId,
+                fromJunction: segment.fromJunction,
+                toJunction: segment.toJunction,
+                lengthM: segment.lengthM,
+                costSeconds: segment.costSeconds,
+                congestion: segment.congestion,
+              })),
+              estimatedTravelTimeS: route.estimatedTravelTimeS,
+              freeFlowTravelTimeS: route.freeFlowTravelTimeS,
+            }
+          : null,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -386,31 +403,36 @@ export class EmergencyService {
     }
 
     const sumoRouteId = `route-emv-${persisted.event.id}`;
-    try {
-      await this.manager.addVehicleRoute(sumoRouteId, route.segments.map((segment) => segment.segmentId));
-      await this.manager.addVehicle({
-        vehicleId,
-        routeId: sumoRouteId,
-        typeId: TYPE_IDS[body.type],
-        departSpeed: "0",
-      });
-    } catch (err) {
-      this.logger.error("Emergency vehicle spawn failed", { eventId: persisted.event.id, error: err });
+    if (this.manager.getStatusSnapshot().status === "running" && route !== null && route.segments.length > 0) {
       try {
-        await this.repository.applyTransition({
-          eventId: persisted.event.id,
-          vehicleRowId: persisted.vehicle.id,
-          status: "failed",
-          activatedAtIso: null,
-          arrivedAtIso: null,
-          positionX: null,
-          positionY: null,
-          speedMps: null,
+        await this.manager.addVehicleRoute(sumoRouteId, route.segments.map((segment) => segment.segmentId));
+        await this.manager.addVehicle({
+          vehicleId,
+          routeId: sumoRouteId,
+          typeId: TYPE_IDS[body.type],
+          departSpeed: "0",
         });
-      } catch (dbErr) {
-        this.logger.error("Could not persist failed spawn", { error: dbErr });
+      } catch (err) {
+        if (!body.driverId) {
+          this.logger.error("Emergency vehicle spawn failed", { eventId: persisted.event.id, error: err });
+          try {
+            await this.repository.applyTransition({
+              eventId: persisted.event.id,
+              vehicleRowId: persisted.vehicle.id,
+              status: "failed",
+              activatedAtIso: null,
+              arrivedAtIso: null,
+              positionX: null,
+              positionY: null,
+              speedMps: null,
+            });
+          } catch (dbErr) {
+            this.logger.error("Could not persist failed spawn", { error: dbErr });
+          }
+          throw err;
+        }
+        this.logger.warn("SUMO vehicle spawn skipped for driver app emergency", { error: err });
       }
-      throw err;
     }
 
     this.active.set(persisted.event.id, {
@@ -419,9 +441,9 @@ export class EmergencyService {
       vehicleId,
       routeRowId: persisted.route?.id ?? null,
       status: "created",
-      routeEdges: route.segments.map((segment) => segment.segmentId),
-      destinationJunction: body.destination,
-      routeLengths: route.segments.map((segment) => segment.lengthM),
+      routeEdges: route ? route.segments.map((segment) => segment.segmentId) : [],
+      destinationJunction: destination,
+      routeLengths: route ? route.segments.map((segment) => segment.lengthM) : [],
       activatedSimTimeS: null,
       arrivedSimTimeS: null,
       switchCount: 0,
@@ -434,22 +456,30 @@ export class EmergencyService {
       eventId: persisted.event.id,
       type: body.type,
       priority: body.priority,
-      origin: body.origin,
-      destination: body.destination,
+      origin,
+      destination,
     });
-    this.bus.broadcast("route:updated", {
-      eventId: persisted.event.id,
-      routeId: sumoRouteId,
-      segments: route.segments.map((segment) => segment.segmentId),
-      estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
-    });
-    this.logger.info("Emergency created", {
-      eventId: persisted.event.id,
-      type: body.type,
-      priority: body.priority,
-      routeEdges: route.segments.length,
-      estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
-    });
+    if (route) {
+      this.bus.broadcast("route:updated", {
+        eventId: persisted.event.id,
+        routeId: sumoRouteId,
+        segments: route.segments.map((segment) => segment.segmentId),
+        estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
+      });
+      this.logger.info("Emergency created", {
+        eventId: persisted.event.id,
+        type: body.type,
+        priority: body.priority,
+        routeEdges: route.segments.length,
+        estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
+      });
+    } else {
+      this.logger.info("Emergency created (mobile telemetry mode)", {
+        eventId: persisted.event.id,
+        type: body.type,
+        priority: body.priority,
+      });
+    }
 
     // Re-read the persisted record so the response reflects the database
     // (including the route with its segments).
@@ -665,6 +695,33 @@ export class EmergencyService {
         ? this.manager.getVehicles().find((v) => v.id === emergency.vehicleId) ?? null
         : null;
 
+    const isMobile =
+      (event.driver_id !== null && event.driver_id !== undefined) ||
+      (event.fleet_vehicle_id !== null && event.fleet_vehicle_id !== undefined) ||
+      Boolean(event.driver_name);
+
+    const mobile: MobileEmergencyMeta | null = isMobile
+      ? {
+          isDriverApp: true,
+          driverId: event.driver_id ?? null,
+          driverName: event.driver_name ?? null,
+          driverCode: event.driver_code ?? null,
+          driverPhone: event.driver_phone ?? null,
+          vehicleCode: event.vehicle_code ?? null,
+          registrationNumber: event.registration_number ?? null,
+          vehicleModel: event.vehicle_model ?? null,
+          hospitalId: event.hospital_id ?? null,
+          hospitalName: event.hospital_name ?? null,
+          hospitalCode: event.hospital_code ?? null,
+          patientCondition: event.patient_condition ?? null,
+          severity: event.severity ?? null,
+          authorizationStatus: event.authorization_status ?? "pending",
+          verificationStatus: event.verification_status ?? "pending",
+          isCorridorAuthorized: event.is_corridor_authorized ?? false,
+          hasPatientImage: Boolean(event.has_patient_image),
+        }
+      : null;
+
     return {
       id: event.id,
       type: vehicle.type,
@@ -682,6 +739,7 @@ export class EmergencyService {
           ? this.computeEtas(emergency, liveVehicle)
           : null,
       live: emergency !== null && liveVehicle !== null ? this.mapLive(emergency, liveVehicle) : null,
+      mobile,
     };
   }
 

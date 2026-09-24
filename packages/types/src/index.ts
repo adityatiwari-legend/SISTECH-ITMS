@@ -209,6 +209,16 @@ export interface WsEvent<T> {
     | "corridor:update"
     | "route:switched"
     | "comparison:update"
+    | "emergency:verification:submitted"
+    | "emergency:verification:analyzing"
+    | "emergency:verified"
+    | "emergency:fraud-flagged"
+    | "emergency:manual-review"
+    | "emergency:approved"
+    | "emergency:rejected"
+    | "corridor:authorized"
+    | "emergency:completed"
+    | "emergency:cancelled"
     | "heartbeat";
   ts: string;
   payload: T;
@@ -229,6 +239,7 @@ export type EmergencyStatus =
   | "created" //  event exists, vehicle spawned/pending in SUMO, not yet inserted
   | "active" //   vehicle is in the network and following the route
   | "arrived" //  vehicle reached the destination
+  | "completed"
   | "cancelled"
   | "failed"; //  could not spawn/route, or simulation ended before arrival
 
@@ -324,14 +335,43 @@ export interface EmergencyEventDetail {
     routeIndex: number;
     remainingDistanceM: number;
   } | null;
+  /** Mobile driver app integration metadata (present when initiated from driver app). */
+  mobile?: MobileEmergencyMeta | null;
+}
+
+export interface MobileEmergencyMeta {
+  isDriverApp: boolean;
+  driverId?: number | null;
+  driverName?: string | null;
+  driverCode?: string | null;
+  driverPhone?: string | null;
+  vehicleCode?: string | null;
+  registrationNumber?: string | null;
+  vehicleModel?: string | null;
+  hospitalId?: number | null;
+  hospitalName?: string | null;
+  hospitalCode?: string | null;
+  patientCondition?: string | null;
+  severity?: string | null;
+  authorizationStatus?: string | null;
+  verificationStatus?: string | null;
+  isCorridorAuthorized?: boolean;
+  hasPatientImage?: boolean;
 }
 
 /** Body of POST /api/emergency (validated). */
 export interface CreateEmergencyBody {
   type: EmergencyType;
-  origin: string;
-  destination: string;
+  origin?: string;
+  destination?: string;
   priority: EmergencyPriority;
+  latitude?: number;
+  longitude?: number;
+  destinationHospitalId?: number | string;
+  patientCondition?: string;
+  severity?: string;
+  driverId?: number;
+  vehicleId?: number | string;
 }
 
 // ---------------------------------------------------------------------------
@@ -706,4 +746,114 @@ export interface NetworkGeometryResponse {
     lanes: Array<{ id: string; index: number; shape: Array<{ x: number; y: number }> }>;
   }>;
   facilities: Array<{ id: string; type: string; x: number; y: number; lat?: number; lng?: number }>;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Mobile Driver & Responder Types
+// ---------------------------------------------------------------------------
+
+export interface DriverProfile {
+  id: number;
+  driverCode: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  role: "driver" | "admin" | "operator";
+  status: "available" | "on_duty" | "off_duty" | "in_emergency";
+  licenseNumber?: string | null;
+  assignedVehicle: FleetVehicleRecord | null;
+  currentEmergencyId: number | null;
+}
+
+export interface FleetVehicleRecord {
+  id: number;
+  vehicleCode: string;
+  registrationNumber: string;
+  vehicleType: EmergencyType;
+  model: string;
+  status: "available" | "assigned" | "in_emergency" | "maintenance";
+  assignedDriverId: number | null;
+  currentEmergencyId: number | null;
+  lastLatitude?: number | null;
+  lastLongitude?: number | null;
+  lastHeading?: number | null;
+  lastSpeedKmh?: number | null;
+}
+
+export interface HospitalRecord {
+  id: number;
+  name: string;
+  code: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  emergencyPhone: string | null;
+  availableBeds: number;
+  traumaLevel: string;
+  nearestJunctionId: string;
+  status: "active" | "diverting" | "full";
+}
+
+export interface PoliceZoneRecord {
+  id: number;
+  name: string;
+  zoneCode: string;
+  headquartersJunctionId: string | null;
+  contactPhone: string | null;
+  activeOfficersCount: number;
+}
+
+export interface VerificationDetail {
+  id: number;
+  requestId: string;
+  eventId: number;
+  driverId: number | null;
+  vehicleId: number | null;
+  status:
+    | "captured"
+    | "submitted"
+    | "pending"
+    | "aiAnalyzing"
+    | "aiApproved"
+    | "aiFraudFlagged"
+    | "manualReview"
+    | "adminApproved"
+    | "adminRejected"
+    | "corridorAssigned";
+  isCorridorAuthorized: boolean;
+  submittedAtIso: string;
+  updatedAtIso: string;
+  evidence?: {
+    id: number;
+    fileName: string;
+    fileSizeBytes: number;
+    mimeType: string;
+    uploadedAtIso: string;
+  } | null;
+  aiResult?: {
+    verdict: "VERIFIED" | "FRAUD_FLAGGED" | "REVIEW_REQUIRED";
+    confidenceScore: number;
+    reason: string;
+    detectedFeatures: string[];
+    isFlaggedAsFraud: boolean;
+    model: string;
+    evaluatedAtIso: string;
+  } | null;
+  adminDecision?: {
+    reviewerId: string;
+    reviewerName: string;
+    isApproved: boolean;
+    rejectionReason: string | null;
+    notes: string | null;
+    decidedAtIso: string;
+  } | null;
+}
+
+export interface DriverTelemetryPayload {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  speedMps?: number;
+  heading?: number;
+  timestamp?: string | number;
 }

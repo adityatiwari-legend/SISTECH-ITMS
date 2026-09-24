@@ -163,6 +163,45 @@ export default function CommandCenterPage() {
         </div>
       </div>
 
+      {/* Active Driver App Emergency Live Alert Banner */}
+      {(() => {
+        const activeDriver = state.emergencies.find(
+          (e) => Boolean(e.mobile?.isDriverApp) && (e.status === "active" || e.status === "created")
+        );
+        if (!activeDriver) return null;
+        return (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-[#18D88B] bg-[rgba(24,216,139,0.12)] p-3 font-mono text-xs shadow-lg animate-pulse">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🚑</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[#18D88B]">
+                    LIVE DRIVER APP EMERGENCY #{activeDriver.id}
+                  </span>
+                  <span className="rounded bg-[#18D88B]/20 px-1.5 py-0.5 text-[10px] font-bold text-[#18D88B]">
+                    {activeDriver.mobile?.vehicleCode || "AMB-001"}
+                  </span>
+                  <span className="text-[#8D9AAA]">
+                    Driver: {activeDriver.mobile?.driverName || "Responder"} ({activeDriver.mobile?.driverCode || "DRV-802"})
+                  </span>
+                </div>
+                <div className="text-[11px] text-[#F4F7FA]">
+                  Triage: <span className="font-semibold text-[#FF3B4E]">{activeDriver.mobile?.patientCondition || "Critical"}</span> · Target Hospital: <span className="font-semibold text-[#42B8FF]">{activeDriver.mobile?.hospitalName || "Hospital"}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/emergencies"
+                className="rounded-lg border border-[#18D88B] bg-[#18D88B]/20 px-3 py-1.5 font-bold text-[#18D88B] hover:bg-[#18D88B]/30 transition-all"
+              >
+                Open Driver Dispatch Section →
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Warning/Alert Banners */}
       {state.connection === "offline" && <DisconnectedBanner />}
       {state.traffic?.stale && sim?.status === "running" && (

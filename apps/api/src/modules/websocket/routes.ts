@@ -12,7 +12,8 @@ import type { WsBus } from "./ws-bus.ts";
 export async function websocketRoutes(app: FastifyInstance, options: { bus: WsBus }): Promise<void> {
   const { bus } = options;
 
-  app.get("/ws", { websocket: true }, (socket) => {
-    bus.addClient(socket);
+  app.get("/ws", { websocket: true }, (socket, request) => {
+    const token = (request.query as { token?: string })?.token;
+    bus.addClient(socket, token);
   });
 }

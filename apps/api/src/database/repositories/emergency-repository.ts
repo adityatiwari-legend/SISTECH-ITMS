@@ -33,9 +33,30 @@ export interface EmergencyEventRow {
   destination_junction: string;
   priority: EmergencyPriority;
   status: EmergencyStatus;
+  driver_id?: number | null;
+  fleet_vehicle_id?: number | null;
+  hospital_id?: number | null;
+  patient_condition?: string | null;
+  severity?: string | null;
+  authorization_status?: string | null;
+  cancelled_by?: string | null;
+  cancellation_reason?: string | null;
+  cancelled_at?: Date | null;
+  completed_at?: Date | null;
   created_at: Date;
   activated_at: Date | null;
   arrived_at: Date | null;
+  driver_name?: string | null;
+  driver_code?: string | null;
+  driver_phone?: string | null;
+  vehicle_code?: string | null;
+  registration_number?: string | null;
+  vehicle_model?: string | null;
+  hospital_name?: string | null;
+  hospital_code?: string | null;
+  verification_status?: string | null;
+  is_corridor_authorized?: boolean | null;
+  has_patient_image?: boolean | null;
 }
 
 export interface RouteRow {
@@ -69,6 +90,12 @@ export interface NewEmergencyInput {
   destinationJunction: string;
   vehicleId: string;
   runId: number | null;
+  driverId?: number | null;
+  fleetVehicleId?: number | null;
+  hospitalId?: number | null;
+  patientCondition?: string | null;
+  severity?: string | null;
+  authorizationStatus?: string | null;
 }
 
 export interface NewRouteInput {
@@ -115,9 +142,21 @@ export class EmergencyRepository {
 
       const eventResult = await tx.query<EmergencyEventRow>(
         `INSERT INTO emergency_events
-           (vehicle_id, origin_junction, destination_junction, priority, status)
-         VALUES ($1, $2, $3, $4, 'created') RETURNING *`,
-        [vehicle.id, input.originJunction, input.destinationJunction, input.priority],
+           (vehicle_id, origin_junction, destination_junction, priority, status,
+            driver_id, fleet_vehicle_id, hospital_id, patient_condition, severity, authorization_status)
+         VALUES ($1, $2, $3, $4, 'created', $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [
+          vehicle.id,
+          input.originJunction,
+          input.destinationJunction,
+          input.priority,
+          input.driverId ?? null,
+          input.fleetVehicleId ?? null,
+          input.hospitalId ?? null,
+          input.patientCondition ?? null,
+          input.severity ?? "codeRed",
+          input.authorizationStatus ?? "pending",
+        ],
       );
       const event = eventResult.rows[0]!;
 
@@ -169,7 +208,30 @@ export class EmergencyRepository {
 
   async getEvent(id: number): Promise<EmergencyEventRow | null> {
     const result = await this.db.query<EmergencyEventRow>(
-      `SELECT * FROM emergency_events WHERE id = $1`,
+      `SELECT e.*,
+              d.name AS driver_name,
+              d.driver_code,
+              d.phone AS driver_phone,
+              fv.vehicle_code,
+              fv.registration_number,
+              fv.model AS vehicle_model,
+              h.name AS hospital_name,
+              h.code AS hospital_code,
+              v.verification_status,
+              v.is_corridor_authorized,
+              EXISTS(SELECT 1 FROM emergency_evidence ev WHERE ev.event_id = e.id) AS has_patient_image
+       FROM emergency_events e
+       LEFT JOIN drivers d ON d.id = e.driver_id
+       LEFT JOIN fleet_vehicles fv ON fv.id = e.fleet_vehicle_id
+       LEFT JOIN hospitals h ON h.id = e.hospital_id
+       LEFT JOIN LATERAL (
+         SELECT status AS verification_status, is_corridor_authorized
+         FROM emergency_verifications
+         WHERE event_id = e.id
+         ORDER BY id DESC
+         LIMIT 1
+       ) v ON true
+       WHERE e.id = $1`,
       [id],
     );
     return result.rows[0] ?? null;
@@ -177,7 +239,30 @@ export class EmergencyRepository {
 
   async listEvents(): Promise<EmergencyEventRow[]> {
     const result = await this.db.query<EmergencyEventRow>(
-      `SELECT * FROM emergency_events ORDER BY id DESC`,
+      `SELECT e.*,
+              d.name AS driver_name,
+              d.driver_code,
+              d.phone AS driver_phone,
+              fv.vehicle_code,
+              fv.registration_number,
+              fv.model AS vehicle_model,
+              h.name AS hospital_name,
+              h.code AS hospital_code,
+              v.verification_status,
+              v.is_corridor_authorized,
+              EXISTS(SELECT 1 FROM emergency_evidence ev WHERE ev.event_id = e.id) AS has_patient_image
+       FROM emergency_events e
+       LEFT JOIN drivers d ON d.id = e.driver_id
+       LEFT JOIN fleet_vehicles fv ON fv.id = e.fleet_vehicle_id
+       LEFT JOIN hospitals h ON h.id = e.hospital_id
+       LEFT JOIN LATERAL (
+         SELECT status AS verification_status, is_corridor_authorized
+         FROM emergency_verifications
+         WHERE event_id = e.id
+         ORDER BY id DESC
+         LIMIT 1
+       ) v ON true
+       ORDER BY e.id DESC`,
     );
     return result.rows;
   }
@@ -311,5 +396,49 @@ export class EmergencyRepository {
       );
       return routeId;
     });
+  }
+
+  async completeEmergency(eventId: number): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const nowIso = new Date().toISOString();
+      await tx.query(
+        `UPDATE emergency_events
+         SET status = 'completed', completed_at = $1
+         WHERE id = $2`,
+        [nowIso, eventId],
+      );
+      await tx.query(
+        `UPDATE emergency_vehicles
+         SET status = 'arrived', arrived_at = $1
+         WHERE id = (SELECT vehicle_id FROM emergency_events WHERE id = $2)`,
+        [nowIso, eventId],
+      );
+    });
+  }
+
+  async cancelEmergency(eventId: number, reason: string, cancelledBy = "driver"): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const nowIso = new Date().toISOString();
+      await tx.query(
+        `UPDATE emergency_events
+         SET status = 'cancelled', cancelled_by = $1, cancellation_reason = $2, cancelled_at = $3
+         WHERE id = $4`,
+        [cancelledBy, reason, nowIso, eventId],
+      );
+      await tx.query(
+        `UPDATE emergency_vehicles
+         SET status = 'cancelled'
+         WHERE id = (SELECT vehicle_id FROM emergency_events WHERE id = $1)`,
+        [eventId],
+      );
+    });
+  }
+
+  async getEventsByDriver(driverId: number): Promise<EmergencyEventRow[]> {
+    const result = await this.db.query<EmergencyEventRow>(
+      "SELECT * FROM emergency_events WHERE driver_id = $1 ORDER BY id DESC LIMIT 50",
+      [driverId],
+    );
+    return result.rows;
   }
 }

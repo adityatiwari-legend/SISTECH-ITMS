@@ -35,8 +35,12 @@ export class ApiError extends Error {
   }
 }
 
-function baseUrl(): string {
+export function baseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000";
+}
+
+export function patientImageUrl(emergencyId: number): string {
+  return `${baseUrl()}/api/emergency/${emergencyId}/patient-image`;
 }
 
 export function wsUrl(): string {

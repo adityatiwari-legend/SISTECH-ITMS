@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
+import multipart from "@fastify/multipart";
 import cors from "@fastify/cors";
 import type { AppConfig } from "./config.ts";
 import { AppError } from "./errors.ts";
@@ -14,11 +15,16 @@ import { systemRoutes } from "./modules/system/routes.ts";
 import { websocketRoutes } from "./modules/websocket/routes.ts";
 import { aiRoutes } from "./modules/ai/routes.ts";
 import { AiCopilotService } from "./modules/ai/copilot-service.ts";
+import { mobileRoutes } from "./modules/mobile/routes.ts";
 import type { SimulationManager } from "./modules/simulation/simulation-manager.ts";
 import type { TrafficService } from "./modules/traffic/traffic-service.ts";
 import type { EmergencyService } from "./modules/emergency/emergency-service.ts";
 import type { PredictionService } from "./modules/prediction/prediction-service.ts";
 import type { CorridorService } from "./modules/corridor/corridor-service.ts";
+import type { AuthService } from "./modules/auth/auth-service.ts";
+import type { MobileService } from "./modules/mobile/mobile-service.ts";
+import type { MobileRepository } from "./database/repositories/mobile-repository.ts";
+import type { AiVerificationService } from "./modules/ai/verification-service.ts";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -35,13 +41,18 @@ export interface AppDependencies {
   facilitiesPath: string;
   db: import("./database/db.ts").DatabasePool;
   wsBus: import("./modules/websocket/ws-bus.ts").WsBus;
+  mobileRepo?: MobileRepository;
+  authService?: AuthService;
+  mobileService?: MobileService;
+  aiVerificationService?: AiVerificationService;
+  emergencyRepo?: import("./database/repositories/emergency-repository.ts").EmergencyRepository;
 }
 
 /** Builds the Fastify app with consistent error handling and routes. */
 export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
-    bodyLimit: 1024 * 64,
+    bodyLimit: 1024 * 1024 * 20, // 20 MB for patient photo upload
     ajv: {
       customOptions: {
         // Strict validation: unknown properties must fail instead of being
@@ -52,18 +63,22 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   });
 
   await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
+  await app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
-  // CORS: the browser UI (apps/web) calls this API cross-origin. Preflight
-  // OPTIONS requests must be answered here or the browser blocks everything.
-  // Origins: CORS_ORIGIN env var (comma-separated, "*" allows all);
-  // default covers the local dev frontends. @fastify/cors accepts arrays
-  // natively (reflects the request origin on match).
+  // CORS: the browser UI (apps/web) and mobile client call this API cross-origin.
   const corsOriginRaw = deps.config.corsOrigin;
   const corsOrigin: boolean | string[] = corsOriginRaw.includes("*") ? true : corsOriginRaw;
   await app.register(cors, {
     origin: corsOrigin,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type"],
+    allowedHeaders: [
+      "content-type",
+      "authorization",
+      "ngrok-skip-browser-warning",
+      "accept",
+      "origin",
+      "x-requested-with",
+    ],
     credentials: false,
   });
 
@@ -138,6 +153,16 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     db: deps.db,
   });
   await app.register(aiRoutes, { copilotService });
+
+  if (deps.mobileService && deps.authService && deps.mobileRepo && deps.aiVerificationService && deps.emergencyRepo) {
+    await app.register(mobileRoutes, {
+      mobileService: deps.mobileService,
+      authService: deps.authService,
+      mobileRepo: deps.mobileRepo,
+      aiVerificationService: deps.aiVerificationService,
+      emergencyRepo: deps.emergencyRepo,
+    });
+  }
 
   return app;
 }

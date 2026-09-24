@@ -12,6 +12,10 @@ import { EmergencyRepository } from "./database/repositories/emergency-repositor
 import { PredictionService } from "./modules/prediction/prediction-service.ts";
 import { CorridorService } from "./modules/corridor/corridor-service.ts";
 import { CorridorRepository } from "./database/repositories/corridor-repository.ts";
+import { MobileRepository } from "./database/repositories/mobile-repository.ts";
+import { AuthService } from "./modules/auth/auth-service.ts";
+import { MobileService } from "./modules/mobile/mobile-service.ts";
+import { AiVerificationService } from "./modules/ai/verification-service.ts";
 import { ClosedLoopService } from "./modules/loop/closed-loop-service.ts";
 import { MetricsRecorder } from "./modules/metrics/metrics-recorder.ts";
 import { MetricsRepository } from "./database/repositories/metrics-repository.ts";
@@ -89,6 +93,8 @@ async function main(): Promise<void> {
   });
   predictionService.start();
 
+  const mobileRepository = new MobileRepository(db);
+
   const corridorService = new CorridorService({
     config,
     logger,
@@ -99,6 +105,7 @@ async function main(): Promise<void> {
     repository: new CorridorRepository(db),
     bus: wsBus,
     catalog,
+    mobileRepo: mobileRepository,
   });
 
   const metricsRepository = new MetricsRepository(db);
@@ -132,6 +139,27 @@ async function main(): Promise<void> {
     trafficService,
   });
 
+  const authService = new AuthService(mobileRepository);
+  wsBus.setAuthService(authService);
+
+  const aiVerificationService = new AiVerificationService({
+    config,
+    logger,
+    mobileRepo: mobileRepository,
+    bus: wsBus,
+  });
+
+  const mobileService = new MobileService({
+    mobileRepo: mobileRepository,
+    emergencyService,
+    emergencyRepo: emergencyRepository,
+    corridorService,
+    routeEngine,
+    catalog,
+    bus: wsBus,
+    aiVerificationService,
+  });
+
   const app = await buildApp({
     config,
     logger,
@@ -147,6 +175,11 @@ async function main(): Promise<void> {
     facilitiesPath: config.facilitiesPath,
     db,
     wsBus,
+    mobileRepo: mobileRepository,
+    authService,
+    mobileService,
+    aiVerificationService,
+    emergencyRepo: emergencyRepository,
   });
 
   const shutdown = async (signal: string): Promise<void> => {

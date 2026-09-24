@@ -4,9 +4,9 @@ import type { CorridorService } from "./corridor-service.ts";
 
 const createBodySchema = {
   type: "object",
-  required: ["eventId"],
   properties: {
     eventId: { type: "integer", minimum: 1 },
+    emergencyEventId: { type: "integer", minimum: 1 },
   },
   additionalProperties: false,
 } as const;
@@ -38,7 +38,11 @@ export async function corridorRoutes(
   const { corridorService } = options;
 
   app.post("/api/corridors", { schema: { body: createBodySchema } }, async (request, reply) => {
-    const { eventId } = request.body as { eventId: number };
+    const body = request.body as { eventId?: number; emergencyEventId?: number };
+    const eventId = body.eventId ?? body.emergencyEventId;
+    if (!eventId) {
+      throw new AppError(400, "missing_event_id", "eventId or emergencyEventId is required.");
+    }
     const detail = await corridorService.createCorridor(eventId);
     return reply.code(201).send(detail);
   });
