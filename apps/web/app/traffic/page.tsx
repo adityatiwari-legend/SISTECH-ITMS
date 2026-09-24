@@ -1,10 +1,28 @@
 "use client";
 
 import React from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { useItms } from "@/lib/store";
 import { SimulationMap } from "@/components/SimulationMap";
-import { Badge, EmptyState, ErrorState, LoadingState, Panel, Stat, StaleBanner, DisconnectedBanner } from "@/components/ui";
+import {
+  Badge,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  MetricCard,
+  Panel,
+  DisconnectedBanner,
+  StaleBanner,
+} from "@/components/ui";
 import { api } from "@/lib/api";
 import { CONGESTION_COLORS, CONGESTION_LABELS, formatSpeed } from "@/lib/format";
 import type { NetworkGeometryResponse } from "@itms/types";
@@ -19,11 +37,21 @@ interface TrendPoint {
 export default function TrafficPage() {
   const { state, refreshAll } = useItms();
   const [geometry, setGeometry] = React.useState<NetworkGeometryResponse | null>(null);
-  // Trend accumulated from live traffic updates (real samples only), capped.
   const [trend, setTrend] = React.useState<TrendPoint[]>([]);
 
   React.useEffect(() => {
-    void api.getNetworkGeometry().then(setGeometry).catch(() => setGeometry(null));
+    let cancelled = false;
+    api
+      .getNetworkGeometry()
+      .then((geo) => {
+        if (!cancelled) setGeometry(geo);
+      })
+      .catch(() => {
+        if (!cancelled) setGeometry(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   React.useEffect(() => {
@@ -32,14 +60,14 @@ export default function TrafficPage() {
     setTrend((points) => {
       const last = points[points.length - 1];
       if (last !== undefined && Math.abs(last.t - traffic.simTimeSeconds) < 0.01) {
-        return points; // duplicate sample (same sim step)
+        return points;
       }
       const next = [
         ...points,
         {
           t: traffic.simTimeSeconds,
           vehicles: traffic.summary.vehicleCount,
-          speed: Math.round(traffic.summary.avgSpeedMps * 100) / 100,
+          speed: Math.round(traffic.summary.avgSpeedMps * 3.6 * 10) / 10, // km/h
           queue: traffic.summary.totalQueueLength,
         },
       ];
@@ -49,109 +77,245 @@ export default function TrafficPage() {
   }, [state.traffic]);
 
   const traffic = state.traffic;
-  const congested = (traffic?.segments ?? []).filter((segment) => segment.congestion === "HIGH" || segment.congestion === "CRITICAL");
+  const congested = (traffic?.segments ?? []).filter(
+    (segment) => segment.congestion === "HIGH" || segment.congestion === "CRITICAL"
+  );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex min-h-full flex-col gap-4 p-4">
+      {/* ================================================================== */}
+      {/* 1. HEADER & STATUS                                                 */}
+      {/* ================================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
         <div>
-          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Traffic</h1>
-          <p className="mt-0.5 text-[11px] text-[#6B7385]">Live city-wide traffic intelligence from the running SUMO simulation</p>
+          <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
+            TRAFFIC INTELLIGENCE
+          </h1>
+          <p className="font-mono text-[10px] text-[#5E6B7A]">
+            CITY-WIDE MACRO DENSITY, BOTTLENECK LOCALIZATION & LINK CONGESTION
+          </p>
         </div>
+
         <div className="flex items-center gap-3">
-          {traffic?.stale === true && state.connection !== "offline" && <StaleBanner />}
+          {traffic?.stale && state.connection !== "offline" && <StaleBanner />}
           {state.connection === "offline" && <DisconnectedBanner />}
         </div>
-      </header>
+      </div>
 
       {state.connection === "offline" ? (
-        <Panel><ErrorState title="Backend disconnected" detail="Showing no data while offline." retry={() => void refreshAll()} /></Panel>
+        <Panel>
+          <ErrorState
+            title="Backend Disconnected"
+            detail="Traffic link state unavailable while disconnected."
+            retry={() => void refreshAll()}
+          />
+        </Panel>
       ) : traffic === null ? (
-        <Panel><LoadingState label="Loading traffic state" /></Panel>
+        <Panel>
+          <LoadingState label="Collecting city road network telemetry" />
+        </Panel>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-            <Stat label="Vehicles" value={traffic.summary.vehicleCount} sub="in network" />
-            <Stat label="Avg speed" value={formatSpeed(traffic.summary.avgSpeedMps)} sub="city mean" />
-            <Stat label="Queue" value={traffic.summary.totalQueueLength} sub="vehicles halted" />
-            <Stat
-              label="Congestion"
+          {/* ============================================================== */}
+          {/* 2. TOP KPI ROW                                                 */}
+          {/* ============================================================== */}
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <MetricCard
+              label="NETWORK CONGESTION"
               value={traffic.summary.cityLevel}
               color={CONGESTION_COLORS[traffic.summary.cityLevel]}
-              sub={`${congested.length} segments HIGH+`}
+              sub={`${congested.length} critical bottleneck links`}
             />
-            <Stat label="Critical segs" value={traffic.summary.criticalSegments} color={traffic.summary.criticalSegments > 0 ? "#EF4444" : undefined} sub="flow blocked" />
+            <MetricCard
+              label="TOTAL VEHICLES"
+              value={traffic.summary.vehicleCount}
+              sub="Active in simulation"
+              color="#F4F7FA"
+            />
+            <MetricCard
+              label="AVERAGE SPEED"
+              value={formatSpeed(traffic.summary.avgSpeedMps)}
+              sub="City-wide flow velocity"
+              color="#18D88B"
+            />
+            <MetricCard
+              label="TOTAL QUEUE LENGTH"
+              value={`${traffic.summary.totalQueueLength} veh`}
+              sub="Stopped at signal approaches"
+              color={traffic.summary.totalQueueLength > 50 ? "#FFB547" : "#42B8FF"}
+            />
           </div>
 
-          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <Panel title="Traffic map">
-              <SimulationMap
-                className="h-[380px] w-full"
-                highlightTraffic
-                data={{
-                  geometry,
-                  trafficSegments: traffic.segments,
-                  signals: state.signals,
-                  vehicles: [],
-                  emergency: null,
-                  corridor: null,
-                }}
-              />
-            </Panel>
+          {/* ============================================================== */}
+          {/* 3. TRAFFIC MAP & LIVE FLOW TREND                               */}
+          {/* ============================================================== */}
+          <div className="grid min-h-[460px] grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
+            {/* Traffic Map Viewport */}
+            <div className="itms-panel min-h-[420px] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2 font-mono text-xs">
+                <span className="font-semibold text-[#F4F7FA]">CONGESTION MAP OVERLAY</span>
+                <span className="text-[10px] text-[#8D9AAA]">Real-time per-lane measurements</span>
+              </div>
+              <div className="relative flex-1 min-h-[380px]">
+                <SimulationMap
+                  className="absolute inset-0 h-full w-full"
+                  highlightTraffic
+                  data={{
+                    geometry,
+                    trafficSegments: traffic.segments,
+                    signals: state.signals,
+                    vehicles: state.vehicles,
+                    emergency: null,
+                    corridor: null,
+                    simTimeSeconds: state.sim?.simTimeSeconds,
+                  }}
+                />
+              </div>
+            </div>
 
-            <div className="flex flex-col gap-2">
-              <Panel title="Trend (live samples)">
+            {/* Live Flow Trend Chart */}
+            <div className="flex flex-col gap-3">
+              <Panel
+                title="Traffic Trend (Live Rolling Window)"
+                subtitle="Measured Velocity & Queue Evolution"
+              >
                 {trend.length < 2 ? (
-                  <EmptyState title="Collecting samples" hint="Start the simulation and keep this page open." />
+                  <EmptyState
+                    title="Sampling TraCI Telemetry"
+                    hint="Start simulation to plot real-time vehicle density and velocity trends."
+                  />
                 ) : (
-                  <div className="h-[180px]">
+                  <div className="h-[220px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                        <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
-                        <XAxis dataKey="t" tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} tickFormatter={(value) => `${Math.round(Number(value))}s`} />
-                        <YAxis tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                        <Tooltip contentStyle={{ background: "#0F141D", border: "1px solid #202938", fontSize: 11, fontFamily: "JetBrains Mono" }} />
-                        <Legend wrapperStyle={{ fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                        <Line type="monotone" dataKey="vehicles" name="Vehicles" stroke="#38BDF8" dot={false} strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="queue" name="Queue" stroke="#F59E0B" dot={false} strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="speed" name="Speed m/s" stroke="#22C55E" dot={false} strokeWidth={1.5} />
+                      <LineChart data={trend} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+                        <CartesianGrid stroke="#121A24" strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="t"
+                          tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }}
+                          tickFormatter={(v) => `${Math.round(Number(v))}s`}
+                        />
+                        <YAxis tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#0A0F16",
+                            borderColor: "rgba(255,255,255,0.1)",
+                            fontSize: 11,
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
+                        <Line
+                          type="monotone"
+                          dataKey="vehicles"
+                          name="Vehicles"
+                          stroke="#42B8FF"
+                          dot={false}
+                          strokeWidth={1.5}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="queue"
+                          name="Queue"
+                          stroke="#FFB547"
+                          dot={false}
+                          strokeWidth={1.5}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="speed"
+                          name="Speed (km/h)"
+                          stroke="#18D88B"
+                          dot={false}
+                          strokeWidth={1.5}
+                        />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 )}
               </Panel>
 
-              <Panel title={`Congested segments (${congested.length})`}>
+              {/* Congested Segments Focus */}
+              <Panel
+                title={`Bottleneck Segments (${congested.length})`}
+                subtitle="High & Critical Congestion Links"
+              >
                 {congested.length === 0 ? (
-                  <EmptyState title="No congested segments" />
+                  <div className="py-4 text-center font-mono text-xs text-[#18D88B]">
+                    ✓ All network links operating at nominal flow speeds.
+                  </div>
                 ) : (
-                  <ul className="flex flex-col gap-1">
-                    {congested.slice(0, 10).map((segment) => (
-                      <li key={segment.segmentId} className="flex items-center justify-between rounded border border-[#202938] px-2 py-1 font-mono text-[11px]">
-                        <span>
-                          {segment.fromJunction} → {segment.toJunction}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <span className="text-[#8B95A7]">{segment.vehicleCount} veh · {formatSpeed(segment.avgSpeedMps)}</span>
-                          <Badge color={CONGESTION_COLORS[segment.congestion]}>{CONGESTION_LABELS[segment.congestion]}</Badge>
-                        </span>
-                      </li>
+                  <div className="max-h-48 overflow-y-auto space-y-1.5">
+                    {congested.map((seg) => (
+                      <div
+                        key={seg.segmentId}
+                        className="flex items-center justify-between rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2 font-mono text-xs"
+                      >
+                        <div>
+                          <div className="font-semibold text-[#F4F7FA]">
+                            {seg.fromJunction} → {seg.toJunction}
+                          </div>
+                          <div className="text-[10px] text-[#5E6B7A]">
+                            {seg.vehicleCount} vehicles · Queue: {seg.queueLength}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#8D9AAA]">{formatSpeed(seg.avgSpeedMps)}</span>
+                          <Badge color={CONGESTION_COLORS[seg.congestion]}>
+                            {CONGESTION_LABELS[seg.congestion]}
+                          </Badge>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </Panel>
             </div>
           </div>
 
-          <Panel title="All segments">
-            <div className="grid grid-cols-1 gap-1 md:grid-cols-2 xl:grid-cols-3">
-              {(traffic.segments ?? []).map((segment) => (
-                <div key={segment.segmentId} className="flex items-center justify-between rounded border border-[#202938]/70 px-2 py-1 font-mono text-[10px]">
-                  <span className="text-[#F4F7FA]">{segment.fromJunction}→{segment.toJunction}</span>
-                  <span className="text-[#8B95A7]">{segment.vehicleCount}v {formatSpeed(segment.avgSpeedMps)} q{segment.queueLength} {segment.flowRatePerHour > 0 ? `${Math.round(segment.flowRatePerHour)}/h` : ""}</span>
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: CONGESTION_COLORS[segment.congestion] }} aria-label={segment.congestion} />
-                </div>
-              ))}
+          {/* ============================================================== */}
+          {/* 4. TRAFFIC BY ROAD SEGMENT DATA TABLE                          */}
+          {/* ============================================================== */}
+          <Panel
+            title={`Road Network Segment Inventory (${traffic.segments.length} Links)`}
+            subtitle="Full Link-by-Link Velocity, Queue, and Flow Breakdown"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-xs">
+                <thead>
+                  <tr className="border-b border-[rgba(255,255,255,0.08)] text-[10px] uppercase text-[#5E6B7A]">
+                    <th className="py-2 pr-4">Road Segment</th>
+                    <th className="py-2 pr-4">From → To</th>
+                    <th className="py-2 pr-4">Vehicles</th>
+                    <th className="py-2 pr-4">Mean Velocity</th>
+                    <th className="py-2 pr-4">Queue</th>
+                    <th className="py-2 pr-4">Hourly Flow</th>
+                    <th className="py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {traffic.segments.map((seg) => (
+                    <tr
+                      key={seg.segmentId}
+                      className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[#0E141D] transition-colors"
+                    >
+                      <td className="py-2 pr-4 font-semibold text-[#F4F7FA]">{seg.segmentId}</td>
+                      <td className="py-2 pr-4 text-[#8D9AAA]">
+                        {seg.fromJunction} → {seg.toJunction}
+                      </td>
+                      <td className="py-2 pr-4 text-[#F4F7FA]">{seg.vehicleCount}</td>
+                      <td className="py-2 pr-4 text-[#18D88B]">{formatSpeed(seg.avgSpeedMps)}</td>
+                      <td className="py-2 pr-4 text-[#FFB547]">{seg.queueLength}</td>
+                      <td className="py-2 pr-4 text-[#8D9AAA]">
+                        {seg.flowRatePerHour > 0 ? `${Math.round(seg.flowRatePerHour)} veh/h` : "—"}
+                      </td>
+                      <td className="py-2">
+                        <Badge color={CONGESTION_COLORS[seg.congestion]}>
+                          {CONGESTION_LABELS[seg.congestion]}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Panel>
         </>

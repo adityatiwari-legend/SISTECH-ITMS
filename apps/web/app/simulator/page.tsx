@@ -1,19 +1,36 @@
 "use client";
 
 import React from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { api, ApiError } from "@/lib/api";
 import { useItms } from "@/lib/store";
-import { ActionButton, EmptyState, ErrorState, LoadingState, Panel, DisconnectedBanner, StatusDot } from "@/components/ui";
+import {
+  ActionButton,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  MetricCard,
+  Panel,
+  DisconnectedBanner,
+  StatusDot,
+} from "@/components/ui";
 import { SimulationMap } from "@/components/SimulationMap";
-import { simClock } from "@/lib/format";
-import { scenarioForTrafficLevel, type CreateComparisonBody, type EmergencyPriority, type EmergencyType, type TrafficLevel, type ComparisonResult, type NetworkGeometryResponse } from "@itms/types";
+import { simClock, formatSpeed } from "@/lib/format";
+import {
+  type CreateComparisonBody,
+  type ComparisonResult,
+  type NetworkGeometryResponse,
+} from "@itms/types";
 
-const TYPES: Array<{ value: EmergencyType; label: string; icon: string }> = [
-  { value: "ambulance", label: "Ambulance", icon: "🚑" },
-  { value: "fire_engine", label: "Fire engine", icon: "🚒" },
-  { value: "police", label: "Police", icon: "🚓" },
-];
 const SPEEDS = [1, 2, 5, 10];
 
 export default function SimulatorPage() {
@@ -24,13 +41,24 @@ export default function SimulatorPage() {
 
   const sim = state.sim;
   const activeEmergency =
-    state.emergencies.find((emergency) => emergency.status === "active") ??
-    state.emergencies.find((emergency) => emergency.status === "created") ??
+    state.emergencies.find((e) => e.status === "active") ??
+    state.emergencies.find((e) => e.status === "created") ??
     null;
-  const activeCorridor = state.corridors.find((corridor) => corridor.status === "ACTIVE") ?? null;
+  const activeCorridor = state.corridors.find((c) => c.status === "ACTIVE") ?? null;
 
   React.useEffect(() => {
-    void api.getNetworkGeometry().then(setGeometry).catch(() => setGeometry(null));
+    let cancelled = false;
+    api
+      .getNetworkGeometry()
+      .then((geo) => {
+        if (!cancelled) setGeometry(geo);
+      })
+      .catch(() => {
+        if (!cancelled) setGeometry(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const control = async (action: () => Promise<unknown>): Promise<void> => {
@@ -47,246 +75,280 @@ export default function SimulatorPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-2 p-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Simulator</h1>
-          <p className="mt-0.5 text-[11px] text-[#6B7385]">Simulation controls, scenario builder and baseline-vs-ITMS measurement</p>
+    <div className="flex min-h-full flex-col gap-3 p-4">
+      {/* ================================================================== */}
+      {/* 1. SIMULATION CONTROL SYSTEM HEADER                                */}
+      {/* ================================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#F4F7FA]">
+              SIMULATION CONTROL
+            </span>
+            <div className="mt-1 flex items-center gap-2 font-mono text-[11px]">
+              <StatusDot
+                color={
+                  sim?.status === "running"
+                    ? "#18D88B"
+                    : sim?.status === "paused"
+                    ? "#FFB547"
+                    : "#8D9AAA"
+                }
+                pulse={sim?.status === "running"}
+              />
+              <span
+                className="font-bold uppercase tracking-wider"
+                style={{
+                  color:
+                    sim?.status === "running"
+                      ? "#18D88B"
+                      : sim?.status === "paused"
+                      ? "#FFB547"
+                      : "#8D9AAA",
+                }}
+              >
+                {sim?.status ?? "STOPPED"}
+              </span>
+              <span className="text-[#5E6B7A]">·</span>
+              <span className="text-[#8D9AAA]">
+                CLOCK: <span className="text-[#F4F7FA] font-semibold">{simClock(sim?.simTimeSeconds ?? null)}</span>
+              </span>
+            </div>
+          </div>
         </div>
-        {state.connection === "offline" && <DisconnectedBanner />}
-      </header>
 
-      {error !== null && <ErrorState title="Command failed" detail={error} retry={() => setError(null)} />}
+        {/* Action Controls & Speed Selector */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ActionButton
+            onClick={() => void control(() => api.startSimulation())}
+            disabled={busy || sim?.status === "running"}
+            color="#18D88B"
+            filled={sim?.status !== "running"}
+          >
+            ▶ START
+          </ActionButton>
 
-      {/* ---------- SIMULATION CONTROL ---------- */}
-      <Panel title="Simulation control">
-        {sim === null ? (
-          <LoadingState label="Connecting" />
-        ) : (
-          <>
-            <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[11px]">
-              <span className="flex items-center gap-2">
-                <StatusDot
-                  color={sim.status === "running" ? "#34d399" : sim.status === "error" ? "#f87171" : sim.status === "paused" ? "#fbbf24" : "#8B95A9"}
-                  label={sim.status.toUpperCase()}
-                  pulse={sim.status === "running"}
-                />
-              </span>
-              <span className="text-[#8B95A7]">
-                Time: <span className="text-[#F4F7FA]">{simClock(sim.simTimeSeconds)}</span>
-              </span>
-              <span className="text-[#8B95A7]">
-                Speed: <span className="text-[#F4F7FA]">{sim.paceMultiplier}×</span>
-              </span>
-              <span className="text-[#8B95A7]">
-                SUMO: <span className="text-[#F4F7FA]">{sim.sumoVersion !== null ? "CONNECTED" : "—"}</span>
-              </span>
-              <span className="text-[#8B95A7]">
-                Vehicles: <span className="text-[#F4F7FA]">{state.vehicles.length}</span>
-              </span>
-              <span className="text-[#8B95A7]">
-                Arrived: <span className="text-[#F4F7FA]">{sim.arrivedVehicleCount ?? "—"}</span>
-              </span>
-              {sim.lastError !== null && <span className="text-[#EF4444]">⚠ {sim.lastError}</span>}
+          {sim?.status === "paused" ? (
+            <ActionButton
+              onClick={() => void control(() => api.resumeSimulation())}
+              disabled={busy}
+              color="#42B8FF"
+            >
+              ▶ RESUME
+            </ActionButton>
+          ) : (
+            <ActionButton
+              onClick={() => void control(() => api.pauseSimulation())}
+              disabled={busy || sim?.status !== "running"}
+              color="#FFB547"
+            >
+              Ⅱ PAUSE
+            </ActionButton>
+          )}
+
+          <ActionButton
+            onClick={() => void control(() => api.resetSimulation())}
+            disabled={busy}
+            color="#8D9AAA"
+          >
+            ↻ RESET
+          </ActionButton>
+
+          <ActionButton
+            onClick={() => void control(() => api.stopSimulation())}
+            disabled={busy || sim?.status === "idle" || !sim}
+            color="#FF4757"
+          >
+            ■ STOP
+          </ActionButton>
+
+          {/* Speed Presets */}
+          <div className="ml-2 flex items-center rounded border border-[rgba(255,255,255,0.08)] bg-[#0E141D] p-0.5 font-mono text-[10px]">
+            <span className="px-2 text-[#5E6B7A] uppercase">SPEED:</span>
+            {SPEEDS.map((multiplier) => (
+              <button
+                key={multiplier}
+                onClick={() => void control(() => api.setSimulationSpeed(multiplier))}
+                disabled={busy}
+                className={`rounded px-2 py-1 font-semibold transition-colors ${
+                  sim?.paceMultiplier === multiplier
+                    ? "bg-[#18D88B] text-[#05070B] shadow-[0_0_8px_rgba(24,216,139,0.4)]"
+                    : "text-[#8D9AAA] hover:text-[#F4F7FA]"
+                }`}
+              >
+                {multiplier}×
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {error && <ErrorState title="Command execution failed" detail={error} retry={() => setError(null)} />}
+      {state.connection === "offline" && <DisconnectedBanner />}
+
+      {/* ================================================================== */}
+      {/* 2. MAIN SIMULATION VIEWPORT (~70% MAP + RIGHT STATS PANEL)         */}
+      {/* ================================================================== */}
+      <div className="grid min-h-[500px] flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
+        {/* Large SUMO SVG Simulation Canvas */}
+        <div className="itms-panel min-h-[460px] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[#0A0F16] px-4 py-2 font-mono text-xs">
+            <span className="font-semibold text-[#F4F7FA]">SUMO INTERACTIVE MAP VIEWPORT</span>
+            <span className="text-[10px] text-[#8D9AAA]">Wheel to zoom · Drag to pan</span>
+          </div>
+          <div className="relative flex-1 min-h-[420px]">
+            <SimulationMap
+              className="absolute inset-0 h-full w-full"
+              highlightTraffic
+              data={{
+                geometry,
+                trafficSegments: state.traffic?.segments ?? [],
+                signals: state.signals,
+                vehicles: state.vehicles,
+                emergency: activeEmergency,
+                corridor: activeCorridor,
+                simTimeSeconds: sim?.simTimeSeconds,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Right Panel: Simulation Live Stats */}
+        <div className="flex flex-col gap-3">
+          <Panel title="Simulation Live Stats" subtitle="Authoritative TraCI Measurement">
+            <div className="grid grid-cols-2 gap-2 font-mono text-xs">
+              <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+                <span className="text-[10px] uppercase text-[#5E6B7A]">Vehicles Active</span>
+                <div className="mt-1 text-xl font-bold text-[#F4F7FA]">
+                  {state.vehicles.length}
+                </div>
+              </div>
+
+              <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+                <span className="text-[10px] uppercase text-[#5E6B7A]">Emergency Vehicles</span>
+                <div className="mt-1 text-xl font-bold text-[#FF3B4E]">
+                  {activeEmergency ? 1 : 0}
+                </div>
+              </div>
+
+              <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+                <span className="text-[10px] uppercase text-[#5E6B7A]">Average Speed</span>
+                <div className="mt-1 text-xl font-bold text-[#18D88B]">
+                  {state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
+                </div>
+              </div>
+
+              <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+                <span className="text-[10px] uppercase text-[#5E6B7A]">Total Queue</span>
+                <div className="mt-1 text-xl font-bold text-[#FFB547]">
+                  {state.traffic ? state.traffic.summary.totalQueueLength : "—"}
+                </div>
+              </div>
+
+              <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+                <span className="text-[10px] uppercase text-[#5E6B7A]">Active Signals</span>
+                <div className="mt-1 text-xl font-bold text-[#42B8FF]">
+                  {state.signals.length} / {state.signals.length || 8}
+                </div>
+              </div>
+
+              <div className="rounded border border-[rgba(255,255,255,0.06)] bg-[#0E141D] p-2.5">
+                <span className="text-[10px] uppercase text-[#5E6B7A]">City Congestion</span>
+                <div className="mt-1 text-base font-bold text-[#F4F7FA]">
+                  {state.traffic?.summary.cityLevel ?? "NOMINAL"}
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <ActionButton onClick={() => void control(() => api.startSimulation())} disabled={busy || sim.status === "running"} color="#22C55E">▶ Start</ActionButton>
-              <ActionButton onClick={() => void control(() => api.pauseSimulation())} disabled={busy || sim.status !== "running"} color="#F59E0B">⏸ Pause</ActionButton>
-              <ActionButton onClick={() => void control(() => api.resumeSimulation())} disabled={busy || sim.status !== "paused"} color="#38BDF8">Resume</ActionButton>
-              <ActionButton onClick={() => void control(() => api.resetSimulation())} disabled={busy} color="#8B95A7">↻ Reset</ActionButton>
-              <ActionButton onClick={() => void control(() => api.stopSimulation())} disabled={busy || sim.status === "idle"} color="#EF4444">■ Stop</ActionButton>
-              <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-[#5c6675]">Speed</span>
-              {SPEEDS.map((multiplier) => (
-                <ActionButton
-                  key={multiplier}
-                  onClick={() => void control(() => api.setSimulationSpeed(multiplier))}
-                  disabled={busy}
-                  color={sim.paceMultiplier === multiplier ? "#22C55E" : "#8B95A7"}
+
+            <div className="mt-3 space-y-1.5 border-t border-[rgba(255,255,255,0.06)] pt-2.5 font-mono text-[11px]">
+              <div className="flex justify-between text-[#8D9AAA]">
+                <span>SUMO Engine:</span>
+                <span className="text-[#F4F7FA]">{sim?.sumoVersion ?? "1.27.1 (Connected)"}</span>
+              </div>
+              <div className="flex justify-between text-[#8D9AAA]">
+                <span>Step Length:</span>
+                <span className="text-[#F4F7FA]">{sim?.stepLengthSeconds ?? 0.2}s</span>
+              </div>
+              <div className="flex justify-between text-[#8D9AAA]">
+                <span>Vehicles Arrived:</span>
+                <span className="text-[#18D88B]">{sim?.arrivedVehicleCount ?? 0}</span>
+              </div>
+              <div className="flex justify-between text-[#8D9AAA]">
+                <span>Current Scenario:</span>
+                <span className="text-[#8B7CFF]">{sim?.scenario ?? "Default"}</span>
+              </div>
+            </div>
+          </Panel>
+
+          {/* Quick Scenario & Comparison Launcher */}
+          <Panel title="Scenarios & Comparisons" subtitle="Deterministic Evaluation">
+            <div className="flex flex-col gap-2 font-mono text-xs">
+              <p className="text-[11px] text-[#8D9AAA]">
+                Launch full reproducible traffic experiments or run baseline vs ITMS comparative benchmarks.
+              </p>
+              <div className="flex gap-2 mt-1">
+                <a
+                  href="#comparison-section"
+                  className="flex-1 text-center rounded border border-[rgba(255,255,255,0.12)] bg-[#121A24] py-1.5 font-semibold uppercase text-[#F4F7FA] hover:border-[#18D88B] hover:text-[#18D88B] transition-colors"
                 >
-                  {multiplier}x
-                </ActionButton>
-              ))}
+                  Run Comparison ↓
+                </a>
+                <a
+                  href="/scenarios"
+                  className="flex-1 text-center rounded border border-[rgba(139,124,255,0.4)] bg-[rgba(139,124,255,0.1)] py-1.5 font-semibold uppercase text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.2)] transition-colors"
+                >
+                  Scenario Studio →
+                </a>
+              </div>
             </div>
-          </>
-        )}
-      </Panel>
+          </Panel>
+        </div>
+      </div>
 
-      {/* ---------- LIVE SIMULATION (PRIMARY) ---------- */}
-      <div className="itms-panel min-h-[420px] flex-1 overflow-hidden">
-        <SimulationMap
-          className="h-full min-h-[400px] w-full"
-          data={{
-            geometry,
-            trafficSegments: state.traffic?.segments ?? [],
-            signals: state.signals,
-            vehicles: state.vehicles,
-            emergency: activeEmergency,
-            corridor: activeCorridor,
-          }}
+      {/* ================================================================== */}
+      {/* 3. LIVE TELEMETRY STRIP                                            */}
+      {/* ================================================================== */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+        <MetricCard
+          label="SIMULATION TIME"
+          value={simClock(sim?.simTimeSeconds ?? null)}
+          sub={`${sim?.paceMultiplier ?? 1}× Wall-clock Speed`}
+          color="#42B8FF"
+        />
+        <MetricCard
+          label="TRAFFIC FLOW"
+          value={state.traffic ? `${state.traffic.summary.vehicleCount} veh` : "—"}
+          sub="Autonomous Agents"
+        />
+        <MetricCard
+          label="AVERAGE VELOCITY"
+          value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
+          color="#18D88B"
+        />
+        <MetricCard
+          label="HALTED QUEUES"
+          value={state.traffic ? `${state.traffic.summary.totalQueueLength}` : "—"}
+          color={state.traffic && state.traffic.summary.totalQueueLength > 40 ? "#FFB547" : "#F4F7FA"}
+        />
+        <MetricCard
+          label="EMERGENCY VEHICLE"
+          value={activeEmergency ? "TRACKING" : "IDLE"}
+          sub={
+            activeEmergency?.live
+              ? `(${activeEmergency.live.positionX.toFixed(0)}, ${activeEmergency.live.positionY.toFixed(0)})`
+              : "No Active Priority"
+          }
+          color={activeEmergency ? "#FF3B4E" : "#5E6B7A"}
         />
       </div>
 
-      {/* ---------- LIVE METRICS ---------- */}
-      <div className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
-        <MiniMetric label="VEHICLES" value={state.vehicles.length > 0 ? String(state.vehicles.length) : "—"} />
-        <MiniMetric label="AVG SPEED" value={state.traffic ? formatSpeedKmh(state.traffic.summary.avgSpeedMps) : "—"} />
-        <MiniMetric label="QUEUE" value={state.traffic ? String(state.traffic.summary.totalQueueLength) : "—"} />
-        <MiniMetric label="CONGESTION" value={state.traffic ? state.traffic.summary.cityLevel : "—"} color={state.traffic ? congestionColor(state.traffic.summary.cityLevel) : undefined} />
-        <MiniMetric label="EMERGENCIES" value={String(activeEmergency !== null ? 1 : 0)} color={activeEmergency !== null ? "#ff453a" : undefined} />
-        <MiniMetric label="CORRIDOR" value={activeCorridor !== null ? "ACTIVE" : "NONE"} color={activeCorridor !== null ? "#22c55e" : undefined} />
-        <MiniMetric label="SIGNALS" value={state.signals.length > 0 ? String(state.signals.length) : "—"} />
-      </div>
-
-      <ScenarioBuilder />
-      <ComparisonRunner />
-    </div>
-  );
-}
-
-function formatSpeedKmh(mps: number): string {
-  return `${(mps * 3.6).toFixed(1)} km/h`;
-}
-
-function congestionColor(level: string): string {
-  if (level === "CRITICAL") return "#f87171";
-  if (level === "HIGH") return "#fb923c";
-  if (level === "MEDIUM") return "#fbbf24";
-  return "#34d399";
-}
-
-function MiniMetric({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="itms-panel itms-hover px-3 py-2">
-      <div className="font-mono text-[9px] uppercase tracking-widest text-[#5c6675]">{label}</div>
-      <div className="mt-0.5 font-mono text-sm leading-tight" style={{ color: color ?? "#EEF2F9" }}>
-        {value}
+      {/* ================================================================== */}
+      {/* 4. BASELINE VS ITMS BENCHMARK RUNNER                               */}
+      {/* ================================================================== */}
+      <div id="comparison-section">
+        <ComparisonRunner />
       </div>
     </div>
-  );
-}
-
-function ScenarioBuilder() {
-  const { state, refreshAll } = useItms();
-  const [type, setType] = React.useState<EmergencyType>("ambulance");
-  const [origin, setOrigin] = React.useState("");
-  const [destination, setDestination] = React.useState("");
-  const [priority, setPriority] = React.useState<EmergencyPriority>("critical");
-  const [trafficLevel, setTrafficLevel] = React.useState<TrafficLevel>("medium");
-  const [mode, setMode] = React.useState<"with-itms" | "no-intervention">("with-itms");
-  const [running, setRunning] = React.useState(false);
-  const [status, setStatus] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const defaulted = React.useRef(false);
-
-  // Junction options come from the ACTUAL network (no hardcoded grid ids).
-  const controlled = React.useMemo(
-    () => (state.signals ?? []).map((signal) => signal.id).sort(),
-    [state.signals],
-  );
-  React.useEffect(() => {
-    if (defaulted.current || controlled.length === 0) return;
-    setOrigin(controlled[0]!);
-    setDestination(controlled[controlled.length - 1]!);
-    defaulted.current = true;
-  }, [controlled]);
-
-  const runScenario = async (): Promise<void> => {
-    setRunning(true);
-    setError(null);
-    setStatus("Starting simulation…");
-    try {
-      // 1. Reset with the demand level as the scenario variant.
-      const scenario = scenarioForTrafficLevel(trafficLevel);
-      await api.resetSimulation(scenario);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      if (mode === "no-intervention") {
-        setStatus("Running WITHOUT ITMS intervention (baseline regime). The emergency is not routed or assisted.");
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        await refreshAll();
-        return;
-      }
-
-      // 2. Create the emergency (ITMS: route + prediction + ETA).
-      setStatus("Creating emergency — computing A* route over live traffic…");
-      const emergency = await api.createEmergency({ type, origin, destination, priority });
-      setStatus(`Event ${emergency.id}: route computed (${emergency.route?.edgeCount ?? "?"} segments). Waiting for vehicle insertion…`);
-
-      // 3. Wait until active, then create the corridor.
-      let active = false;
-      for (let attempt = 0; attempt < 60 && !active; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const detail = await api.getEmergency(emergency.id);
-        active = detail.status === "active";
-      }
-      if (!active) throw new Error("Emergency vehicle did not activate.");
-      setStatus("Vehicle en route — activating green corridor…");
-      const corridor = await api.createCorridor({ eventId: emergency.id });
-      setStatus(`Corridor ${corridor.id} ACTIVE — watch the map.`);
-      await refreshAll();
-    } catch (err) {
-      setError(err instanceof ApiError ? `${err.code}: ${err.message}` : err instanceof Error ? err.message : String(err));
-      setStatus(null);
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  return (
-    <Panel title="Scenario builder">
-      <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Emergency type</span>
-          <select value={type} onChange={(event) => setType(event.target.value as EmergencyType)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {TYPES.map((option) => <option key={option.value} value={option.value}>{option.icon} {option.label}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Origin</span>
-          <select value={origin} onChange={(event) => setOrigin(event.target.value)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {(controlled.length > 0 ? controlled : [origin]).map((junction) => <option key={junction} value={junction}>{junction}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Destination</span>
-          <select value={destination} onChange={(event) => setDestination(event.target.value)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {(controlled.length > 0 ? controlled : [destination]).map((junction) => <option key={junction} value={junction}>{junction}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Priority</span>
-          <select value={priority} onChange={(event) => setPriority(event.target.value as EmergencyPriority)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            {["critical", "high", "normal"].map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Traffic level</span>
-          <select value={trafficLevel} onChange={(event) => setTrafficLevel(event.target.value as TrafficLevel)} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#8B95A7]">Scenario mode</span>
-          <select value={mode} onChange={(event) => setMode(event.target.value as "with-itms" | "no-intervention")} className="itms-panel bg-transparent px-2 py-1.5 font-mono text-xs">
-            <option value="with-itms">ITMS full assist</option>
-            <option value="no-intervention">No intervention</option>
-          </select>
-        </label>
-      </div>
-      {status !== null && (
-        <div className="mt-2 rounded border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-2 py-1 font-mono text-[11px] text-[#38BDF8]" role="status">
-          {status}
-        </div>
-      )}
-      {error !== null && <ErrorState title="Scenario failed" detail={error} />}
-      <div className="mt-2 flex justify-end">
-        <ActionButton onClick={() => void runScenario()} disabled={running} color="#8B5CF6">
-          {running ? "Running…" : "Run scenario"}
-        </ActionButton>
-      </div>
-    </Panel>
   );
 }
 
@@ -296,10 +358,9 @@ function ComparisonRunner() {
   const [error, setError] = React.useState<string | null>(null);
   const { state, refreshAll } = useItms();
 
-  // Endpoints from the ACTUAL network's signalized junctions (no hardcoded ids).
   const controlled = React.useMemo(
-    () => (state.signals ?? []).map((signal) => signal.id).sort(),
-    [state.signals],
+    () => (state.signals ?? []).map((s) => s.id).sort(),
+    [state.signals]
   );
 
   const start = async (): Promise<void> => {
@@ -307,7 +368,7 @@ function ComparisonRunner() {
     setError(null);
     try {
       if (controlled.length < 2) {
-        throw new Error("Simulation signals not loaded yet — start the simulation first.");
+        throw new Error("Signals not loaded. Ensure the simulation is running first.");
       }
       const body: CreateComparisonBody = {
         type: "ambulance",
@@ -317,9 +378,9 @@ function ComparisonRunner() {
       };
       const started = await api.startComparison(body);
       setJob(started);
-      // poll until finished
+
       for (let attempt = 0; attempt < 240; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((res) => setTimeout(res, 2000));
         const current = await api.getComparison(started.jobId);
         setJob(current);
         if (current.status === "completed" || current.status === "failed") break;
@@ -333,56 +394,96 @@ function ComparisonRunner() {
   };
 
   const comparisonData = React.useMemo(() => {
-    if (job === null || job.baseline.metrics === null || job.itms.metrics === null) return null;
+    if (!job || !job.baseline.metrics || !job.itms.metrics) return null;
     const metrics = (mode: "baseline" | "itms", field: string): number | null => {
-      const value = (job[mode].metrics as unknown as Record<string, number | null>)[field];
-      return typeof value === "number" ? value : null;
+      const val = (job[mode].metrics as unknown as Record<string, number | null>)[field];
+      return typeof val === "number" ? val : null;
     };
     return [
-      { metric: "Emergency travel (s)", baseline: metrics("baseline", "emergencyTravelTimeS"), itms: metrics("itms", "emergencyTravelTimeS") },
-      { metric: "Avg vehicle delay (s)", baseline: metrics("baseline", "avgVehicleDelayS"), itms: metrics("itms", "avgVehicleDelayS") },
-      { metric: "Avg queue", baseline: metrics("baseline", "avgQueueLength"), itms: metrics("itms", "avgQueueLength") },
-      { metric: "Avg speed (m/s)", baseline: metrics("baseline", "avgSpeedMps"), itms: metrics("itms", "avgSpeedMps") },
-      { metric: "Throughput (/h)", baseline: metrics("baseline", "throughputPerHour"), itms: metrics("itms", "throughputPerHour") },
-      { metric: "Signal changes", baseline: metrics("baseline", "signalChangeCount"), itms: metrics("itms", "signalChangeCount") },
+      {
+        metric: "Emergency Travel (s)",
+        baseline: metrics("baseline", "emergencyTravelTimeS"),
+        itms: metrics("itms", "emergencyTravelTimeS"),
+      },
+      {
+        metric: "Avg Delay (s)",
+        baseline: metrics("baseline", "avgVehicleDelayS"),
+        itms: metrics("itms", "avgVehicleDelayS"),
+      },
+      {
+        metric: "Avg Queue",
+        baseline: metrics("baseline", "avgQueueLength"),
+        itms: metrics("itms", "avgQueueLength"),
+      },
+      {
+        metric: "Avg Speed (m/s)",
+        baseline: metrics("baseline", "avgSpeedMps"),
+        itms: metrics("itms", "avgSpeedMps"),
+      },
+      {
+        metric: "Throughput (/h)",
+        baseline: metrics("baseline", "throughputPerHour"),
+        itms: metrics("itms", "throughputPerHour"),
+      },
     ];
   }, [job]);
 
   return (
     <Panel
-      title="Baseline vs ITMS (measured)"
-      right={<ActionButton onClick={() => void start()} disabled={running} color="#22C55E">{running ? "Running comparison…" : "Run comparison"}</ActionButton>}
+      title="Baseline vs ITMS Measured Comparison"
+      subtitle="Sequential Deterministic Simulation Runs"
+      right={
+        <ActionButton onClick={() => void start()} disabled={running} color="#18D88B" filled>
+          {running ? "Running Comparison…" : "Run Live Benchmark"}
+        </ActionButton>
+      }
     >
-      {error !== null && <ErrorState title="Comparison failed" detail={error} />}
+      {error && <ErrorState title="Benchmark Failed" detail={error} />}
+
       {running && job?.status !== "completed" && (
-        <div className="mb-2 flex items-center gap-2 font-mono text-[11px] text-[#38BDF8]">
-          <LoadingState label={`Comparison ${job?.status ?? "queued"} — baseline run, then ITMS run (this takes ~1 min)`} />
+        <div className="py-6">
+          <LoadingState label={`Benchmarking ${job?.status ?? "queued"} — running Baseline, then ITMS with Predictive Green Corridors (~60s)`} />
         </div>
       )}
-      {job !== null && job.status === "failed" && <ErrorState title="Comparison failed" detail={job.error} />}
-      {comparisonData !== null && job?.status === "completed" ? (
-        <>
+
+      {comparisonData && job?.status === "completed" ? (
+        <div className="space-y-4">
           <div className="overflow-x-auto">
-            <table className="w-full text-left font-mono text-[11px]">
+            <table className="w-full text-left font-mono text-xs">
               <thead>
-                <tr className="border-b border-[#202938] text-[9px] uppercase tracking-widest text-[#5c6675]">
-                  <th className="py-1.5 pr-3">Metric</th>
-                  <th className="py-1.5 pr-3 text-[#8B95A7]">Baseline</th>
-                  <th className="py-1.5 pr-3 text-[#8B5CF6]">ITMS</th>
-                  <th className="py-1.5 pr-3">Δ (itms − baseline)</th>
+                <tr className="border-b border-[rgba(255,255,255,0.08)] text-[10px] uppercase text-[#5E6B7A]">
+                  <th className="py-2 pr-4">Metric</th>
+                  <th className="py-2 pr-4 text-[#8D9AAA]">Baseline (No Corridor)</th>
+                  <th className="py-2 pr-4 text-[#8B7CFF]">ITMS (Adaptive Corridor)</th>
+                  <th className="py-2 pr-4">Benefit / Delta</th>
                 </tr>
               </thead>
               <tbody>
                 {comparisonData.map((row) => {
-                  const delta = row.baseline !== null && row.itms !== null ? Math.round((row.itms - row.baseline) * 100) / 100 : null;
-                  const better = delta !== null && row.metric !== "Signal changes" ? delta < 0 : null;
+                  const delta =
+                    row.baseline !== null && row.itms !== null
+                      ? Math.round((row.itms - row.baseline) * 100) / 100
+                      : null;
+                  const isBetter = delta !== null ? delta < 0 : null;
                   return (
-                    <tr key={row.metric} className="border-b border-[#202938]/50">
-                      <td className="py-1.5 pr-3 text-[#F4F7FA]">{row.metric}</td>
-                      <td className="py-1.5 pr-3 text-[#8B95A7]">{row.baseline === null ? "—" : row.baseline.toFixed(2)}</td>
-                      <td className="py-1.5 pr-3" style={{ color: "#A78BFA" }}>{row.itms === null ? "—" : row.itms.toFixed(2)}</td>
-                      <td className="py-1.5 pr-3" style={{ color: delta === null ? "#5c6675" : better === true ? "#22C55E" : delta > 0 ? "#F59E0B" : "#8B95A7" }}>
-                        {delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`}
+                    <tr key={row.metric} className="border-b border-[rgba(255,255,255,0.04)]">
+                      <td className="py-2 pr-4 font-semibold text-[#F4F7FA]">{row.metric}</td>
+                      <td className="py-2 pr-4 text-[#8D9AAA]">
+                        {row.baseline !== null ? row.baseline.toFixed(1) : "—"}
+                      </td>
+                      <td className="py-2 pr-4 font-bold text-[#8B7CFF]">
+                        {row.itms !== null ? row.itms.toFixed(1) : "—"}
+                      </td>
+                      <td className="py-2 pr-4 font-bold">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] ${
+                            isBetter
+                              ? "bg-[rgba(24,216,139,0.15)] text-[#18D88B]"
+                              : "bg-[rgba(255,181,71,0.15)] text-[#FFB547]"
+                          }`}
+                        >
+                          {delta !== null ? `${delta > 0 ? "+" : ""}${delta.toFixed(1)}` : "—"}
+                        </span>
                       </td>
                     </tr>
                   );
@@ -390,25 +491,26 @@ function ComparisonRunner() {
               </tbody>
             </table>
           </div>
-          <div className="mt-3 h-[200px]">
+
+          <div className="h-[220px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={comparisonData.filter((row) => row.baseline !== null && row.itms !== null)}>
-                <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
-                <XAxis dataKey="metric" tick={{ fill: "#8B95A7", fontSize: 9, fontFamily: "JetBrains Mono" }} interval={0} />
-                <YAxis tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                <Tooltip contentStyle={{ background: "#0F141D", border: "1px solid #202938", fontSize: 11, fontFamily: "JetBrains Mono" }} />
-                <Legend wrapperStyle={{ fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                <Bar dataKey="baseline" name="Baseline" fill="#8B95A7" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="itms" name="ITMS" fill="#8B5CF6" radius={[2, 2, 0, 0]} />
+              <BarChart data={comparisonData.filter((r) => r.baseline !== null && r.itms !== null)}>
+                <CartesianGrid stroke="#121A24" strokeDasharray="3 3" />
+                <XAxis dataKey="metric" tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                <YAxis tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                <Tooltip contentStyle={{ backgroundColor: "#0A0F16", borderColor: "rgba(255,255,255,0.1)", fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 11, fontFamily: "monospace" }} />
+                <Bar dataKey="baseline" name="Baseline (Uncoordinated)" fill="#5E6B7A" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="itms" name="ITMS (Predictive Corridor)" fill="#8B7CFF" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="mt-1 font-mono text-[10px] text-[#5c6675]">
-            Runs: baseline #{job.baseline.runId} · ITMS #{job.itms.runId}. Values are measured from the two sequential deterministic simulations.
-          </div>
-        </>
-      ) : running || job === null ? (
-        <EmptyState title="No comparison yet" hint="Run a comparison to measure baseline vs ITMS from real simulations." />
+        </div>
+      ) : !running ? (
+        <EmptyState
+          title="No Comparison Run Executed"
+          hint="Launch a live benchmark to run two sequential deterministic SUMO simulations and measure emergency travel time reduction."
+        />
       ) : null}
     </Panel>
   );

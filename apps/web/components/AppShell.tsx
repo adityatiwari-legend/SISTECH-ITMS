@@ -4,288 +4,438 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import type { EmergencyEventDetail, SimulationStatusSnapshot } from "@itms/types";
 import { useItms } from "@/lib/store";
 import { formatSpeed, simClock } from "@/lib/format";
-import { StatusDot } from "./ui";
+import { StatusDot, StatusChip, Icons } from "./ui";
 
-const NAV = [
-  { section: null, items: [{ href: "/", label: "Overview", icon: "◉" }] },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement;
+  badge?: string;
+  pulseCondition?: (state: ReturnType<typeof useItms>["state"]) => boolean;
+}
+
+const PRIMARY_NAV: NavItem[] = [
+  { href: "/", label: "Command Center", icon: Icons.CommandCenter },
+  { href: "/simulator", label: "Simulation", icon: Icons.Simulation },
   {
-    section: "Live operations",
-    items: [
-      { href: "/traffic", label: "Traffic", icon: "▤" },
-      { href: "/emergencies", label: "Emergencies", icon: "✚" },
-      { href: "/signals", label: "Signals", icon: "◈" },
-      { href: "/corridors", label: "Corridors", icon: "⇉" },
-    ],
+    href: "/emergencies",
+    label: "Emergencies",
+    icon: Icons.Emergency,
+    pulseCondition: (state) =>
+      state.emergencies.some((e) => e.status === "active" || e.status === "created"),
   },
+  { href: "/signals", label: "Signals", icon: Icons.Signals },
   {
-    section: "Simulation",
-    items: [
-      { href: "/simulator", label: "Simulator", icon: "▶" },
-    ],
+    href: "/corridors",
+    label: "Green Corridor",
+    icon: Icons.Corridor,
+    pulseCondition: (state) => state.corridors.some((c) => c.status === "ACTIVE"),
   },
-  {
-    section: "Analytics",
-    items: [
-      { href: "/analytics", label: "Analytics", icon: "▣" },
-      { href: "/decisions", label: "AI Decision Trace", icon: "⌖" },
-    ],
-  },
-  {
-    section: "System",
-    items: [{ href: "/settings", label: "Settings", icon: "⚙" }],
-  },
+  { href: "/traffic", label: "Traffic Intelligence", icon: Icons.Traffic },
+  { href: "/ai", label: "AI Insights", icon: Icons.AI },
+  { href: "/analytics", label: "Analytics", icon: Icons.Analytics },
+  { href: "/scenarios", label: "Scenarios", icon: Icons.Scenarios },
+];
+
+const SYSTEM_NAV: NavItem[] = [
+  { href: "/settings", label: "System / Settings", icon: Icons.Settings },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
-  idle: "#8B95A9",
-  starting: "#67e8f9",
-  running: "#34d399",
-  paused: "#fbbf24",
-  stopping: "#fbbf24",
-  completed: "#67e8f9",
-  error: "#f87171",
+  idle: "#8D9AAA",
+  starting: "#42B8FF",
+  running: "#18D88B",
+  paused: "#FFB547",
+  stopping: "#FFB547",
+  completed: "#42B8FF",
+  error: "#FF4757",
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { state } = useItms();
   const pathname = usePathname();
-  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const [collapsed, setCollapsed] = React.useState(false);
+  const [mobileOpen, setMobileOpen] = React.useState(false);
   const sim = state.sim;
 
   const hasActiveEmergency = state.emergencies.some(
-    (emergency) => emergency.status === "active" || emergency.status === "created",
+    (e) => e.status === "active" || e.status === "created"
   );
-  const activeCorridor = state.corridors.find((corridor) => corridor.status === "ACTIVE");
+  const activeCorridor = state.corridors.find((c) => c.status === "ACTIVE");
 
   return (
-    <div className="flex h-screen flex-col">
-      {/* Topbar */}
-      <header className="relative z-30 flex h-12 shrink-0 items-center justify-between border-b border-[rgba(148,163,190,0.12)] bg-[rgba(10,13,20,0.82)] px-3 backdrop-blur-xl">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#05070B] text-[#F4F7FA]">
+      {/* ==================================================================== */}
+      {/* GLOBAL TOP SYSTEM BAR                                                */}
+      {/* ==================================================================== */}
+      <header className="relative z-30 flex h-13 shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[#0A0F16]/90 px-4 backdrop-blur-md">
+        {/* Left: Mobile Toggle + Logo / Brand */}
         <div className="flex items-center gap-3">
           <button
-            className="rounded-lg border border-[rgba(148,163,190,0.16)] px-2 py-1 font-mono text-xs text-[#8B95A9] lg:hidden"
-            onClick={() => setMobileNavOpen((open) => !open)}
-            aria-label="Toggle navigation"
-            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileOpen((open) => !open)}
+            className="flex h-8 w-8 items-center justify-center rounded border border-[rgba(255,255,255,0.08)] bg-[#0E141D] text-[#8D9AAA] hover:text-[#F4F7FA] lg:hidden"
+            aria-label="Toggle navigation menu"
           >
-            ☰
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </button>
-          <Link href="/" className="flex items-center gap-2.5">
-            <span
-              className="flex h-6 w-6 items-center justify-center rounded-lg font-mono text-[11px] font-black text-white"
-              style={{
-                background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
-                boxShadow: "0 0 16px rgba(139,92,246,0.45)",
-              }}
-              aria-hidden="true"
-            >
-              T
-            </span>
-            <span className="font-mono text-sm font-bold tracking-widest text-[#EEF2F9]">ITMS</span>
-            <span className="hidden rounded-md border border-[rgba(148,163,190,0.14)] bg-[rgba(148,163,190,0.06)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-[#8B95A9] md:inline">
-              Traffic Command Center
-            </span>
+
+          <Link href="/" className="flex items-center gap-3">
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(66,184,255,0.4)] bg-[#0E141D] shadow-[0_0_15px_rgba(66,184,255,0.25)]">
+              <span className="h-2 w-2 rounded-full bg-[#18D88B] shadow-[0_0_8px_#18D88B]" />
+              <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-[#FF3B4E]" />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-black tracking-widest text-[#F4F7FA]">
+                  ITMS
+                </span>
+                <span className="rounded bg-[rgba(139,124,255,0.15)] px-1.5 py-0.2 font-mono text-[9px] font-semibold uppercase tracking-wider text-[#8B7CFF] border border-[rgba(139,124,255,0.3)]">
+                  OPS CONTROL
+                </span>
+              </div>
+              <span className="hidden font-mono text-[9px] uppercase tracking-wider text-[#5E6B7A] md:inline">
+                Intelligent Traffic Management System
+              </span>
+            </div>
           </Link>
         </div>
-        <div className="flex items-center gap-4">
-          {sim !== null && (
-            <span
-              className="hidden font-mono text-[11px] uppercase tracking-wider md:inline"
-              style={{ color: STATUS_COLORS[sim.status] ?? "#8B95A9" }}
-            >
-              ● {sim.status} · {simClock(sim.simTimeSeconds)} · {sim.paceMultiplier}×
-            </span>
+
+        {/* Center: Live Simulation Status Chip */}
+        <div className="hidden items-center gap-3 md:flex">
+          {sim ? (
+            <div className="flex items-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-[#0E141D] px-3 py-1 font-mono text-[11px]">
+              <StatusDot
+                color={STATUS_COLORS[sim.status] ?? "#8D9AAA"}
+                pulse={sim.status === "running"}
+              />
+              <span className="uppercase font-semibold tracking-wider" style={{ color: STATUS_COLORS[sim.status] }}>
+                {sim.status}
+              </span>
+              <span className="text-[#5E6B7A]">·</span>
+              <span className="text-[#8D9AAA]">{simClock(sim.simTimeSeconds)}</span>
+              <span className="text-[#5E6B7A]">·</span>
+              <span className="rounded bg-[#121A24] px-1.5 py-0.5 text-[10px] text-[#42B8FF]">
+                {sim.paceMultiplier}× SPEED
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-full border border-[rgba(255,255,255,0.06)] bg-[#0A0F16] px-3 py-1 font-mono text-[11px] text-[#5E6B7A]">
+              <StatusDot color="#5E6B7A" />
+              <span>SIMULATION IDLE</span>
+            </div>
           )}
-          <StatusDot
-            color={state.connection === "online" ? "#34d399" : state.connection === "connecting" ? "#fbbf24" : "#f87171"}
-            label={state.connection === "online" ? "Online" : state.connection === "connecting" ? "Connecting" : "Offline"}
-            pulse={state.connection !== "online"}
-          />
+        </div>
+
+        {/* Right: Technical System Status Indicators */}
+        <div className="flex items-center gap-4">
+          <div className="hidden items-center gap-3 lg:flex">
+            <StatusChip
+              label="SYSTEM"
+              status={state.systemOnline ? "ONLINE" : "OFFLINE"}
+              color={state.systemOnline ? "#18D88B" : "#FF4757"}
+              pulse={!state.systemOnline}
+            />
+            <StatusChip
+              label="SUMO"
+              status={state.sumoConnected ? "CONNECTED" : "IDLE"}
+              color={state.sumoConnected ? "#18D88B" : "#8D9AAA"}
+            />
+            <StatusChip
+              label="TraCI"
+              status={state.sumoConnected && state.sim ? "CONNECTED" : "STANDBY"}
+              color={state.sumoConnected && state.sim ? "#18D88B" : "#8D9AAA"}
+            />
+          </div>
+
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="hidden h-7 w-7 items-center justify-center rounded border border-[rgba(255,255,255,0.08)] bg-[#0E141D] text-[#8D9AAA] hover:text-[#F4F7FA] lg:flex"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <svg
+              className={`h-3.5 w-3.5 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            </svg>
+          </button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar (desktop) */}
-        <aside className="relative z-20 hidden w-56 shrink-0 flex-col overflow-y-auto border-r border-[rgba(148,163,190,0.1)] bg-[rgba(9,12,18,0.7)] lg:flex">
-          <SidebarHeader sim={sim} />
-          <NavList pathname={pathname} hasActiveEmergency={hasActiveEmergency} activeCorridor={activeCorridor !== undefined} />
-          <SidebarFooter hasActiveEmergency={hasActiveEmergency} activeCorridor={activeCorridor} />
+      {/* ==================================================================== */}
+      {/* BODY (SIDEBAR + MAIN CONTENT)                                       */}
+      {/* ==================================================================== */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Desktop Sidebar */}
+        <aside
+          className={`relative z-20 hidden shrink-0 flex-col border-r border-[rgba(255,255,255,0.08)] bg-[#0A0F16] transition-all duration-200 lg:flex ${
+            collapsed ? "w-16" : "w-60"
+          }`}
+        >
+          <NavContent
+            pathname={pathname}
+            collapsed={collapsed}
+            hasActiveEmergency={hasActiveEmergency}
+            state={state}
+          />
         </aside>
 
-        {/* Mobile drawer */}
+        {/* Mobile Navigation Drawer */}
         <AnimatePresence>
-          {mobileNavOpen && (
+          {mobileOpen && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-40 bg-black/60 lg:hidden"
-                onClick={() => setMobileNavOpen(false)}
+                className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+                onClick={() => setMobileOpen(false)}
               />
               <motion.aside
-                initial={{ x: -240 }}
+                initial={{ x: -260 }}
                 animate={{ x: 0 }}
-                exit={{ x: -240 }}
+                exit={{ x: -260 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="fixed inset-y-12 left-0 z-40 w-56 overflow-y-auto border-r border-[rgba(148,163,190,0.14)] bg-[#0a0d14] lg:hidden"
+                className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[rgba(255,255,255,0.08)] bg-[#0A0F16] shadow-2xl lg:hidden"
               >
-                <SidebarHeader sim={sim} />
-                <NavList
+                <div className="flex h-13 items-center justify-between border-b border-[rgba(255,255,255,0.08)] px-4">
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#F4F7FA]">
+                    ITMS NAVIGATION
+                  </span>
+                  <button
+                    onClick={() => setMobileOpen(false)}
+                    className="rounded p-1 text-[#8D9AAA] hover:text-[#F4F7FA]"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <NavContent
                   pathname={pathname}
+                  collapsed={false}
                   hasActiveEmergency={hasActiveEmergency}
-                  activeCorridor={activeCorridor !== undefined}
-                  onNavigate={() => setMobileNavOpen(false)}
+                  state={state}
+                  onNavigate={() => setMobileOpen(false)}
                 />
-                <SidebarFooter hasActiveEmergency={hasActiveEmergency} activeCorridor={activeCorridor} />
               </motion.aside>
             </>
           )}
         </AnimatePresence>
 
-        {/* Main content */}
-        <main className="relative z-10 min-w-0 flex-1 overflow-y-auto">{children}</main>
+        {/* Main Content Fluid Canvas */}
+        <main className="relative z-10 min-w-0 flex-1 overflow-y-auto bg-[#05070B]">
+          {children}
+        </main>
       </div>
 
-      {/* KPI bottom bar */}
-      <footer className="relative z-30 flex h-11 shrink-0 items-stretch border-t border-[rgba(148,163,190,0.12)] bg-[rgba(10,13,20,0.85)] font-mono text-[11px] backdrop-blur-xl">
-        <KpiCell label="Vehicles" value={String(state.traffic?.summary.vehicleCount ?? sim?.vehicleCount ?? "—")} />
-        <KpiCell label="Avg speed" value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"} />
+      {/* ==================================================================== */}
+      {/* GLOBAL SYSTEM KPI FOOTER STRIP                                       */}
+      {/* ==================================================================== */}
+      <footer className="relative z-30 flex h-10 shrink-0 items-stretch border-t border-[rgba(255,255,255,0.08)] bg-[#0A0F16] font-mono text-[11px]">
         <KpiCell
-          label="Congestion"
-          value={state.traffic ? state.traffic.summary.cityLevel : "—"}
-          color={state.traffic ? congestionColor(state.traffic.summary.cityLevel) : undefined}
-        />
-        <KpiCell label="Queue" value={state.traffic ? String(state.traffic.summary.totalQueueLength) : "—"} />
-        <KpiCell
-          label="Corridors"
-          value={activeCorridor !== undefined ? "ACTIVE" : String(state.corridors.length)}
-          color={activeCorridor !== undefined ? "#a78bfa" : undefined}
+          label="TRAFFIC"
+          value={String(state.traffic?.summary.vehicleCount ?? sim?.vehicleCount ?? "—")}
+          sub="vehicles"
         />
         <KpiCell
-          label="Emergency"
-          value={hasActiveEmergency ? "ACTIVE" : "NONE"}
-          color={hasActiveEmergency ? "#ff453a" : "#8B95A9"}
+          label="AVG SPEED"
+          value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
+        />
+        <KpiCell
+          label="CONGESTION"
+          value={state.traffic?.summary.cityLevel ?? "NOMINAL"}
+          color={
+            state.traffic?.summary.cityLevel === "CRITICAL"
+              ? "#FF4757"
+              : state.traffic?.summary.cityLevel === "HIGH"
+              ? "#FFB547"
+              : "#18D88B"
+          }
+        />
+        <KpiCell
+          label="QUEUE"
+          value={state.traffic ? String(state.traffic.summary.totalQueueLength) : "—"}
+        />
+        <KpiCell
+          label="SIGNALS"
+          value={`${state.signals.length} ACTIVE`}
+          color="#42B8FF"
+        />
+        <KpiCell
+          label="CORRIDOR"
+          value={activeCorridor ? `ACTIVE (#${activeCorridor.id})` : "STANDBY"}
+          color={activeCorridor ? "#8B7CFF" : "#5E6B7A"}
+          pulse={activeCorridor !== undefined}
+        />
+        <KpiCell
+          label="EMERGENCY"
+          value={hasActiveEmergency ? "PRIORITY ACTIVE" : "NONE"}
+          color={hasActiveEmergency ? "#FF3B4E" : "#5E6B7A"}
           pulse={hasActiveEmergency}
         />
-        <KpiCell label="ETA" value={activeEta(state.sim, state.emergencies)} />
       </footer>
     </div>
   );
 }
 
-function congestionColor(level: string): string | undefined {  switch (level) {
-    case "LOW": return "#34d399";
-    case "MEDIUM": return "#fbbf24";
-    case "HIGH": return "#fb923c";
-    case "CRITICAL": return "#f87171";
-    default: return undefined;
-  }
-}
-
-function activeEta(sim: SimulationStatusSnapshot | null, emergencies: EmergencyEventDetail[]): string {
-  const active = emergencies.find((emergency) => emergency.status === "active" && emergency.etas !== null);
-  if (active === undefined || active.etas === null) return "—";
-  const destination = active.etas.find((eta) => eta.isDestination) ?? active.etas[active.etas.length - 1];
-  if (destination === undefined) return "—";
-  const offset = destination.etaSeconds;
-  const eta = sim !== null ? simClock(sim.simTimeSeconds, offset) : `${offset.toFixed(0)}s`;
-  return `${eta}${sim !== null ? ` (+${offset.toFixed(0)}s)` : ""}`;
-}
-
-function KpiCell({ label, value, color, pulse = false }: { label: string; value: string; color?: string; pulse?: boolean }) {
+function KpiCell({
+  label,
+  value,
+  sub,
+  color,
+  pulse = false,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  color?: string;
+  pulse?: boolean;
+}) {
   return (
-    <div className={`flex flex-1 items-center justify-center gap-2 border-r border-[rgba(148,163,190,0.08)] last:border-0 ${pulse ? "itms-pulse" : ""}`}>
-      <span className="text-[#5c6675] uppercase tracking-wider">{label}</span>
-      <span className="font-semibold" style={{ color: color ?? "#EEF2F9" }}>
+    <div className="flex flex-1 items-center justify-center gap-2 border-r border-[rgba(255,255,255,0.06)] px-2 last:border-0">
+      {pulse && <span className="h-1.5 w-1.5 animate-ping rounded-full" style={{ backgroundColor: color ?? "#18D88B" }} />}
+      <span className="text-[10px] uppercase tracking-wider text-[#5E6B7A]">{label}:</span>
+      <span className="font-semibold" style={{ color: color ?? "#F4F7FA" }}>
         {value}
       </span>
+      {sub && <span className="text-[10px] text-[#5E6B7A]">{sub}</span>}
     </div>
   );
 }
 
-function SidebarHeader({ sim }: { sim: SimulationStatusSnapshot | null }) {
+function NavContent({
+  pathname,
+  collapsed,
+  hasActiveEmergency,
+  state,
+  onNavigate,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  hasActiveEmergency: boolean;
+  state: ReturnType<typeof useItms>["state"];
+  onNavigate?: () => void;
+}) {
   return (
-    <div className="border-b border-[rgba(148,163,190,0.08)] px-4 py-3">
-      <div className="font-mono text-[9px] uppercase tracking-widest text-[#5c6675]">Simulation</div>
-      <div className="mt-1 font-mono text-[12px] text-[#EEF2F9]">{sim?.scenario ?? "not started"}</div>
-      <div className="mt-1 font-mono text-[10px] text-[#6B7385]">
-        {sim !== null ? `${sim.vehicleCount} vehicles · ${sim.stepLengthSeconds}s steps` : "idle"}
+    <div className="flex h-full flex-col justify-between overflow-y-auto py-3">
+      {/* Primary Operations Nav */}
+      <div className="flex flex-col gap-1 px-2">
+        {!collapsed && (
+          <div className="mb-1.5 px-3 font-mono text-[9px] font-semibold uppercase tracking-widest text-[#5E6B7A]">
+            Operations
+          </div>
+        )}
+        <nav className="flex flex-col gap-0.5">
+          {PRIMARY_NAV.map((item) => {
+            const isActive =
+              pathname === item.href ||
+              (item.href === "/ai" && pathname === "/decisions");
+            const Icon = item.icon;
+            const isPulsing = item.pulseCondition ? item.pulseCondition(state) : false;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                title={collapsed ? item.label : undefined}
+                className={`group relative flex items-center gap-3 rounded-md px-3 py-2 text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-[#121A24] text-[#F4F7FA] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                    : "text-[#8D9AAA] hover:bg-[#0E141D] hover:text-[#F4F7FA]"
+                }`}
+              >
+                {/* Active Left Indicator Bar */}
+                {isActive && (
+                  <motion.span
+                    layoutId="sidebar-active-indicator"
+                    className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-[#42B8FF] shadow-[0_0_8px_#42B8FF]"
+                    transition={{ duration: 0.18 }}
+                  />
+                )}
+
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center transition-colors ${
+                    isActive ? "text-[#42B8FF]" : "text-[#8D9AAA] group-hover:text-[#F4F7FA]"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                </span>
+
+                {!collapsed && <span className="truncate">{item.label}</span>}
+
+                {/* Pulsing Alert Pip for Emergency or Corridor */}
+                {isPulsing && (
+                  <span
+                    className={`ml-auto h-1.5 w-1.5 rounded-full ${
+                      item.href === "/emergencies" ? "bg-[#FF3B4E] shadow-[0_0_6px_#FF3B4E]" : "bg-[#8B7CFF] shadow-[0_0_6px_#8B7CFF]"
+                    } animate-ping`}
+                  />
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* System & Settings Nav at Bottom */}
+      <div className="flex flex-col gap-2 border-t border-[rgba(255,255,255,0.08)] px-2 pt-3">
+        {!collapsed && (
+          <div className="px-3 font-mono text-[9px] font-semibold uppercase tracking-widest text-[#5E6B7A]">
+            Administration
+          </div>
+        )}
+        <nav className="flex flex-col gap-0.5">
+          {SYSTEM_NAV.map((item) => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                title={collapsed ? item.label : undefined}
+                className={`group relative flex items-center gap-3 rounded-md px-3 py-2 text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-[#121A24] text-[#F4F7FA] font-semibold"
+                    : "text-[#8D9AAA] hover:bg-[#0E141D] hover:text-[#F4F7FA]"
+                }`}
+              >
+                {isActive && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-[#42B8FF]" />
+                )}
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[#8D9AAA] group-hover:text-[#F4F7FA]">
+                  <Icon className="h-4 w-4" />
+                </span>
+                {!collapsed && <span className="truncate">{item.label}</span>}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {!collapsed && (
+          <div className="mt-2 rounded border border-[rgba(255,255,255,0.06)] bg-[#05070B] p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[9px] uppercase tracking-wider text-[#5E6B7A]">
+                System Mode
+              </span>
+              <span className="font-mono text-[9px] font-bold text-[#18D88B]">
+                SUMO TWIN
+              </span>
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-[#8D9AAA] truncate">
+              {hasActiveEmergency ? "🚑 Emergency Corridors En Route" : "Nominal Autonomous Control"}
+            </div>
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-function SidebarFooter({ hasActiveEmergency, activeCorridor }: { hasActiveEmergency: boolean; activeCorridor?: { id: number } }) {
-  return (
-    <div className="mt-auto border-t border-[rgba(148,163,190,0.1)] px-4 py-3">
-      {hasActiveEmergency ? (
-        <div className="itms-pulse rounded-lg border border-[rgba(255,69,58,0.4)] bg-[rgba(255,69,58,0.08)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-wider text-[#ff453a]">
-          🚑 Emergency active
-        </div>
-      ) : activeCorridor !== undefined ? (
-        <div className="rounded-lg border border-[rgba(167,139,250,0.4)] bg-[rgba(167,139,250,0.08)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-wider text-[#a78bfa]">
-          ⇉ Corridor {activeCorridor.id} active
-        </div>
-      ) : (
-        <div className="rounded-lg border border-[rgba(148,163,190,0.12)] bg-[rgba(148,163,190,0.04)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-wider text-[#6B7385]">
-          ◦ Nominal operation
-        </div>
-      )}
-    </div>
-  );
-}
-
-function NavList({ pathname, hasActiveEmergency, activeCorridor, onNavigate }: { pathname: string; hasActiveEmergency: boolean; activeCorridor: boolean; onNavigate?: () => void }) {
-  return (
-    <nav className="flex flex-1 flex-col gap-5 p-3" aria-label="Main navigation">
-      {NAV.map((group, groupIndex) => (
-        <div key={groupIndex}>
-          {group.section !== null && (
-            <div className="mb-1.5 px-2 font-mono text-[9px] uppercase tracking-widest text-[#5c6675]">{group.section}</div>
-          )}
-          <ul className="flex flex-col gap-0.5">
-            {group.items.map((item) => {
-              const active = pathname === item.href;
-              const emergencyGlow = item.href === "/emergencies" && hasActiveEmergency;
-              const corridorGlow = item.href === "/corridors" && activeCorridor;
-              const color = active ? "#67e8f9" : emergencyGlow ? "#ff453a" : corridorGlow ? "#a78bfa" : "#8B95A9";
-              return (
-                <li key={item.href} className="relative">
-                  {active && (
-                    <motion.span
-                      layoutId="nav-active-pill"
-                      className="absolute inset-0 rounded-lg border border-[rgba(103,232,249,0.28)] bg-[rgba(103,232,249,0.08)]"
-                      transition={{ duration: 0.22, ease: "easeOut" }}
-                      aria-hidden="true"
-                    />
-                  )}
-                  <Link
-                    href={item.href}
-                    onClick={onNavigate}
-                    className="relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12px] transition-colors"
-                    style={{ color }}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    <span className="w-4 text-center opacity-80" aria-hidden="true">{item.icon}</span>
-                    {item.label}
-                    {(emergencyGlow || corridorGlow) && (
-                      <span
-                        className="ml-auto inline-block h-1.5 w-1.5 rounded-full itms-pulse"
-                        style={{ backgroundColor: color }}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </nav>
   );
 }

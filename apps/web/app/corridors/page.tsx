@@ -1,11 +1,19 @@
 "use client";
 
 import React from "react";
-import { motion } from "framer-motion";
 import { api, ApiError } from "@/lib/api";
 import { useItms } from "@/lib/store";
-import { ActionButton, Badge, EmptyState, ErrorState, KeyValue, Panel, DisconnectedBanner, Stat } from "@/components/ui";
-import { formatDistance, simClock, vehicleLabel, wallClock } from "@/lib/format";
+import {
+  ActionButton,
+  Badge,
+  EmptyState,
+  ErrorState,
+  Panel,
+  ProgressBar,
+  DisconnectedBanner,
+  Stat,
+} from "@/components/ui";
+import { simClock, vehicleLabel, wallClock } from "@/lib/format";
 import type { CorridorDetail } from "@itms/types";
 
 export default function CorridorsPage() {
@@ -14,12 +22,14 @@ export default function CorridorsPage() {
   const [actionError, setActionError] = React.useState<string | null>(null);
 
   const corridors = state.corridors;
+  const activeCorridor = corridors.find((c) => c.status === "ACTIVE") ?? null;
+  const historyCorridors = corridors.filter((c) => c.status !== "ACTIVE");
 
   const cancel = async (id: number): Promise<void> => {
     setBusyId(id);
     setActionError(null);
     try {
-      await api.cancelCorridor(id, "Cancelled by operator from the Corridors page.");
+      await api.cancelCorridor(id, "Operator override from Green Corridor control room.");
       await refreshAll();
     } catch (err) {
       setActionError(err instanceof ApiError ? `${err.code}: ${err.message}` : String(err));
@@ -41,116 +51,396 @@ export default function CorridorsPage() {
     }
   };
 
-  const activeCount = corridors.filter((corridor) => corridor.status === "ACTIVE").length;
+  const activeCount = corridors.filter((c) => c.status === "ACTIVE").length;
+  const signalsCoordinated = corridors.reduce(
+    (sum, c) =>
+      sum +
+      c.signals.filter((s) => s.status === "APPLIED" || s.status === "PASSED").length,
+    0
+  );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex min-h-full flex-col gap-4 p-4">
+      {/* ================================================================== */}
+      {/* 1. HEADER & KPI OVERVIEW                                           */}
+      {/* ================================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
         <div>
-          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Green corridors</h1>
-          <p className="mt-0.5 text-[11px] text-[#6B7385]">🚑 → coordinated rolling green windows → 🏥 — real per-signal backend status</p>
+          <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
+            PREDICTIVE GREEN CORRIDOR
+          </h1>
+          <p className="font-mono text-[10px] text-[#5E6B7A]">
+            ADAPTIVE MULTI-INTERSECTION EMERGENCY PRIORITY & WAVE CLEARANCE
+          </p>
         </div>
-        {state.connection === "offline" && <DisconnectedBanner />}
-      </header>
 
-      {actionError !== null && <ErrorState title="Action failed" detail={actionError} retry={() => setActionError(null)} />}
-
-      <div className="grid grid-cols-3 gap-2">
-        <Stat label="Active" value={activeCount} color={activeCount > 0 ? "#8B5CF6" : undefined} />
-        <Stat label="Total" value={corridors.length} />
-        <Stat label="Signals coordinated" value={corridors.reduce((sum, corridor) => sum + corridor.signals.filter((signal) => signal.status === "APPLIED" || signal.status === "PASSED").length, 0)} />
+        <div className="flex items-center gap-2">
+          {activeCorridor && (
+            <Badge color="#8B7CFF" solid>
+              CORRIDOR #{activeCorridor.id} ACTIVE
+            </Badge>
+          )}
+        </div>
       </div>
 
-      {state.connection === "offline" ? (
-        <Panel><ErrorState title="Backend disconnected" retry={() => void refreshAll()} /></Panel>
-      ) : corridors.length === 0 ? (
-        <Panel>
-          <EmptyState title="No corridors yet" hint="Corridors are created from an active emergency (Emergencies → create, or Simulator → run scenario)." />
-        </Panel>
+      {actionError && <ErrorState title="Corridor Command Failed" detail={actionError} />}
+      {state.connection === "offline" && <DisconnectedBanner />}
+
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Stat
+          label="ACTIVE CORRIDORS"
+          value={activeCount}
+          color={activeCount > 0 ? "#8B7CFF" : undefined}
+          sub="Live Priority Waves"
+        />
+        <Stat
+          label="TOTAL CORRIDORS"
+          value={corridors.length}
+          sub="Executed Missions"
+        />
+        <Stat
+          label="SIGNALS COORDINATED"
+          value={signalsCoordinated}
+          color="#18D88B"
+          sub="Junction Preemptions"
+        />
+        <Stat
+          label="ALGORITHM"
+          value="ROLLING A*"
+          color="#42B8FF"
+          sub="Dynamic TraCI Windows"
+        />
+      </div>
+
+      {/* ================================================================== */}
+      {/* 2. ACTIVE CORRIDOR SHOWCASE (Project USP)                          */}
+      {/* ================================================================== */}
+      {activeCorridor ? (
+        <ActiveCorridorShowcase
+          corridor={activeCorridor}
+          busy={busyId === activeCorridor.id}
+          onCancel={() => void cancel(activeCorridor.id)}
+        />
       ) : (
-        corridors.map((corridor) => <CorridorCard key={corridor.id} corridor={corridor} busy={busyId === corridor.id} onCancel={() => void cancel(corridor.id)} onActivate={() => void activate(corridor.id)} />)
+        <Panel title="Active Green Corridor Wave" subtitle="Real-time Multi-junction Lock">
+          <EmptyState
+            title="No Active Green Corridor"
+            hint="Corridors engage automatically when an emergency vehicle is dispatched. You can trigger one from the Emergencies or Simulator page."
+          />
+        </Panel>
       )}
+
+      {/* ================================================================== */}
+      {/* 3. CORRIDOR MISSION HISTORY & ARCHIVE                              */}
+      {/* ================================================================== */}
+      <Panel
+        title={`Corridor Mission History (${historyCorridors.length})`}
+        subtitle="Completed and Archived Signal Waves"
+      >
+        {historyCorridors.length === 0 ? (
+          <div className="py-6 text-center font-mono text-xs text-[#5E6B7A]">
+            No previous corridor runs recorded yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {historyCorridors.map((c) => (
+              <CorridorArchiveCard
+                key={c.id}
+                corridor={c}
+                busy={busyId === c.id}
+                onActivate={() => void activate(c.id)}
+                onCancel={() => void cancel(c.id)}
+              />
+            ))}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }
 
-function CorridorCard({ corridor, busy, onCancel, onActivate }: { corridor: CorridorDetail; busy: boolean; onCancel: () => void; onActivate: () => void }) {
+function ActiveCorridorShowcase({
+  corridor,
+  busy,
+  onCancel,
+}: {
+  corridor: CorridorDetail;
+  busy: boolean;
+  onCancel: () => void;
+}) {
+  const { state } = useItms();
   const ordered = [...corridor.signals].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
-  const canCancel = corridor.status === "ACTIVE" || corridor.status === "REPLANNING";
-  const canActivate = corridor.status === "PLANNING" || corridor.status === "VALIDATING";
+  const current = ordered.find((s) => s.status === "APPLIED") ?? null;
+  const passedCount = ordered.filter((s) => s.status === "PASSED").length;
+  const progressPercent = Math.min(
+    100,
+    Math.round(((passedCount + (current ? 0.5 : 0)) / ordered.length) * 100)
+  );
+
+  const activeEmergency = state.emergencies.find((e) => e.id === corridor.eventId);
+  const etaSeconds = activeEmergency?.etas?.find((e) => e.isDestination)?.etaSeconds ?? 0;
+
   return (
-    <motion.div layout initial={{ opacity: 0.6 }} animate={{ opacity: 1 }} className="itms-panel p-3" style={{ borderColor: corridor.status === "ACTIVE" ? "rgba(139,92,246,0.5)" : "#202938" }}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-baseline gap-3">
-          <span className="font-mono text-sm font-bold text-[#F4F7FA]">CORRIDOR {corridor.id}</span>
-          <Badge color={corridor.status === "ACTIVE" ? "#8B5CF6" : corridor.status === "COMPLETED" ? "#22C55E" : corridor.status === "FAILED" ? "#EF4444" : "#8B95A7"}>{corridor.status}</Badge>
-          <span className="font-mono text-[10px] text-[#8B95A7]">{vehicleLabel(corridor.vehicleId ?? `event-${corridor.eventId}`)} · event {corridor.eventId}</span>
+    <Panel
+      title={`Active Green Corridor #${corridor.id}`}
+      subtitle="Dynamic Multi-Intersection Priority Progression"
+      ai
+      right={
+        <div className="flex items-center gap-2">
+          <ActionButton onClick={onCancel} disabled={busy} color="#FF4757">
+            Abort Corridor
+          </ActionButton>
         </div>
-        <div className="flex gap-2">
-          {canActivate && <ActionButton onClick={onActivate} disabled={busy} color="#22C55E">Activate</ActionButton>}
-          {canCancel && <ActionButton onClick={onCancel} disabled={busy} color="#EF4444">Cancel</ActionButton>}
-        </div>
-      </div>
-
-      {/* The real corridor chain */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-lg" aria-label="Corridor chain">
-        <span>🚑</span>
-        {ordered.map((signal) => (
-          <React.Fragment key={signal.sequenceIndex}>
-            <span aria-hidden="true" className="text-[#5c6675]">→</span>
-            <span
-              role="img"
-              aria-label={`${signal.junctionId}: ${signal.status}`}
-              title={`${signal.junctionId} — ${signal.status}${signal.plannedGreenStartS !== null ? `, window ${signal.plannedGreenStartS.toFixed(0)}–${signal.plannedGreenEndS?.toFixed(0)}s` : ""}${signal.skipReason !== null ? `, ${signal.skipReason}` : ""}`}
-            >
-              {signal.status === "APPLIED" || signal.status === "NOOP" ? "🟢" : signal.status === "PASSED" ? "🟢" : signal.status === "SKIPPED" ? "🟡" : "⚪"}
-            </span>
-            <span className="font-mono text-[10px] text-[#8B95A7]">{signal.junctionId}</span>
-          </React.Fragment>
-        ))}
-        <span aria-hidden="true" className="text-[#5c6675]">→</span>
-        <span>🏥</span>
-      </div>
-
-      <div className="mt-2 grid gap-x-6 md:grid-cols-2">
-        <div>
-          <KeyValue label="Origin">{corridor.originJunction}</KeyValue>
-          <KeyValue label="Destination">{corridor.destinationJunction}</KeyValue>
-          <KeyValue label="Junctions">{corridor.junctionCount}</KeyValue>
-        </div>
-        <div>
-          <KeyValue label="Planned">{wallClock(corridor.createdAtIso)}</KeyValue>
-          <KeyValue label="Activated">{wallClock(corridor.activatedAtIso)}</KeyValue>
-          <KeyValue label="Closed">{wallClock(corridor.completedAtIso ?? corridor.cancelledAtIso ?? corridor.failedAtIso)}</KeyValue>
-        </div>
-      </div>
-
-      {corridor.signals.some((signal) => signal.skipReason !== null) && (
-        <div className="mt-2 rounded border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-2 py-1 font-mono text-[10px] text-[#F59E0B]">
-          Safety skips: {corridor.signals.filter((signal) => signal.skipReason !== null).map((signal) => `${signal.junctionId} (${signal.skipReason})`).join("; ")}
-        </div>
-      )}
-
-      <details className="mt-2">
-        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-wider text-[#38BDF8]">Signal schedule</summary>
-        <div className="mt-1 grid gap-1 md:grid-cols-2">
-          {ordered.map((signal) => (
-            <div key={signal.sequenceIndex} className="rounded border border-[#202938] px-2 py-1 font-mono text-[10px]">
-              <div className="flex justify-between">
-                <span className="text-[#F4F7FA]">{signal.junctionId} <span className="text-[#5c6675]">via {signal.approachSegmentId}</span></span>
-                <Badge color={signal.status === "APPLIED" ? "#8B5CF6" : signal.status === "PASSED" ? "#22C55E" : signal.status === "SKIPPED" ? "#F59E0B" : "#5c6675"}>{signal.status}</Badge>
-              </div>
-              <div className="text-[#8B95A7]">
-                ETA {signal.etaSeconds.toFixed(1)}s
-                {signal.plannedGreenStartS !== null ? ` · green ${simClock(undefined, signal.plannedGreenStartS)}–${simClock(undefined, signal.plannedGreenEndS ?? 0)} (${formatDistance(0) === "0 m" ? "" : ""}window)` : ""}
-                {signal.mode !== "switch" ? ` · ${signal.mode}` : ""}
-                {signal.requiresClearance ? " · yellow clearance" : ""}
-              </div>
-              {signal.corridorState !== null && <div className="truncate text-[9px] text-[#5c6675]">state: {signal.corridorState}</div>}
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {/* Top Summary Banner */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 rounded-lg border border-[rgba(139,124,255,0.3)] bg-[rgba(139,124,255,0.06)] p-3 font-mono text-xs">
+          <div>
+            <span className="text-[10px] uppercase text-[#5E6B7A]">Target Vehicle</span>
+            <div className="mt-0.5 text-sm font-bold text-[#FF3B4E]">
+              {vehicleLabel(corridor.vehicleId ?? `event-${corridor.eventId}`)}
             </div>
-          ))}
+          </div>
+          <div>
+            <span className="text-[10px] uppercase text-[#5E6B7A]">Route Progression</span>
+            <div className="mt-0.5 text-sm font-bold text-[#8B7CFF]">{progressPercent}%</div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase text-[#5E6B7A]">Estimated Arrival</span>
+            <div className="mt-0.5 text-sm font-bold text-[#18D88B]">
+              +{etaSeconds.toFixed(0)}s ({simClock(state.sim?.simTimeSeconds ?? null, etaSeconds)})
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase text-[#5E6B7A]">Origin → Destination</span>
+            <div className="mt-0.5 font-semibold text-[#F4F7FA] truncate">
+              {corridor.originJunction} → {corridor.destinationJunction}
+            </div>
+          </div>
         </div>
-      </details>
-    </motion.div>
+
+        {/* Progress Bar */}
+        <div className="space-y-1">
+          <ProgressBar progress={progressPercent} color="#8B7CFF" height={6} />
+        </div>
+
+        {/* ============================================================== */}
+        {/* VISUAL CORRIDOR TIMELINE PROGRESSION                          */}
+        {/* ============================================================== */}
+        <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#070A0F] p-4">
+          <div className="mb-3 font-mono text-xs font-semibold uppercase tracking-wider text-[#5E6B7A]">
+            Green Corridor Wave Progression
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 font-mono">
+            {/* Origin Node */}
+            <div className="flex flex-col items-center">
+              <span className="text-xl">🚑</span>
+              <span className="mt-1 text-[10px] font-semibold text-[#8D9AAA]">DISPATCH</span>
+              <span className="text-[9px] text-[#5E6B7A]">{corridor.originJunction}</span>
+            </div>
+
+            {/* Intermediate Signal Nodes */}
+            {ordered.map((signal, index) => {
+              const isApplied = signal.status === "APPLIED";
+              const isPassed = signal.status === "PASSED";
+              const isSkipped = signal.status === "SKIPPED";
+
+              return (
+                <React.Fragment key={signal.junctionId}>
+                  <div className="flex flex-col items-center flex-1 min-w-[60px]">
+                    <div className="flex items-center w-full">
+                      <div
+                        className={`h-0.5 w-full ${
+                          isPassed || isApplied
+                            ? "bg-[#18D88B]"
+                            : "bg-[rgba(255,255,255,0.1)]"
+                        }`}
+                      />
+                      <span
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all ${
+                          isApplied
+                            ? "border-[#18D88B] bg-[#18D88B]/20 text-[#18D88B] shadow-[0_0_12px_#18D88B]"
+                            : isPassed
+                            ? "border-[rgba(255,255,255,0.2)] bg-[#121A24] text-[#8D9AAA]"
+                            : isSkipped
+                            ? "border-[#FFB547] bg-[#FFB547]/20 text-[#FFB547]"
+                            : "border-[rgba(255,255,255,0.1)] bg-[#0E141D] text-[#5E6B7A]"
+                        }`}
+                      >
+                        {isPassed ? "✓" : isApplied ? "🟢" : index + 1}
+                      </span>
+                      <div
+                        className={`h-0.5 w-full ${
+                          isPassed ? "bg-[#18D88B]" : "bg-[rgba(255,255,255,0.1)]"
+                        }`}
+                      />
+                    </div>
+                    <div className="mt-1.5 text-center">
+                      <div className="text-[11px] font-bold text-[#F4F7FA]">
+                        {signal.junctionId}
+                      </div>
+                      <Badge
+                        color={
+                          isApplied
+                            ? "#18D88B"
+                            : isPassed
+                            ? "#8D9AAA"
+                            : isSkipped
+                            ? "#FFB547"
+                            : "#42B8FF"
+                        }
+                      >
+                        {isApplied ? "CURRENT" : signal.status}
+                      </Badge>
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+
+            {/* Destination Node */}
+            <div className="flex flex-col items-center">
+              <span className="text-xl">🏥</span>
+              <span className="mt-1 text-[10px] font-semibold text-[#8D9AAA]">FACILITY</span>
+              <span className="text-[9px] text-[#5E6B7A]">{corridor.destinationJunction}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed Intersection Window Schedule */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left font-mono text-xs">
+            <thead>
+              <tr className="border-b border-[rgba(255,255,255,0.08)] text-[10px] uppercase text-[#5E6B7A]">
+                <th className="py-2 pr-3">Seq</th>
+                <th className="py-2 pr-3">Junction</th>
+                <th className="py-2 pr-3">Approach Road</th>
+                <th className="py-2 pr-3">Estimated Window</th>
+                <th className="py-2 pr-3">Control Mode</th>
+                <th className="py-2 pr-3">Signal State</th>
+                <th className="py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordered.map((sig) => (
+                <tr key={sig.sequenceIndex} className="border-b border-[rgba(255,255,255,0.04)]">
+                  <td className="py-2 pr-3 text-[#5E6B7A]">{sig.sequenceIndex + 1}</td>
+                  <td className="py-2 pr-3 font-bold text-[#F4F7FA]">{sig.junctionId}</td>
+                  <td className="py-2 pr-3 text-[#8D9AAA]">{sig.approachSegmentId}</td>
+                  <td className="py-2 pr-3 text-[#18D88B]">
+                    {sig.plannedGreenStartS !== null
+                      ? `${sig.plannedGreenStartS.toFixed(0)}s – ${sig.plannedGreenEndS?.toFixed(0)}s`
+                      : "Rolling ETA"}
+                  </td>
+                  <td className="py-2 pr-3 text-[#8D9AAA] uppercase text-[10px]">{sig.mode}</td>
+                  <td className="py-2 pr-3 text-[#42B8FF]">{sig.corridorState ?? "G"}</td>
+                  <td className="py-2">
+                    <Badge
+                      color={
+                        sig.status === "APPLIED"
+                          ? "#18D88B"
+                          : sig.status === "PASSED"
+                          ? "#8D9AAA"
+                          : sig.status === "SKIPPED"
+                          ? "#FFB547"
+                          : "#42B8FF"
+                      }
+                      solid={sig.status === "APPLIED"}
+                    >
+                      {sig.status}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function CorridorArchiveCard({
+  corridor,
+  busy,
+  onActivate,
+  onCancel,
+}: {
+  corridor: CorridorDetail;
+  busy: boolean;
+  onActivate: () => void;
+  onCancel: () => void;
+}) {
+  const ordered = [...corridor.signals].sort((a, b) => a.sequenceIndex - b.sequenceIndex);
+  const canActivate = corridor.status === "PLANNING" || corridor.status === "VALIDATING";
+  const canCancel = corridor.status === "ACTIVE" || corridor.status === "REPLANNING";
+
+  return (
+    <div className="itms-panel p-3.5 border-[rgba(255,255,255,0.06)] bg-[#0A0F16]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-sm font-bold text-[#F4F7FA]">
+            CORRIDOR #{corridor.id}
+          </span>
+          <Badge
+            color={
+              corridor.status === "COMPLETED"
+                ? "#18D88B"
+                : corridor.status === "FAILED"
+                ? "#FF4757"
+                : "#8D9AAA"
+            }
+          >
+            {corridor.status}
+          </Badge>
+          <span className="font-mono text-xs text-[#8D9AAA]">
+            {vehicleLabel(corridor.vehicleId ?? `event-${corridor.eventId}`)} · Event #{corridor.eventId}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {canActivate && (
+            <ActionButton onClick={onActivate} disabled={busy} color="#18D88B">
+              Activate
+            </ActionButton>
+          )}
+          {canCancel && (
+            <ActionButton onClick={onCancel} disabled={busy} color="#FF4757">
+              Cancel
+            </ActionButton>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2.5 grid gap-2 sm:grid-cols-3 font-mono text-xs text-[#8D9AAA]">
+        <div>
+          Origin → Destination:{" "}
+          <span className="text-[#F4F7FA]">
+            {corridor.originJunction} → {corridor.destinationJunction}
+          </span>
+        </div>
+        <div>
+          Junctions Coordinated:{" "}
+          <span className="text-[#42B8FF]">{corridor.junctionCount} Intersections</span>
+        </div>
+        <div>
+          Time Activated:{" "}
+          <span className="text-[#F4F7FA]">{wallClock(corridor.activatedAtIso)}</span>
+        </div>
+      </div>
+
+      {/* Signal chain nodes preview */}
+      <div className="mt-2 flex flex-wrap items-center gap-1 font-mono text-[11px] text-[#5E6B7A]">
+        <span>Route:</span>
+        {ordered.map((s) => (
+          <span key={s.junctionId} className="rounded bg-[#0E141D] px-1.5 py-0.5 text-[#8D9AAA]">
+            {s.junctionId} ({s.status})
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }

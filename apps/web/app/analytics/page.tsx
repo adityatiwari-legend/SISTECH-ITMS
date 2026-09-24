@@ -1,9 +1,27 @@
 "use client";
 
 import React from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from "recharts";
 import { api, ApiError } from "@/lib/api";
-import { EmptyState, ErrorState, LoadingState, Panel, Stat } from "@/components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  MetricCard,
+  Panel,
+  Badge,
+} from "@/components/ui";
 import { formatSeconds, formatSpeed } from "@/lib/format";
 import type { AnalyticsResponse } from "@itms/types";
 
@@ -29,112 +47,229 @@ export default function AnalyticsPage() {
     return () => clearInterval(timer);
   }, [load]);
 
-  if (loading) return <Panel className="m-3"><LoadingState label="Loading analytics" /></Panel>;
-  if (error !== null) return <Panel className="m-3"><ErrorState title="Analytics unavailable" detail={error} retry={() => void load()} /></Panel>;
-  if (analytics === null) return <Panel className="m-3"><EmptyState title="No analytics" /></Panel>;
+  if (loading) {
+    return (
+      <div className="p-4">
+        <Panel>
+          <LoadingState label="Loading performance analytics aggregate" />
+        </Panel>
+      </div>
+    );
+  }
 
-  return (
-    <div className="flex flex-col gap-2 p-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="itms-title-gradient font-mono text-lg font-bold tracking-tight">Analytics</h1>
-          <p className="mt-0.5 text-[11px] text-[#6B7385]">Measured aggregates over every recorded simulation run — never hard-coded</p>
+  if (error !== null) {
+    return (
+      <div className="p-4">
+        <Panel>
+          <ErrorState title="Analytics Engine Unavailable" detail={error} retry={() => void load()} />
+        </Panel>
+      </div>
+    );
+  }
+
+  if (analytics === null || analytics.runsRecorded === 0) {
+    return (
+      <div className="flex min-h-full flex-col gap-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
+          <div>
+            <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
+              PERFORMANCE ANALYTICS
+            </h1>
+            <p className="font-mono text-[10px] text-[#5E6B7A]">
+              MEASURED SYSTEM EFFICIENCY: BASELINE VS PREDICTIVE GREEN CORRIDOR
+            </p>
+          </div>
         </div>
-        <span className="rounded-lg border border-[rgba(148,163,190,0.14)] bg-[rgba(148,163,190,0.05)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[#8B95A9]">
-          {analytics.runsRecorded} runs recorded
-        </span>
-      </header>
-
-      {analytics.runsRecorded === 0 ? (
         <Panel>
           <EmptyState
-            title="No recorded runs yet"
-            hint="Run the Simulator (or a baseline vs ITMS comparison) — metrics are recorded automatically when runs finish."
+            title="No Recorded Simulation Runs Yet"
+            hint="Run the Simulator or launch a baseline vs ITMS comparison benchmark. Metrics are compiled automatically upon run completion."
           />
         </Panel>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-            <Stat label="Emergency trips" value={analytics.emergencyTrips} />
-            <Stat label="Completed" value={analytics.completedEmergencies} color="#22C55E" />
-            <Stat label="Corridors created" value={analytics.corridorsCreated} color="#8B5CF6" />
-            <Stat label="Avg response" value={formatSeconds(analytics.avgResponseTimeS)} />
-            <Stat label="Avg time saved" value={analytics.avgTimeSavedS !== null ? formatSeconds(analytics.avgTimeSavedS) : "—"} color={analytics.avgTimeSavedS !== null && analytics.avgTimeSavedS > 0 ? "#22C55E" : undefined} sub="per comparison" />
-            <Stat label="Avg delay" value={formatSeconds(analytics.avgTrafficDelayS)} />
-            <Stat label="Avg speed" value={formatSpeed(analytics.avgSpeedMps)} />
-            <Stat label="Signal changes" value={analytics.totalSignalChanges} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-full flex-col gap-4 p-4">
+      {/* ================================================================== */}
+      {/* 1. HEADER                                                          */}
+      {/* ================================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0A0F16] p-3">
+        <div>
+          <h1 className="font-mono text-sm font-bold uppercase tracking-wider text-[#F4F7FA]">
+            PERFORMANCE ANALYTICS
+          </h1>
+          <p className="font-mono text-[10px] text-[#5E6B7A]">
+            MEASURED SYSTEM BENCHMARKS OVER {analytics.runsRecorded} RECORDED RUNS
+          </p>
+        </div>
+        <Badge color="#42B8FF" solid>
+          {analytics.runsRecorded} RUNS COMPILED
+        </Badge>
+      </div>
+
+      {/* ================================================================== */}
+      {/* 2. TOP KPI ROW                                                     */}
+      {/* ================================================================== */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <MetricCard
+          label="EMERGENCY TRIPS"
+          value={analytics.emergencyTrips}
+          sub={`${analytics.completedEmergencies} Completed`}
+          color="#FF3B4E"
+        />
+        <MetricCard
+          label="CORRIDORS CREATED"
+          value={analytics.corridorsCreated}
+          sub="Preemptive Waves"
+          color="#8B7CFF"
+        />
+        <MetricCard
+          label="AVG RESPONSE TIME"
+          value={formatSeconds(analytics.avgResponseTimeS)}
+          sub="From Dispatch to Arrival"
+          color="#18D88B"
+        />
+        <MetricCard
+          label="TIME SAVED / RUN"
+          value={analytics.avgTimeSavedS !== null ? formatSeconds(analytics.avgTimeSavedS) : "—"}
+          sub="Versus Uncoordinated"
+          color="#18D88B"
+        />
+        <MetricCard
+          label="AVG TRAFFIC DELAY"
+          value={formatSeconds(analytics.avgTrafficDelayS)}
+          sub="Per Civilian Vehicle"
+          color="#FFB547"
+        />
+        <MetricCard
+          label="NETWORK FLOW SPEED"
+          value={formatSpeed(analytics.avgSpeedMps)}
+          sub="Overall City Velocity"
+          color="#42B8FF"
+        />
+      </div>
+
+      {/* ================================================================== */}
+      {/* 3. CHARTS GRID                                                     */}
+      {/* ================================================================== */}
+      <div className="grid min-h-[300px] grid-cols-1 gap-3 xl:grid-cols-2">
+        {/* Chart 1: Emergency Travel & Civilian Delay Evolution */}
+        <Panel
+          title="Emergency Travel Time & Civilian Delay (Per Run)"
+          subtitle="Measured travel duration across runs"
+        >
+          <div className="h-[240px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={analytics.runs} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+                <CartesianGrid stroke="#121A24" strokeDasharray="3 3" />
+                <XAxis dataKey="runId" tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                <YAxis tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                <Tooltip contentStyle={{ backgroundColor: "#0A0F16", borderColor: "rgba(255,255,255,0.1)", fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
+                <Line
+                  type="monotone"
+                  dataKey="emergencyTravelTimeS"
+                  name="Emergency Travel Time (s)"
+                  stroke="#FF3B4E"
+                  strokeWidth={2}
+                  dot={{ fill: "#FF3B4E", r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="avgVehicleDelayS"
+                  name="Civilian Delay (s)"
+                  stroke="#FFB547"
+                  strokeWidth={1.5}
+                  dot={{ fill: "#FFB547", r: 3 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
+        </Panel>
 
-          <Panel title="Per-run metrics">
-            <div className="h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={analytics.runs} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                  <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
-                  <XAxis dataKey="runId" tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                  <YAxis tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                  <Tooltip contentStyle={{ background: "#0F141D", border: "1px solid #202938", fontSize: 11, fontFamily: "JetBrains Mono" }} />
-                  <Legend wrapperStyle={{ fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                  <Line type="monotone" dataKey="emergencyTravelTimeS" name="Emergency travel (s)" stroke="#FF3B30" dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="avgVehicleDelayS" name="Avg delay (s)" stroke="#F59E0B" dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="avgSpeedMps" name="Avg speed (m/s)" stroke="#22C55E" dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="throughputPerHour" name="Throughput (/h)" stroke="#38BDF8" dot={{ r: 2 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </Panel>
-
-          <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-            <Panel title="Queue length & signal changes per run">
-              <div className="h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analytics.runs} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-                    <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
-                    <XAxis dataKey="runId" tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                    <YAxis tick={{ fill: "#8B95A7", fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                    <Tooltip contentStyle={{ background: "#0F141D", border: "1px solid #202938", fontSize: 11, fontFamily: "JetBrains Mono" }} />
-                    <Legend wrapperStyle={{ fontSize: 10, fontFamily: "JetBrains Mono" }} />
-                    <Bar dataKey="avgQueueLength" name="Avg queue" fill="#F59E0B" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="signalChangeCount" name="Signal changes" fill="#8B5CF6" radius={[2, 2, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-
-            <Panel title="Runs table">
-              <div className="max-h-[220px] overflow-y-auto">
-                <table className="w-full text-left font-mono text-[10px]">
-                  <thead className="sticky top-0 bg-[#0F141D]">
-                    <tr className="border-b border-[#202938] text-[9px] uppercase tracking-widest text-[#5c6675]">
-                      <th className="py-1 pr-2">Run</th>
-                      <th className="py-1 pr-2">Mode</th>
-                      <th className="py-1 pr-2">Travel</th>
-                      <th className="py-1 pr-2">Delay</th>
-                      <th className="py-1 pr-2">Queue</th>
-                      <th className="py-1 pr-2">Speed</th>
-                      <th className="py-1 pr-2">Thr/h</th>
-                      <th className="py-1">Signals</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {analytics.runs.map((run) => (
-                      <tr key={run.runId} className="border-b border-[#202938]/40">
-                        <td className="py-1 pr-2 text-[#F4F7FA]">#{run.runId}</td>
-                        <td className="py-1 pr-2" style={{ color: run.mode === "itms" ? "#A78BFA" : run.mode === "baseline" ? "#8B95A7" : "#5c6675" }}>{run.mode}</td>
-                        <td className="py-1 pr-2">{run.emergencyTravelTimeS === null ? "—" : `${run.emergencyTravelTimeS.toFixed(0)}s`}</td>
-                        <td className="py-1 pr-2">{run.avgVehicleDelayS === null ? "—" : `${run.avgVehicleDelayS.toFixed(1)}s`}</td>
-                        <td className="py-1 pr-2">{run.avgQueueLength === null ? "—" : run.avgQueueLength.toFixed(1)}</td>
-                        <td className="py-1 pr-2">{run.avgSpeedMps === null ? "—" : formatSpeed(run.avgSpeedMps)}</td>
-                        <td className="py-1 pr-2">{run.throughputPerHour === null ? "—" : run.throughputPerHour.toFixed(0)}</td>
-                        <td className="py-1">{run.signalChangeCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
+        {/* Chart 2: Queue Length & Signal Changes */}
+        <Panel
+          title="Halted Queues & Preemption Interventions"
+          subtitle="Impact of Corridor Priority on General Intersections"
+        >
+          <div className="h-[240px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={analytics.runs} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+                <CartesianGrid stroke="#121A24" strokeDasharray="3 3" />
+                <XAxis dataKey="runId" tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                <YAxis tick={{ fill: "#8D9AAA", fontSize: 10, fontFamily: "monospace" }} />
+                <Tooltip contentStyle={{ backgroundColor: "#0A0F16", borderColor: "rgba(255,255,255,0.1)", fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
+                <Bar dataKey="avgQueueLength" name="Avg Queue Length" fill="#FFB547" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="signalChangeCount" name="Signal Preemptions" fill="#8B7CFF" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </>
-      )}
+        </Panel>
+      </div>
+
+      {/* ================================================================== */}
+      {/* 4. RUNS TABLE                                                      */}
+      {/* ================================================================== */}
+      <Panel title="Historical Simulation Runs Audit" subtitle="Full Runs Registry">
+        <div className="overflow-x-auto max-h-[300px]">
+          <table className="w-full text-left font-mono text-xs">
+            <thead className="sticky top-0 bg-[#0A0F16]">
+              <tr className="border-b border-[rgba(255,255,255,0.08)] text-[10px] uppercase text-[#5E6B7A]">
+                <th className="py-2 pr-3">Run ID</th>
+                <th className="py-2 pr-3">Mode</th>
+                <th className="py-2 pr-3">Emergency Travel</th>
+                <th className="py-2 pr-3">Civilian Delay</th>
+                <th className="py-2 pr-3">Mean Queue</th>
+                <th className="py-2 pr-3">Mean Speed</th>
+                <th className="py-2 pr-3">Throughput</th>
+                <th className="py-2">Signal Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analytics.runs.map((run) => (
+                <tr
+                  key={run.runId}
+                  className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[#0E141D] transition-colors"
+                >
+                  <td className="py-2 pr-3 font-semibold text-[#F4F7FA]">#{run.runId}</td>
+                  <td className="py-2 pr-3">
+                    <Badge
+                      color={
+                        run.mode === "itms"
+                          ? "#8B7CFF"
+                          : run.mode === "baseline"
+                          ? "#8D9AAA"
+                          : "#5E6B7A"
+                      }
+                    >
+                      {run.mode}
+                    </Badge>
+                  </td>
+                  <td className="py-2 pr-3 text-[#FF3B4E]">
+                    {run.emergencyTravelTimeS !== null ? `${run.emergencyTravelTimeS.toFixed(1)}s` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-[#FFB547]">
+                    {run.avgVehicleDelayS !== null ? `${run.avgVehicleDelayS.toFixed(1)}s` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-[#F4F7FA]">
+                    {run.avgQueueLength !== null ? run.avgQueueLength.toFixed(1) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-[#18D88B]">
+                    {run.avgSpeedMps !== null ? formatSpeed(run.avgSpeedMps) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-[#42B8FF]">
+                    {run.throughputPerHour !== null ? `${Math.round(run.throughputPerHour)}/h` : "—"}
+                  </td>
+                  <td className="py-2 text-[#8D9AAA]">{run.signalChangeCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
     </div>
   );
 }
