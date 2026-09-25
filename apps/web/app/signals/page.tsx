@@ -28,6 +28,15 @@ export default function SignalsPage() {
   const { state } = useItms();
   const [filter, setFilter] = React.useState<FilterMode>("ALL");
   const [selectedSignal, setSelectedSignal] = React.useState<SignalSnapshot | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("select=")) {
+      const match = window.location.search.match(/select=([^&]+)/);
+      const targetId = match ? match[1] : "I2";
+      const s = state.signals.find((sig) => sig.id === targetId);
+      if (s) setSelectedSignal(s);
+    }
+  }, [state.signals]);
   const [corridorBySignal, setCorridorBySignal] = React.useState<Map<string, CorridorAssociation>>(
     new Map()
   );

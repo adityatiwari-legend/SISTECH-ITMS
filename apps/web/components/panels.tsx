@@ -357,8 +357,8 @@ export function CorridorChainPanel({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[#8D9AAA]">
-                    {signal.plannedGreenStartS !== null
-                      ? `${signal.plannedGreenStartS.toFixed(0)}s–${signal.plannedGreenEndS?.toFixed(0)}s`
+                    {signal.plannedGreenStartS != null && signal.plannedGreenEndS != null
+                      ? `${signal.plannedGreenStartS.toFixed(0)}s–${signal.plannedGreenEndS.toFixed(0)}s`
                       : "Rolling"}
                   </span>
                   <Badge
@@ -476,7 +476,7 @@ export function AiPanel({
   const activeCorridor = corridors.find((c) => c.status === "ACTIVE") ?? null;
   const prediction = predictions?.predictions.find((p) => p.source === "ml") ?? predictions?.predictions[0] ?? null;
 
-  const forecastStr = prediction
+  const forecastStr = prediction?.horizons?.length
     ? `${prediction.source === "ml" ? "XGBoost ML" : "Prediction Engine"} · ${prediction.horizons.map((h) => h.predictedVehicleCount).join(" → ")} veh`
     : "Traffic Prediction Active";
 

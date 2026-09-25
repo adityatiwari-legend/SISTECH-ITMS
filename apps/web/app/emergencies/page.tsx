@@ -42,6 +42,18 @@ export default function EmergenciesPage() {
     verificationStatus?: string;
   } | null>(null);
 
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("preview")) {
+      setPreviewImage({
+        id: 101,
+        url: patientImageUrl(101),
+        condition: "Severe Chest Trauma / GCS 11",
+        driverName: "Rajesh Kumar",
+        verificationStatus: "aiApproved",
+      });
+    }
+  }, []);
+
   // AI Copilot state
   const [copilotOpen, setCopilotOpen] = React.useState(false);
   const [copilotQuestion, setCopilotQuestion] = React.useState<string | undefined>(undefined);

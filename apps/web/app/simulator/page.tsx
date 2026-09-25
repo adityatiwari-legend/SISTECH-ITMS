@@ -203,6 +203,13 @@ export default function SimulatorPage() {
       {error && <ErrorState title="Command execution failed" detail={error} retry={() => setError(null)} />}
       {state.connection === "offline" && <DisconnectedBanner />}
 
+      {/* When viewing benchmark results (?result=1), show comparison table right at the top */}
+      {typeof window !== "undefined" && window.location.search.includes("result") && (
+        <div id="comparison-section-top">
+          <ComparisonRunner />
+        </div>
+      )}
+
       {/* ================================================================== */}
       {/* 2. MAIN SIMULATION VIEWPORT (~70% MAP + RIGHT STATS PANEL)         */}
       {/* ================================================================== */}
@@ -441,6 +448,17 @@ function ComparisonRunner() {
   const [error, setError] = React.useState<string | null>(null);
   const { state, refreshAll } = useItms();
 
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("result")) {
+      api.getComparison("bench-job-sumo-001").then((j) => {
+        setJob(j);
+        setTimeout(() => {
+          document.getElementById("benchmark-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 300);
+      }).catch(() => {});
+    }
+  }, []);
+
   const controlled = React.useMemo(
     () => (state.signals ?? []).map((s) => s.id).sort(),
     [state.signals]
@@ -605,7 +623,7 @@ function ComparisonRunner() {
 
       {/* BENCHMARK COMPLETED RESULTS SCREEN */}
       {metricsTable && job?.status === "completed" ? (
-        <div className="space-y-4 font-mono">
+        <div id="benchmark-results" className="space-y-4 font-mono">
           {/* Header Banner */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#18D88B]/30 bg-[#18D88B]/10 p-3">
             <div>
