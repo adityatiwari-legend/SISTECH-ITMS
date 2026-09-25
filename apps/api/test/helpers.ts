@@ -142,6 +142,12 @@ import { ScenarioComparisonService } from "../src/modules/scenarios/scenario-com
 import { WsBus } from "../src/modules/websocket/ws-bus.ts";
 import { createDatabasePool, type DatabasePool } from "../src/database/db.ts";
 import { runMigrations } from "../src/database/migrate.ts";
+import { AuthService } from "../src/modules/auth/auth-service.ts";
+import { MobileRepository } from "../src/database/repositories/mobile-repository.ts";
+import { AiVerificationService } from "../src/modules/ai/verification-service.ts";
+import { MobileService } from "../src/modules/mobile/mobile-service.ts";
+import { DeviceRepository } from "../src/database/repositories/device-repository.ts";
+import { RoadsideDeviceService } from "../src/modules/device/device-service.ts";
 import { DEFAULT_CONGESTION_THRESHOLDS } from "../src/modules/traffic/metrics.ts";
 import type { AppConfig } from "../src/config.ts";
 import type { FastifyInstance } from "fastify";
@@ -310,6 +316,38 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     metricsRepository,
     trafficService,
   });
+  const mobileRepo = new MobileRepository(db);
+  const authService = new AuthService(mobileRepo);
+  wsBus.setAuthService(authService);
+  const aiVerificationService = new AiVerificationService({
+    config,
+    logger,
+    mobileRepo,
+    bus: wsBus,
+  });
+  const mobileService = new MobileService({
+    mobileRepo,
+    emergencyService,
+    emergencyRepo: new EmergencyRepository(db),
+    corridorService,
+    routeEngine,
+    catalog,
+    bus: wsBus,
+    aiVerificationService,
+  });
+  const deviceRepository = new DeviceRepository(db);
+  const deviceService = new RoadsideDeviceService({
+    deviceRepo: deviceRepository,
+    catalog,
+    corridorService,
+    emergencyService,
+    manager,
+    bus: wsBus,
+    logger,
+  });
+  await deviceService.init();
+  wsBus.setDeviceService(deviceService);
+
   const app = await buildApp({
     config,
     logger,
@@ -325,6 +363,12 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     facilitiesPath: resolve(REPO_ROOT, "simulation", "sumo", "network", "facilities.add.xml"),
     db,
     wsBus,
+    mobileRepo,
+    authService,
+    mobileService,
+    aiVerificationService,
+    emergencyRepo: new EmergencyRepository(db),
+    deviceService,
   });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
@@ -353,6 +397,7 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
       await predictionService.dispose();
       await emergencyService.dispose();
       await trafficService.dispose();
+      deviceService.dispose();
       await manager.stop();
       await app.close();
       await db.close();

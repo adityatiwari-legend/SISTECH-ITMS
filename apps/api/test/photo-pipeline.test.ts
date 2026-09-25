@@ -1,9 +1,14 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert";
 import { createTestHarness, resetTestDatabase, type TestAppHarness } from "./helpers.ts";
+import { AuthService } from "../src/modules/auth/auth-service.ts";
+// @ts-ignore
 import FormData from "form-data";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe("Real Photo Verification Pipeline Test", () => {
   let harness: TestAppHarness;
@@ -11,6 +16,7 @@ describe("Real Photo Verification Pipeline Test", () => {
   before(async () => {
     await resetTestDatabase();
     harness = await createTestHarness();
+    await harness.manager.start("baseline");
   });
 
   after(async () => {
@@ -24,16 +30,14 @@ describe("Real Photo Verification Pipeline Test", () => {
     const dummyImgPath = path.join(__dirname, "test-img.jpg");
     fs.writeFileSync(dummyImgPath, Buffer.from("/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=", "base64"));
     
-    // Login as admin for manual review
-    const adminRes = await harness.app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "operator@itms.local", password: "operatorpass" }
-    });
-    
-    // The test DB doesn't have seeded users by default! We might need to mock or fallback.
-    // The APIs fallback to driver=1 and approverCode="ADM-001" if auth fails (due to our audit findings).
-    const adminToken = adminRes.statusCode === 200 ? adminRes.json().accessToken : "dummy_token";
+    const auth = new AuthService({} as any, "sistech-itms-emergency-auth-secret-key-2026");
+    const driverRow = await harness.db.query("SELECT id FROM drivers WHERE role = 'driver' LIMIT 1");
+    const driverId = driverRow.rows[0]?.id ?? 1;
+    const adminRow = await harness.db.query("SELECT id FROM drivers WHERE role = 'admin' LIMIT 1");
+    const adminId = adminRow.rows[0]?.id ?? 2;
+    const driverToken = auth.createToken({ sub: driverId, code: "DRV-802", role: "driver", email: "driver@sistec.demo" });
+    const adminToken = auth.createToken({ sub: adminId, code: "ADM-001", role: "admin", email: "admin@sistec.demo" });
+    const driverHeaders = { "Authorization": `Bearer ${driverToken}` };
 
     // ----------------------------------------------------------------
     // TEST 1: AI APPROVAL TEST
@@ -42,7 +46,8 @@ describe("Real Photo Verification Pipeline Test", () => {
     const e1Res = await harness.app.inject({
       method: "POST",
       url: "/api/driver/emergency",
-      payload: { type: "ambulance", origin: "I1", destination: "I6", priority: "critical" }
+      headers: driverHeaders,
+      payload: { type: "ambulance", priority: "critical", originLat: 23.2599, originLng: 77.4126, destinationHospitalId: 1 }
     });
     assert.strictEqual(e1Res.statusCode, 201, `Failed to create emergency: ${e1Res.payload}`);
     const e1 = e1Res.json();
@@ -54,7 +59,7 @@ describe("Real Photo Verification Pipeline Test", () => {
     const p1Res = await harness.app.inject({
       method: "POST",
       url: `/api/emergency/${e1.id}/patient-image`,
-      headers: form1.getHeaders(),
+      headers: { ...form1.getHeaders(), ...driverHeaders },
       payload: form1
     });
     assert.strictEqual(p1Res.statusCode, 201, `Photo upload failed: ${p1Res.payload}`);
@@ -71,7 +76,8 @@ describe("Real Photo Verification Pipeline Test", () => {
     const e2Res = await harness.app.inject({
       method: "POST",
       url: "/api/driver/emergency",
-      payload: { type: "ambulance", origin: "I1", destination: "I6", priority: "critical" }
+      headers: driverHeaders,
+      payload: { type: "ambulance", priority: "critical", originLat: 23.2599, originLng: 77.4126, destinationHospitalId: 1 }
     });
     const e2 = e2Res.json();
     
@@ -82,7 +88,7 @@ describe("Real Photo Verification Pipeline Test", () => {
     const p2Res = await harness.app.inject({
       method: "POST",
       url: `/api/emergency/${e2.id}/patient-image`,
-      headers: form2.getHeaders(),
+      headers: { ...form2.getHeaders(), ...driverHeaders },
       payload: form2
     });
     const p2 = p2Res.json();
@@ -109,7 +115,8 @@ describe("Real Photo Verification Pipeline Test", () => {
     const e3Res = await harness.app.inject({
       method: "POST",
       url: "/api/driver/emergency",
-      payload: { type: "ambulance", origin: "I1", destination: "I6", priority: "critical" }
+      headers: driverHeaders,
+      payload: { type: "ambulance", priority: "critical", originLat: 23.2599, originLng: 77.4126, destinationHospitalId: 1 }
     });
     const e3 = e3Res.json();
     
@@ -120,7 +127,7 @@ describe("Real Photo Verification Pipeline Test", () => {
     const p3Res = await harness.app.inject({
       method: "POST",
       url: `/api/emergency/${e3.id}/patient-image`,
-      headers: form3.getHeaders(),
+      headers: { ...form3.getHeaders(), ...driverHeaders },
       payload: form3
     });
     const p3 = p3Res.json();
@@ -134,9 +141,12 @@ describe("Real Photo Verification Pipeline Test", () => {
     const r3 = r3Res.json();
     
     assert.strictEqual(r3.status, "adminRejected", "Manual rejection status mismatch");
-    assert.strictEqual(r3.isCorridorAuthorized, false, "Corridor should NOT be authorized after manual rejection");
+    assert.strictEqual(r3.isCorridorAuthorized, false, "Corridor authorized despite rejection");
     console.log("-> PASSED");
-    
-    fs.unlinkSync(dummyImgPath);
+
+    // Clean up
+    if (fs.existsSync(dummyImgPath)) {
+      fs.unlinkSync(dummyImgPath);
+    }
   });
 });

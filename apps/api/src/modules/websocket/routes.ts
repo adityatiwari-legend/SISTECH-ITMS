@@ -13,7 +13,8 @@ export async function websocketRoutes(app: FastifyInstance, options: { bus: WsBu
   const { bus } = options;
 
   app.get("/ws", { websocket: true }, (socket, request) => {
-    const token = (request.query as { token?: string })?.token;
-    bus.addClient(socket, token);
+    const query = request.query as Record<string, unknown> | undefined;
+    const token = typeof query?.token === "string" ? query.token : undefined;
+    bus.addClient(socket, token, query);
   });
 }

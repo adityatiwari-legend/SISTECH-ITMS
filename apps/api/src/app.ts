@@ -16,6 +16,8 @@ import { websocketRoutes } from "./modules/websocket/routes.ts";
 import { aiRoutes } from "./modules/ai/routes.ts";
 import { AiCopilotService } from "./modules/ai/copilot-service.ts";
 import { mobileRoutes } from "./modules/mobile/routes.ts";
+import { deviceRoutes } from "./modules/device/routes.ts";
+import type { RoadsideDeviceService } from "./modules/device/device-service.ts";
 import type { SimulationManager } from "./modules/simulation/simulation-manager.ts";
 import type { TrafficService } from "./modules/traffic/traffic-service.ts";
 import type { EmergencyService } from "./modules/emergency/emergency-service.ts";
@@ -46,6 +48,7 @@ export interface AppDependencies {
   mobileService?: MobileService;
   aiVerificationService?: AiVerificationService;
   emergencyRepo?: import("./database/repositories/emergency-repository.ts").EmergencyRepository;
+  deviceService?: RoadsideDeviceService;
 }
 
 /** Builds the Fastify app with consistent error handling and routes. */
@@ -162,6 +165,10 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
       aiVerificationService: deps.aiVerificationService,
       emergencyRepo: deps.emergencyRepo,
     });
+  }
+
+  if (deps.deviceService) {
+    await app.register(deviceRoutes, { deviceService: deps.deviceService });
   }
 
   return app;

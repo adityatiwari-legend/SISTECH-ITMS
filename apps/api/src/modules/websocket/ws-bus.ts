@@ -6,6 +6,8 @@ import type { AuthService, AuthTokenPayload } from "../auth/auth-service.ts";
 export interface ClientMetadata {
   socket: WebSocket;
   isDriverClient: boolean;
+  isDeviceClient?: boolean;
+  deviceId?: string;
   driverId?: number;
   driverCode?: string;
   role?: string;
@@ -15,16 +17,18 @@ export interface ClientMetadata {
 }
 
 /**
- * WebSocket event bus with role-based channel filtering and authentication (Phases.md 2.6, Phase 18).
+ * WebSocket event bus with role-based channel filtering and authentication (Phases.md 2.6, Phase 18, Phase 9).
  *
  * Broadcasts typed events to connected clients.
  * Web dashboard / operators receive full city-wide telemetry.
  * Authenticated mobile driver clients receive filtered streams matching their active emergency, vehicle, and corridor.
+ * Roadside IoT displays receive only targeted display events and heartbeats (no city-wide telemetry).
  */
 export class WsBus {
   private clients = new Map<WebSocket, ClientMetadata>();
   private readonly logger: Logger;
   private authService: AuthService | null = null;
+  private deviceService: import("../device/device-service.ts").RoadsideDeviceService | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor(logger: Logger) {
@@ -35,7 +39,11 @@ export class WsBus {
     this.authService = authService;
   }
 
-  addClient(socket: WebSocket, token?: string): void {
+  setDeviceService(deviceService: import("../device/device-service.ts").RoadsideDeviceService): void {
+    this.deviceService = deviceService;
+  }
+
+  addClient(socket: WebSocket, token?: string, query?: Record<string, unknown>): void {
     let authPayload: AuthTokenPayload | null = null;
     if (token && this.authService) {
       try {
@@ -46,15 +54,23 @@ export class WsBus {
       }
     }
 
+    const queryDeviceId = typeof query?.deviceId === "string" ? query.deviceId.trim() : undefined;
+
     const meta: ClientMetadata = {
       socket,
       isDriverClient: authPayload?.role === "driver",
+      isDeviceClient: Boolean(queryDeviceId),
+      deviceId: queryDeviceId,
       driverId: authPayload?.sub,
       driverCode: authPayload?.code,
-      role: authPayload?.role ?? "anonymous",
+      role: queryDeviceId ? "device" : (authPayload?.role ?? "anonymous"),
     };
 
     this.clients.set(socket, meta);
+
+    if (queryDeviceId && this.deviceService) {
+      void this.deviceService.handleDeviceConnect(socket, queryDeviceId);
+    }
 
     socket.on("message", (data) => {
       try {
@@ -74,18 +90,42 @@ export class WsBus {
           meta.subscribedEventId = msg.eventId;
           if (msg.vehicleCode) meta.subscribedVehicleCode = String(msg.vehicleCode);
           socket.send(JSON.stringify({ type: "subscribed", eventId: msg.eventId }));
+        } else if (msg.type === "device:connect" && typeof msg.deviceId === "string") {
+          meta.isDeviceClient = true;
+          meta.deviceId = msg.deviceId.trim();
+          meta.role = "device";
+          if (this.deviceService) {
+            void this.deviceService.handleDeviceConnect(socket, msg.deviceId.trim());
+          }
+        } else if (msg.type === "device:heartbeat" && typeof msg.deviceId === "string") {
+          if (this.deviceService) {
+            void this.deviceService.handleDeviceHeartbeat(msg.deviceId.trim());
+          }
         }
       } catch {
         // non-json frame ignored
       }
     });
 
-    socket.on("close", () => this.clients.delete(socket));
-    socket.on("error", () => this.clients.delete(socket));
+    socket.on("close", (code, reason) => {
+      this.logger.info("WS_CLOSE", { code, reason: reason?.toString(), deviceId: meta.deviceId });
+      this.clients.delete(socket);
+      if (meta.isDeviceClient && this.deviceService) {
+        this.deviceService.handleSocketDisconnect(socket);
+      }
+    });
+    socket.on("error", () => {
+      this.clients.delete(socket);
+      if (meta.isDeviceClient && this.deviceService) {
+        this.deviceService.handleSocketDisconnect(socket);
+      }
+    });
     this.logger.info("WebSocket client connected", {
       clients: this.clients.size,
       role: meta.role,
       isDriver: meta.isDriverClient,
+      isDevice: meta.isDeviceClient,
+      deviceId: meta.deviceId,
     });
   }
 
@@ -115,6 +155,17 @@ export class WsBus {
     for (const [socket, meta] of [...this.clients.entries()]) {
       if (socket.readyState !== socket.OPEN) {
         this.clients.delete(socket);
+        continue;
+      }
+
+      // Check whether this message should be filtered for a device client (Section 11)
+      if (meta.isDeviceClient) {
+        if (type === "heartbeat" || type === "system:alert") {
+          socket.send(message);
+        } else if (type === "device:display" && (payload as any)?.deviceId === meta.deviceId) {
+          socket.send(message);
+        }
+        // Suppress all city-wide telemetry for roadside displays!
         continue;
       }
 
