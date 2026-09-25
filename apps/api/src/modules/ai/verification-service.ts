@@ -237,15 +237,12 @@ export class AiVerificationService {
       throw new AppError(409, "invalid_state_transition", `Cannot approve verification in state ${target.status}.`);
     }
 
-    await this.mobileRepo.recordManualDecision({
+    await this.mobileRepo.adminApproveTransaction({
       verificationId,
       reviewerId,
       reviewerName,
-      isApproved: true,
       notes: notes ?? "Authorized by Traffic Operations Supervisor.",
     });
-
-    await this.mobileRepo.updateVerificationStatus(verificationId, "adminApproved", true);
 
     await this.mobileRepo.recordAudit(
       "admin_verification_approved",
@@ -297,15 +294,12 @@ export class AiVerificationService {
       throw new AppError(409, "invalid_state_transition", `Cannot reject verification in state ${target.status}.`);
     }
 
-    await this.mobileRepo.recordManualDecision({
+    await this.mobileRepo.adminRejectTransaction({
       verificationId,
       reviewerId,
       reviewerName,
-      isApproved: false,
       rejectionReason: rejectionReason.trim(),
     });
-
-    await this.mobileRepo.updateVerificationStatus(verificationId, "adminRejected", false);
 
     await this.mobileRepo.recordAudit(
       "admin_verification_rejected",
