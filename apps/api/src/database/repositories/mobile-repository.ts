@@ -432,8 +432,52 @@ export class MobileRepository {
       "SELECT is_corridor_authorized FROM emergency_verifications WHERE event_id = $1 LIMIT 1",
       [eventId],
     );
-    if (!res.rows[0]) return true; // If no verification workflow was registered (e.g. baseline web test), default to allowed
+    if (!res.rows[0]) return false; // Fixed fail-open: deny by default if no verification workflow was registered
     return res.rows[0].is_corridor_authorized;
+  }
+
+  async adminApproveTransaction(input: {
+    verificationId: number;
+    reviewerId: string;
+    reviewerName: string;
+    notes?: string | null;
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO manual_verification_decisions
+           (verification_id, reviewer_id, reviewer_name, is_approved, notes)
+         VALUES ($1, $2, $3, true, $4)`,
+        [input.verificationId, input.reviewerId, input.reviewerName, input.notes ?? null],
+      );
+      await tx.query(
+        `UPDATE emergency_verifications
+         SET status = 'adminApproved', is_corridor_authorized = true, updated_at = now()
+         WHERE id = $1`,
+        [input.verificationId],
+      );
+    });
+  }
+
+  async adminRejectTransaction(input: {
+    verificationId: number;
+    reviewerId: string;
+    reviewerName: string;
+    rejectionReason: string;
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO manual_verification_decisions
+           (verification_id, reviewer_id, reviewer_name, is_approved, rejection_reason)
+         VALUES ($1, $2, $3, false, $4)`,
+        [input.verificationId, input.reviewerId, input.reviewerName, input.rejectionReason],
+      );
+      await tx.query(
+        `UPDATE emergency_verifications
+         SET status = 'adminRejected', is_corridor_authorized = false, updated_at = now()
+         WHERE id = $1`,
+        [input.verificationId],
+      );
+    });
   }
 
   // ------------------------------------------------------------ TELEMETRY ----

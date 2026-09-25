@@ -40,8 +40,9 @@ export class WsBus {
     if (token && this.authService) {
       try {
         authPayload = this.authService.verifyToken(token);
-      } catch {
-        // invalid token; treat as anonymous or reject
+      } catch (err) {
+        socket.close(1008, "Invalid token");
+        return;
       }
     }
 
@@ -118,32 +119,53 @@ export class WsBus {
       }
 
       // Check whether this message should be filtered for a driver mobile client
-      if (meta.isDriverClient && !this.shouldSendToDriverClient(type, payload, meta)) {
-        continue;
+      if (meta.isDriverClient) {
+        const filteredPayload = this.filterPayloadForDriver(type, payload, meta);
+        if (filteredPayload === null) continue; // Suppress
+        const driverEvent = { type, ts: new Date().toISOString(), payload: filteredPayload };
+        socket.send(JSON.stringify(driverEvent), (err) => {
+          if (err) {
+            this.clients.delete(socket);
+            this.logger.warn("WebSocket send failed; client dropped", { error: err.message });
+          }
+        });
+      } else {
+        socket.send(message, (err) => {
+          if (err) {
+            this.clients.delete(socket);
+            this.logger.warn("WebSocket send failed; client dropped", { error: err.message });
+          }
+        });
       }
-
-      socket.send(message, (err) => {
-        if (err) {
-          this.clients.delete(socket);
-          this.logger.warn("WebSocket send failed; client dropped", { error: err.message });
-        }
-      });
     }
   }
 
-  private shouldSendToDriverClient(type: string, payload: unknown, meta: ClientMetadata): boolean {
+  private filterPayloadForDriver(type: string, payload: any, meta: ClientMetadata): any {
     if (type === "heartbeat" || type === "system:alert") {
-      return true;
+      return payload;
     }
 
-    const p = payload as Record<string, unknown> | null;
-    const targetEventId = p?.eventId ?? p?.emergencyId;
+    if (type === "vehicle:update") {
+      // Driver A receives only relevant vehicle telemetry (if emergencyId is matched)
+      if (typeof payload?.emergencyId === "number" && payload.emergencyId === meta.subscribedEventId) {
+        return payload;
+      }
+      return null;
+    }
 
+    if (type === "signal:update" || type === "prediction:update" || type === "traffic:update") {
+      if (typeof payload?.emergencyId === "number" && payload.emergencyId === meta.subscribedEventId) {
+        return payload;
+      }
+      return null; // suppress city-wide telemetry
+    }
+
+    const targetEventId = payload?.eventId ?? payload?.emergencyId;
     if (typeof targetEventId === "number") {
-      return meta.subscribedEventId === targetEventId;
+      if (meta.subscribedEventId === targetEventId) return payload;
+      return null;
     }
 
-    // Reject anything else (global telemetry, unassociated events) from reaching mobile clients
-    return false;
+    return null;
   }
 }
