@@ -60,4 +60,13 @@ export async function emergencyRoutes(
     const detail: EmergencyEventDetail = await emergencyService.getEmergency(numericId);
     return detail;
   });
+
+  app.get("/api/emergency/:id/route", { schema: { params: idParamSchema } }, async (request) => {
+    const { id } = request.params as { id: string };
+    const detail = await emergencyService.getEmergency(Number(id));
+    if (!detail.route) {
+      throw new AppError(404, "route_not_found", `Emergency #${id} has no route.`);
+    }
+    return detail.route;
+  });
 }

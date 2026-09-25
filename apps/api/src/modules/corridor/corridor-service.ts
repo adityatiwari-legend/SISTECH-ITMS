@@ -26,6 +26,7 @@ import {
   type SafetyContext,
 } from "./safety-constraints.ts";
 import { planCorridor, type PlannerJunctionInputs } from "./corridor-planner.ts";
+import { geoFromCatalog, extractRouteGeometry } from "../simulation/geo.ts";
 
 /**
  * Green corridor orchestration (Phases.md 5).
@@ -170,13 +171,26 @@ export class CorridorService {
     }
 
     if (this.mobileRepo) {
-      const authorized = await this.mobileRepo.isCorridorAuthorizedForEvent(eventId);
-      if (!authorized) {
-        throw new AppError(
-          403,
-          "corridor_not_authorized",
-          `Emergency event ${eventId} is not authorized for corridor activation. Verification required.`,
-        );
+      const verification = await this.mobileRepo.getVerificationByEventId(eventId);
+      if (verification) {
+        if (!verification.isCorridorAuthorized) {
+          throw new AppError(
+            403,
+            "corridor_not_authorized",
+            `Emergency event ${eventId} is not authorized for corridor activation. Verification required.`,
+          );
+        }
+        if (
+          verification.status !== "aiApproved" &&
+          verification.status !== "adminApproved" &&
+          verification.status !== "corridorAssigned"
+        ) {
+          throw new AppError(
+            409,
+            "invalid_verification_state",
+            `Emergency event ${eventId} is in invalid verification state ${verification.status}.`,
+          );
+        }
       }
     }
 
@@ -721,13 +735,26 @@ export class CorridorService {
       throw new AppError(409, "not_activatable", `Corridor ${corridorId} is ${row.status}; only PLANNING/VALIDATING corridors can be activated.`);
     }
     if (this.mobileRepo) {
-      const authorized = await this.mobileRepo.isCorridorAuthorizedForEvent(row.event_id);
-      if (!authorized) {
-        throw new AppError(
-          403,
-          "corridor_not_authorized",
-          `Corridor ${corridorId} (emergency event ${row.event_id}) has not been authorized. Verification required.`,
-        );
+      const verification = await this.mobileRepo.getVerificationByEventId(row.event_id);
+      if (verification) {
+        if (!verification.isCorridorAuthorized) {
+          throw new AppError(
+            403,
+            "corridor_not_authorized",
+            `Corridor ${corridorId} (emergency event ${row.event_id}) has not been authorized. Verification required.`,
+          );
+        }
+        if (
+          verification.status !== "aiApproved" &&
+          verification.status !== "adminApproved" &&
+          verification.status !== "corridorAssigned"
+        ) {
+          throw new AppError(
+            409,
+            "invalid_verification_state",
+            `Corridor ${corridorId} (emergency event ${row.event_id}) is in invalid verification state ${verification.status}.`,
+          );
+        }
       }
     }
     const emergency = this.emergencyService.getEmergencyRuntime(row.event_id);
@@ -1020,6 +1047,8 @@ export class CorridorService {
     return {
       corridorId: corridor.corridorId,
       eventId: corridor.eventId,
+      emergencyId: corridor.eventId,
+      coordinates: emergency ? extractRouteGeometry(emergency.routeEdges, this.catalog, geoFromCatalog(this.catalog)) : [],
       status: corridor.status,
       simTimeSeconds: simTime,
       emergencyStatus: emergency?.status ?? null,

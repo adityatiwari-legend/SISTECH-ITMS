@@ -388,6 +388,11 @@ export class MobileService {
     mimeType: string;
     scenario?: string;
   }): Promise<{ evidenceId: number; verification: VerificationDetail }> {
+    const event = await this.emergencyService.getEmergency(input.eventId);
+    if (event.mobile?.driverId !== input.driverId) {
+      throw new AppError(403, "forbidden", "You can only upload photos for your own emergencies.");
+    }
+
     await mkdir(this.uploadsDir, { recursive: true });
     const safeFileName = `evidence-${input.eventId}-${Date.now()}.jpg`;
     const targetPath = join(this.uploadsDir, safeFileName);
@@ -426,6 +431,14 @@ export class MobileService {
     driverId: number,
     ipAddress?: string,
   ): Promise<{ status: "completed"; eventId: number }> {
+    const event = await this.emergencyService.getEmergency(eventId);
+    if (event.mobile?.driverId !== driverId) {
+      throw new AppError(403, "forbidden", "You can only complete your own emergencies.");
+    }
+    if (event.status === "completed" || event.status === "cancelled") {
+      throw new AppError(409, "invalid_state_transition", `Cannot complete an emergency that is ${event.status}.`);
+    }
+
     const driver = await this.mobileRepo.getDriverById(driverId);
     const vehicle = await this.mobileRepo.getAssignedVehicleForDriver(driverId);
 
@@ -476,6 +489,14 @@ export class MobileService {
     reason: string,
     ipAddress?: string,
   ): Promise<{ status: "cancelled"; eventId: number; reason: string }> {
+    const event = await this.emergencyService.getEmergency(eventId);
+    if (event.mobile?.driverId !== driverId) {
+      throw new AppError(403, "forbidden", "You can only cancel your own emergencies.");
+    }
+    if (event.status === "completed" || event.status === "cancelled") {
+      throw new AppError(409, "invalid_state_transition", `Cannot cancel an emergency that is ${event.status}.`);
+    }
+
     const driver = await this.mobileRepo.getDriverById(driverId);
     const vehicle = await this.mobileRepo.getAssignedVehicleForDriver(driverId);
 

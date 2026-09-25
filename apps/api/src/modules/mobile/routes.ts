@@ -23,8 +23,19 @@ export async function mobileRoutes(
   const { authService, mobileService, mobileRepo, aiVerificationService, emergencyRepo } = options;
 
   // ------------------------------------------------------------- AUTH ----
-  app.post("/api/auth/login", async (request, reply) => {
-    const body = (request.body ?? {}) as { email?: string; password?: string };
+  app.post("/api/auth/login", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["email", "password"],
+        properties: {
+          email: { type: "string", format: "email" },
+          password: { type: "string", minLength: 1 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const body = request.body as { email?: string; password?: string };
     if (!body.email || !body.password) {
       throw new AppError(400, "missing_credentials", "Email and password are required.");
     }
@@ -33,8 +44,18 @@ export async function mobileRoutes(
     return reply.code(200).send(result);
   });
 
-  app.post("/api/auth/refresh", async (request, reply) => {
-    const body = (request.body ?? {}) as { refreshToken?: string };
+  app.post("/api/auth/refresh", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["refreshToken"],
+        properties: {
+          refreshToken: { type: "string", minLength: 1 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const body = request.body as { refreshToken?: string };
     if (!body.refreshToken) {
       throw new AppError(400, "missing_refresh_token", "refreshToken is required.");
     }
@@ -54,9 +75,19 @@ export async function mobileRoutes(
     return authService.getDriverProfile(auth.sub);
   });
 
-  app.put("/api/driver/status", async (request) => {
+  app.put("/api/driver/status", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["status"],
+        properties: {
+          status: { type: "string", enum: ["available", "on_duty", "off_duty", "in_emergency"] }
+        }
+      }
+    }
+  }, async (request) => {
     const auth = authService.authenticate(request);
-    const body = (request.body ?? {}) as { status?: "available" | "on_duty" | "off_duty" | "in_emergency" };
+    const body = request.body as { status?: "available" | "on_duty" | "off_duty" | "in_emergency" };
     if (!body.status) {
       throw new AppError(400, "missing_status", "status field is required.");
     }
@@ -77,9 +108,23 @@ export async function mobileRoutes(
     return { vehicle };
   });
 
-  app.post("/api/driver/select-vehicle", async (request, reply) => {
+  app.post("/api/driver/select-vehicle", {
+    schema: {
+      body: {
+        type: "object",
+        anyOf: [
+          { required: ["vehicleId"] },
+          { required: ["vehicleCode"] }
+        ],
+        properties: {
+          vehicleId: { type: "integer", minimum: 1 },
+          vehicleCode: { type: "string", minLength: 1 }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const auth = authService.authenticate(request);
-    const body = (request.body ?? {}) as { vehicleId?: number; vehicleCode?: string };
+    const body = request.body as { vehicleId?: number; vehicleCode?: string };
     let vehicleId = body.vehicleId;
     if (!vehicleId && body.vehicleCode) {
       const v = await mobileRepo.getFleetVehicleByCode(body.vehicleCode);
@@ -94,9 +139,24 @@ export async function mobileRoutes(
   });
 
   // ---------------------------------------------------- GPS TELEMETRY ----
-  app.post("/api/driver/location", async (request, reply) => {
+  app.post("/api/driver/location", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["latitude", "longitude"],
+        properties: {
+          latitude: { type: "number" },
+          longitude: { type: "number" },
+          accuracy: { type: "number" },
+          speedMps: { type: "number" },
+          heading: { type: "number" },
+          timestamp: { type: ["string", "number"] }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const auth = authService.authenticate(request);
-    const body = (request.body ?? {}) as {
+    const body = request.body as {
       latitude?: number;
       longitude?: number;
       accuracy?: number;
@@ -120,8 +180,21 @@ export async function mobileRoutes(
   });
 
   // --------------------------------------------------- ROUTE PREVIEW ----
-  app.post("/api/routes/preview", async (request) => {
-    const body = (request.body ?? {}) as {
+  app.post("/api/routes/preview", {
+    schema: {
+      body: {
+        type: "object",
+        properties: {
+          originLat: { type: "number" },
+          originLng: { type: "number" },
+          originJunction: { type: "string" },
+          destinationJunction: { type: "string" },
+          destinationHospitalId: { type: "integer", minimum: 1 }
+        }
+      }
+    }
+  }, async (request) => {
+    const body = request.body as {
       originLat?: number;
       originLng?: number;
       originJunction?: string;
@@ -157,29 +230,34 @@ export async function mobileRoutes(
   });
 
   // ------------------------------------ MOBILE EMERGENCY INITIATION ----
-  app.post("/api/driver/emergency", async (request, reply) => {
-    let driverId = 1;
-    try {
-      const auth = authService.authenticate(request);
-      driverId = auth.sub;
-    } catch {
-      // Driver token fallback for seamless field dispatch in demo/live mobile testing
-      driverId = 1;
+  app.post("/api/driver/emergency", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["type", "priority", "originLat", "originLng"],
+        properties: {
+          type: { type: "string", enum: ["ambulance", "fire_engine", "police"] },
+          priority: { type: "string", enum: ["low", "medium", "high", "critical"] },
+          originLat: { type: "number" },
+          originLng: { type: "number" },
+          destinationLat: { type: "number" },
+          destinationLng: { type: "number" },
+          destinationHospitalId: { type: "integer", minimum: 1 }
+        }
+      }
     }
-    const body = (request.body ?? {}) as any;
+  }, async (request, reply) => {
+    const auth = authService.authenticate(request);
+    const driverId = auth.sub;
+    const body = request.body as any;
     const detail = await mobileService.createMobileEmergency(driverId, body, request.ip);
     return reply.code(201).send(detail);
   });
 
   // --------------------------------- EMERGENCY PATIENT PHOTO EVIDENCE ----
   app.post("/api/emergency/:id/patient-image", async (request, reply) => {
-    let driverId = 1;
-    try {
-      const auth = authService.authenticate(request);
-      driverId = auth.sub;
-    } catch {
-      driverId = 1;
-    }
+    const auth = authService.authenticate(request);
+    const driverId = auth.sub;
     const { id } = request.params as { id: string };
     const eventId = Number(id);
     if (!Number.isInteger(eventId) || eventId <= 0) {
@@ -221,16 +299,21 @@ export async function mobileRoutes(
       if (body.scenario) scenario = body.scenario;
     }
 
-    // Graceful fallback 1x1 JPEG so verification never fails on missing or empty photo
-    if (!fileBuffer || fileBuffer.length === 0) {
-      fileBuffer = Buffer.from(
-        "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=",
-        "base64",
-      );
+    if (!fileBuffer || fileBuffer.length < 12) {
+      throw new AppError(400, "invalid_image", "File must be a valid image.");
     }
 
     if (fileBuffer.length > 15 * 1024 * 1024) {
       throw new AppError(413, "photo_too_large", "Photo file size exceeds maximum 15MB limit.");
+    }
+
+    const buf = fileBuffer as Buffer;
+    const isJpeg = buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+    const isWebp = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
+
+    if (!isJpeg && !isPng && !isWebp) {
+      throw new AppError(400, "INVALID_IMAGE_FORMAT", "File must be a valid JPEG, PNG, or WEBP image.");
     }
 
     const result = await mobileService.uploadPatientPhoto({
@@ -246,15 +329,18 @@ export async function mobileRoutes(
   });
 
   app.get("/api/emergency/:id/patient-image", async (request, reply) => {
-    try {
-      authService.authenticate(request);
-    } catch {
-      // Allow browser img tags on dashboard to view without custom headers
-    }
+    const auth = authService.authenticate(request);
     const { id } = request.params as { id: string };
     const eventId = Number(id);
     if (!Number.isInteger(eventId) || eventId <= 0) {
       throw new AppError(400, "invalid_id", "Emergency id must be a positive integer.");
+    }
+
+    if (auth.role !== "admin" && auth.role !== "operator") {
+      const event = await options.emergencyRepo.getEvent(eventId);
+      if (!event || event.driver_id !== auth.sub) {
+        throw new AppError(403, "forbidden", "You can only view patient images for your own emergencies.");
+      }
     }
 
     const evidence = await mobileRepo.getEvidenceByEventId(eventId);
@@ -290,15 +376,24 @@ export async function mobileRoutes(
     return reply.code(200).send(result);
   });
 
-  app.post("/api/emergency/:id/cancel", async (request, reply) => {
+  app.post("/api/emergency/:id/cancel", {
+    schema: {
+      body: {
+        type: "object",
+        properties: {
+          reason: { type: "string" }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const auth = authService.authenticate(request);
     const { id } = request.params as { id: string };
     const eventId = Number(id);
     if (!Number.isInteger(eventId) || eventId <= 0) {
       throw new AppError(400, "invalid_id", "Emergency id must be a positive integer.");
     }
-    const body = (request.body ?? {}) as { reason?: string };
-    const reason = body.reason || "Cancelled by driver via mobile application.";
+    const body = request.body as { reason?: string } | null;
+    const reason = (body && body.reason) ? body.reason : "Cancelled by driver via mobile application.";
     const result = await mobileService.cancelEmergency(eventId, auth.sub, reason, request.ip);
     return reply.code(200).send(result);
   });
@@ -334,16 +429,23 @@ export async function mobileRoutes(
     return target;
   });
 
-  app.post("/api/admin/verifications/:id/approve", async (request, reply) => {
-    let approverCode = "ADM-001";
-    try {
-      const auth = authService.authenticate(request);
-      approverCode = auth.code;
-    } catch {
-      approverCode = "ADM-001";
+  app.post("/api/admin/verifications/:id/approve", {
+    schema: {
+      body: {
+        type: "object",
+        properties: {
+          notes: { type: "string" }
+        }
+      }
     }
+  }, async (request, reply) => {
+    const auth = authService.authenticate(request);
+    if (auth.role !== "admin" && auth.role !== "operator") {
+      throw new AppError(403, "forbidden", "Only admins or operators can approve verifications.");
+    }
+    const approverCode = auth.code;
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { notes?: string };
+    const body = request.body as { notes?: string };
     const result = await aiVerificationService.adminApprove(
       Number(id),
       approverCode,
@@ -353,13 +455,23 @@ export async function mobileRoutes(
     return reply.code(200).send(result);
   });
 
-  app.post("/api/admin/verifications/:id/reject", async (request, reply) => {
+  app.post("/api/admin/verifications/:id/reject", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["reason"],
+        properties: {
+          reason: { type: "string", minLength: 1 }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const auth = authService.authenticate(request);
     if (auth.role !== "admin" && auth.role !== "operator") {
       throw new AppError(403, "forbidden", "Only admins or operators can reject verifications.");
     }
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { reason?: string };
+    const body = request.body as { reason?: string };
     if (!body.reason) {
       throw new AppError(400, "missing_reason", "Rejection reason is required.");
     }

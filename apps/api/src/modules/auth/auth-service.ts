@@ -207,7 +207,13 @@ export class AuthService {
   // ------------------------------------------------ FASTIFY HELPERS ----
   extractBearerToken(request: FastifyRequest): string | null {
     const authHeader = request.headers.authorization;
-    if (!authHeader) return null;
+    if (!authHeader) {
+      const query = request.query as Record<string, unknown>;
+      if (query && typeof query.token === "string") {
+        return query.token;
+      }
+      return null;
+    }
     const parts = authHeader.split(" ");
     if (parts.length === 2 && parts[0]?.toLowerCase() === "bearer") {
       return parts[1] ?? null;

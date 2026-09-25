@@ -68,6 +68,10 @@ export class RouteEngine {
     return this.graph;
   }
 
+  getCatalog(): NetworkCatalog {
+    return this.catalog;
+  }
+
   /**
    * Computes the fastest route between two junctions using A* over
    * congestion-adjusted travel times.

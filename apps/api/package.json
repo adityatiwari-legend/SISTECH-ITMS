@@ -17,6 +17,7 @@
     "@fastify/multipart": "^10.1.2",
     "@itms/types": "*",
     "fastify": "^5.4.0",
+    "form-data": "^4.0.6",
     "proj4": "^2.22.0"
   },
   "devDependencies": {

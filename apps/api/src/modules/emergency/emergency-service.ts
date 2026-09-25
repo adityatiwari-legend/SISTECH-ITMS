@@ -13,6 +13,7 @@ import { AppError } from "../../errors.ts";
 import type { SimulationManager } from "../simulation/simulation-manager.ts";
 import type { ComputedRoute, RouteEngine } from "../routing/route-engine.ts";
 import { RouteError, describeRouteProblem } from "../routing/route-engine.ts";
+import { geoFromCatalog, extractRouteGeometry } from "../simulation/geo.ts";
 import type { WsBus } from "../websocket/ws-bus.ts";
 import {
   EmergencyRepository,
@@ -280,13 +281,18 @@ export class EmergencyService {
     emergency.switchCount += 1;
     emergency.lastKnownRouteIndex = 0;
 
+    const catalog = this.routeEngine.getCatalog();
+    const geo = geoFromCatalog(catalog);
     this.bus.broadcast("route:switched", {
-      eventId: input.eventId,
+      emergencyId: input.eventId,
+      routeId: routeId,
       simTimeSeconds: simTime,
       reason: input.reason,
       oldEtaS: round1(input.oldEtaS),
       newEtaS: round1(input.newEtaS),
       segments: input.edges,
+      coordinates: extractRouteGeometry(input.edges, catalog, geo),
+      updatedAt: new Date().toISOString(),
     });
     this.logger.info("Emergency rerouted", {
       eventId: input.eventId,
@@ -460,10 +466,14 @@ export class EmergencyService {
       destination,
     });
     if (route) {
+      const segmentIds = route.segments.map((segment) => segment.segmentId);
+      const catalog = this.routeEngine.getCatalog();
+      const geo = geoFromCatalog(catalog);
       this.bus.broadcast("route:updated", {
-        eventId: persisted.event.id,
+        emergencyId: persisted.event.id,
         routeId: sumoRouteId,
-        segments: route.segments.map((segment) => segment.segmentId),
+        segments: segmentIds,
+        coordinates: extractRouteGeometry(segmentIds, catalog, geo),
         estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
       });
       this.logger.info("Emergency created", {

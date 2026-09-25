@@ -147,9 +147,10 @@ export class AiVerificationService {
           model = this.config.vultrModel || "vultr_serverless_ai";
         }
       } catch (err) {
-        this.logger.warn("Vultr AI verification call timed out or failed; using deterministic fallback", {
+        this.logger.error("Vultr AI verification call timed out or failed", {
           error: String(err),
         });
+        throw new AppError(503, "AI_UNAVAILABLE", "AI service is unavailable.");
       }
     }
 
@@ -187,9 +188,13 @@ export class AiVerificationService {
 
       this.bus.broadcast("corridor:authorized", {
         eventId: input.eventId,
+        emergencyId: input.eventId,
+        corridorId: null,
         requestId: input.requestId,
         authorizedBy: "AI_VERIFICATION",
+        status: "AUTHORIZED",
         timestamp: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
     } else {
       await this.mobileRepo.updateVerificationStatus(verification.id, "manualReview", false);
@@ -228,6 +233,10 @@ export class AiVerificationService {
       throw new AppError(404, "verification_not_found", `Verification record #${verificationId} not found.`);
     }
 
+    if (target.status !== "manualReview" && target.status !== "submitted" && target.status !== "aiAnalyzing") {
+      throw new AppError(409, "invalid_state_transition", `Cannot approve verification in state ${target.status}.`);
+    }
+
     await this.mobileRepo.recordManualDecision({
       verificationId,
       reviewerId,
@@ -255,9 +264,13 @@ export class AiVerificationService {
 
     this.bus.broadcast("corridor:authorized", {
       eventId: target.eventId,
+      emergencyId: target.eventId,
+      corridorId: null,
       requestId: target.requestId,
       authorizedBy: reviewerName,
+      status: "AUTHORIZED",
       timestamp: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
 
     const updated = await this.mobileRepo.getVerificationByRequestId(target.requestId);
@@ -278,6 +291,10 @@ export class AiVerificationService {
     const target = list.find((v) => v.id === verificationId);
     if (!target) {
       throw new AppError(404, "verification_not_found", `Verification record #${verificationId} not found.`);
+    }
+
+    if (target.status !== "manualReview" && target.status !== "submitted" && target.status !== "aiAnalyzing") {
+      throw new AppError(409, "invalid_state_transition", `Cannot reject verification in state ${target.status}.`);
     }
 
     await this.mobileRepo.recordManualDecision({

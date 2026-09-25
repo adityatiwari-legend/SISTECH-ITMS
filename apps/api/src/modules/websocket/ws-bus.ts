@@ -132,34 +132,18 @@ export class WsBus {
   }
 
   private shouldSendToDriverClient(type: string, payload: unknown, meta: ClientMetadata): boolean {
-    // Critical events always delivered to all clients
-    if (
-      type === "heartbeat" ||
-      type === "system:alert" ||
-      type.startsWith("emergency:verification:") ||
-      type.startsWith("emergency:verified") ||
-      type.startsWith("emergency:fraud-flagged") ||
-      type.startsWith("emergency:manual-review") ||
-      type.startsWith("emergency:approved") ||
-      type.startsWith("emergency:rejected") ||
-      type.startsWith("corridor:authorized")
-    ) {
+    if (type === "heartbeat" || type === "system:alert") {
       return true;
     }
 
-    // Do not flood mobile client with city-wide bulk traffic matrices unless subscribed
-    if (type === "traffic:update" && !meta.subscribedEventId) {
-      return false;
-    }
-
-    // If payload has eventId, filter to matching driver subscription if active
     const p = payload as Record<string, unknown> | null;
-    if (p && typeof p.eventId === "number") {
-      if (meta.subscribedEventId && p.eventId !== meta.subscribedEventId) {
-        return false;
-      }
+    const targetEventId = p?.eventId ?? p?.emergencyId;
+
+    if (typeof targetEventId === "number") {
+      return meta.subscribedEventId === targetEventId;
     }
 
-    return true;
+    // Reject anything else (global telemetry, unassociated events) from reaching mobile clients
+    return false;
   }
 }

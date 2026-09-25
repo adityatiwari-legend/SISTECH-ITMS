@@ -88,3 +88,26 @@ export function geoFromCatalog(catalog: NetworkCatalog): GeoTransformer {
 export function round6(value: number): number {
   return Math.round(value * 1e6) / 1e6;
 }
+
+/** 
+ * Extracts full geometry for a sequence of segments.
+ * Uses the first lane of each segment to provide a representative line string.
+ */
+export function extractRouteGeometry(
+  segmentIds: string[],
+  catalog: NetworkCatalog,
+  geo: GeoTransformer
+): Array<{ lat: number; lng: number }> {
+  if (!geo.geoReferenced) return [];
+  const coords: Array<{ lat: number; lng: number }> = [];
+  for (const segmentId of segmentIds) {
+    const segment = catalog.segments.find((s) => s.id === segmentId);
+    if (!segment || segment.lanes.length === 0) continue;
+    const shape = segment.lanes[0]!.shape;
+    for (const point of shape) {
+      const ll = geo.sumoToLatLng(point.x, point.y);
+      if (ll) coords.push({ lat: round6(ll.lat), lng: round6(ll.lng) });
+    }
+  }
+  return coords;
+}
