@@ -28,6 +28,11 @@ const PRIMARY_NAV: NavItem[] = [
   },
   { href: "/signals", label: "Signals", icon: Icons.Signals },
   {
+    href: "/roadside-devices",
+    label: "Roadside Displays",
+    icon: Icons.RoadsideDevice,
+  },
+  {
     href: "/corridors",
     label: "Green Corridor",
     icon: Icons.Corridor,

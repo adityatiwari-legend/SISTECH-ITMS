@@ -2,6 +2,7 @@ import type {
   CreateEmergencyBody,
   EmergencyEta,
   EmergencyEventDetail,
+  EmergencyType,
   EmergencyVehicleRecord,
   MobileEmergencyMeta,
   RouteSummary,
@@ -65,6 +66,7 @@ interface ActiveEmergency {
 export interface EmergencyRuntimeSnapshot {
   eventId: number;
   status: EmergencyEventDetail["status"];
+  type: EmergencyType;
   vehicleId: string;
   priority: EmergencyEventDetail["priority"];
   originJunction: string;
@@ -97,8 +99,9 @@ export class EmergencyService {
   private active = new Map<number, ActiveEmergency>();
   private sequence = 0;
   private eventListeners: Array<() => void> = [];
-  /** Priority and last persisted status per event (corridor service reads). */
+  /** Priority, vehicle type and last persisted status per event (corridor service reads). */
   private priorityByEvent = new Map<number, EmergencyEventDetail["priority"]>();
+  private typeByEvent = new Map<number, EmergencyType>();
   private persistedStatusByEvent = new Map<number, EmergencyEventDetail["status"]>();
   /** Sim-time transition bookkeeping kept after the runtime is removed. */
   private transitionSimTimesByEvent = new Map<number, { activatedSimTimeS: number | null; arrivedSimTimeS: number | null }>();
@@ -152,6 +155,7 @@ export class EmergencyService {
     return {
       eventId: emergency.eventId,
       status: emergency.status,
+      type: this.typeByEvent.get(eventId) ?? "ambulance",
       vehicleId: emergency.vehicleId,
       priority: this.priorityByEvent.get(eventId) ?? "normal",
       originJunction,
@@ -456,6 +460,7 @@ export class EmergencyService {
       lastKnownRouteIndex: 0,
     });
     this.priorityByEvent.set(persisted.event.id, body.priority);
+    this.typeByEvent.set(persisted.event.id, body.type);
     this.persistedStatusByEvent.set(persisted.event.id, "created");
 
     this.bus.broadcast("emergency:created", {

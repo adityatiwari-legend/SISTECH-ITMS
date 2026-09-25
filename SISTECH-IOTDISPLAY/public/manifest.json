@@ -1,0 +1,17 @@
+{
+  "name": "SISTECH Roadside Priority Display",
+  "short_name": "SISTECH-CRPD",
+  "description": "Connected Roadside Priority Display for ITMS Green Corridor",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

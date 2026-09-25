@@ -20,6 +20,8 @@ import { ClosedLoopService } from "./modules/loop/closed-loop-service.ts";
 import { MetricsRecorder } from "./modules/metrics/metrics-recorder.ts";
 import { MetricsRepository } from "./database/repositories/metrics-repository.ts";
 import { ScenarioComparisonService } from "./modules/scenarios/scenario-comparison-service.ts";
+import { DeviceRepository } from "./database/repositories/device-repository.ts";
+import { RoadsideDeviceService } from "./modules/device/device-service.ts";
 import { WsBus } from "./modules/websocket/ws-bus.ts";
 import { createDatabasePool } from "./database/db.ts";
 import { runMigrations } from "./database/migrate.ts";
@@ -160,6 +162,19 @@ async function main(): Promise<void> {
     aiVerificationService,
   });
 
+  const deviceRepository = new DeviceRepository(db);
+  const deviceService = new RoadsideDeviceService({
+    deviceRepo: deviceRepository,
+    catalog,
+    corridorService,
+    emergencyService,
+    manager,
+    bus: wsBus,
+    logger,
+  });
+  await deviceService.init();
+  wsBus.setDeviceService(deviceService);
+
   const app = await buildApp({
     config,
     logger,
@@ -180,10 +195,16 @@ async function main(): Promise<void> {
     mobileService,
     aiVerificationService,
     emergencyRepo: emergencyRepository,
+    deviceService,
   });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("Shutting down", { signal });
+    try {
+      deviceService.dispose();
+    } catch (err) {
+      logger.warn("Error while disposing device service", { error: err });
+    }
     try {
       await loopService.dispose();
     } catch (err) {

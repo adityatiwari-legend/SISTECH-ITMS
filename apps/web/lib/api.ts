@@ -17,6 +17,8 @@ import type {
   RoadInfo,
   IntersectionInfo,
   VehicleSnapshot,
+  RoadsideDeviceRecord,
+  DeviceStateSnapshot,
 } from "@itms/types";
 
 /**
@@ -148,4 +150,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question, context }),
     }),
+
+  // roadside devices (CRPD)
+  getRoadsideDevices: () => request<{ devices: RoadsideDeviceRecord[] }>("/api/devices"),
+  getRoadsideDevice: (deviceId: string) => request<{ device: RoadsideDeviceRecord }>(`/api/devices/${encodeURIComponent(deviceId)}`),
+  getRoadsideDeviceState: (deviceId: string) => request<DeviceStateSnapshot>(`/api/devices/${encodeURIComponent(deviceId)}/state`),
+  resetRoadsideDevice: (deviceId: string) =>
+    request<DeviceStateSnapshot>(`/api/devices/${encodeURIComponent(deviceId)}/reset`, { method: "POST" }),
 };

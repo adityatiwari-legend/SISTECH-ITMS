@@ -9,9 +9,11 @@ import type {
   NetworkGeometryResponse,
   SignalSnapshot,
   VehicleSnapshot,
+  RoadsideDeviceRecord,
 } from "@itms/types";
 import { CONGESTION_COLORS, simClock } from "@/lib/format";
 import { getJunctionMeta, getVehicleDisplay } from "@/lib/naming";
+import { api } from "@/lib/api";
 import { Icons } from "./ui";
 
 /**
@@ -73,6 +75,28 @@ export function SimulationMap({
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedJunctionId, setSelectedJunctionId] = React.useState<string | null>(null);
   const [isFollowingEmergency, setIsFollowingEmergency] = React.useState(false);
+  const [roadsideDevices, setRoadsideDevices] = React.useState<RoadsideDeviceRecord[]>([]);
+
+  // Periodically sync roadside device statuses
+  React.useEffect(() => {
+    let isCancelled = false;
+    const loadRoadsideDevices = async () => {
+      try {
+        const res = await api.getRoadsideDevices();
+        if (!isCancelled && res?.devices) {
+          setRoadsideDevices(res.devices);
+        }
+      } catch {
+        // best effort polling
+      }
+    };
+    void loadRoadsideDevices();
+    const interval = setInterval(loadRoadsideDevices, 3000);
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Search matches
   const searchResults = React.useMemo(() => {
@@ -143,6 +167,7 @@ export function SimulationMap({
           onSelectJunction={setSelectedJunctionId}
           isFollowingEmergency={isFollowingEmergency}
           setIsFollowingEmergency={setIsFollowingEmergency}
+          roadsideDevices={roadsideDevices}
         />
       )}
 
@@ -320,6 +345,7 @@ export function SimulationMap({
         <IntersectionInspector
           junctionId={selectedJunctionId}
           data={data}
+          roadsideDevice={roadsideDevices.find((d) => d.signalId === selectedJunctionId)}
           onClose={() => setSelectedJunctionId(null)}
           onOpenCopilot={onOpenCopilot}
         />
@@ -348,6 +374,7 @@ function NetworkCanvas({
   onToggleTraffic,
   onToggleSignals,
   onToggleCorridor,
+  roadsideDevices,
 }: {
   viewBox: { minX: number; minY: number; width: number; height: number };
   data: SimulationMapData;
@@ -364,6 +391,7 @@ function NetworkCanvas({
   onToggleTraffic?: () => void;
   onToggleSignals?: () => void;
   onToggleCorridor?: () => void;
+  roadsideDevices?: RoadsideDeviceRecord[];
 }) {
   const geometry = data.geometry!;
   const svgRef = React.useRef<SVGSVGElement | null>(null);
@@ -848,6 +876,7 @@ function NetworkCanvas({
           hoveredJunctionId={hoveredJunctionId}
           onSelectJunction={onSelectJunction}
           onHoverJunction={setHoveredJunctionId}
+          roadsideDevices={roadsideDevices}
         />
       </svg>
     </div>
@@ -969,6 +998,7 @@ function DynamicLayer({
   hoveredJunctionId,
   onSelectJunction,
   onHoverJunction,
+  roadsideDevices,
 }: {
   data: SimulationMapData;
   liveEmergency: {
@@ -990,7 +1020,18 @@ function DynamicLayer({
   hoveredJunctionId: string | null;
   onSelectJunction: (id: string | null) => void;
   onHoverJunction: (id: string | null) => void;
+  roadsideDevices?: RoadsideDeviceRecord[];
 }) {
+  const deviceBySignal = React.useMemo(() => {
+    const m = new Map<string, RoadsideDeviceRecord>();
+    if (roadsideDevices) {
+      for (const d of roadsideDevices) {
+        m.set(d.signalId, d);
+      }
+    }
+    return m;
+  }, [roadsideDevices]);
+
   const geometry = data.geometry;
   if (!geometry) return null;
 
@@ -1088,6 +1129,7 @@ function DynamicLayer({
       {geometry.junctions.map((junction) => {
         const signal = signalById.get(junction.id);
         const corrSignal = corridorSignals.find((s) => s.junctionId === junction.id);
+        const roadsideDev = deviceBySignal.get(junction.id);
         const meta = getJunctionMeta(junction.id);
         const isSelected = selectedJunctionId === junction.id;
         const isHovered = hoveredJunctionId === junction.id;
@@ -1213,6 +1255,27 @@ function DynamicLayer({
               strokeWidth={1.5}
             />
 
+            {/* IoT Roadside Priority Display (CRPD) Indicator */}
+            {roadsideDev && junction.controlled && showSignals && (
+              <g transform={`translate(${junction.x + r * 0.72}, ${cy - r * 0.72})`}>
+                <circle
+                  r={baseR * 0.38}
+                  fill={isCorridorActive && roadsideDev.connected ? "#FF3B4E" : roadsideDev.connected ? "#18D88B" : "#5E6B7A"}
+                  stroke="#05070B"
+                  strokeWidth={1}
+                />
+                {isCorridorActive && roadsideDev.connected && (
+                  <circle
+                    r={baseR * 0.38}
+                    fill="#FF3B4E"
+                    stroke="#05070B"
+                    strokeWidth={1}
+                    className="animate-ping opacity-75"
+                  />
+                )}
+              </g>
+            )}
+
             {/* Corridor Status Badge Floating Above Junction */}
             {isCorridorActive && (
               <g transform={`translate(${junction.x}, ${cy - r - 12})`}>
@@ -1264,7 +1327,7 @@ function DynamicLayer({
               >
                 <rect
                   width={160}
-                  height={56}
+                  height={roadsideDev ? 68 : 56}
                   rx={4}
                   fill="#0A0F16"
                   stroke="rgba(255,255,255,0.15)"
@@ -1294,6 +1357,17 @@ function DynamicLayer({
                     ? "Corridor: PASSED (Restored)"
                     : `SUMO ID: ${junction.id}`}
                 </text>
+                {roadsideDev && (
+                  <text
+                    x={8}
+                    y={58}
+                    fill={roadsideDev.connected ? "#18D88B" : "#5E6B7A"}
+                    fontSize={7.5}
+                    className="font-mono"
+                  >
+                    {`CRPD: ${roadsideDev.deviceId} (${roadsideDev.connected ? "ONLINE" : "OFFLINE"})`}
+                  </text>
+                )}
               </g>
             )}
           </g>
@@ -1596,11 +1670,13 @@ function ActiveCorridorHUD({
 function IntersectionInspector({
   junctionId,
   data,
+  roadsideDevice,
   onClose,
   onOpenCopilot,
 }: {
   junctionId: string;
   data: SimulationMapData;
+  roadsideDevice?: RoadsideDeviceRecord;
   onClose: () => void;
   onOpenCopilot?: (question?: string, context?: { intersectionId?: string }) => void;
 }) {
@@ -1696,6 +1772,72 @@ function IntersectionInspector({
             </div>
           </div>
         )}
+
+        {/* Roadside Priority Display (CRPD) Integration */}
+        <div className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#121A24] p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] uppercase text-[#5E6B7A]">Roadside Priority Display</div>
+            {roadsideDevice ? (
+              <span className={`text-[10px] font-bold ${roadsideDevice.connected ? "text-[#18D88B]" : "text-[#5E6B7A]"}`}>
+                {roadsideDevice.connected ? "● ONLINE" : "○ OFFLINE"}
+              </span>
+            ) : null}
+          </div>
+          {roadsideDevice ? (
+            <div className="mt-2 space-y-1.5 font-mono">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-[#8D9AAA]">Device ID</span>
+                <span className="font-bold text-[#F4F7FA]">{roadsideDevice.deviceId}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-[#8D9AAA]">Display State</span>
+                <span
+                  className={`font-semibold ${
+                    isApplied
+                      ? "text-[#18D88B]"
+                      : isPending
+                      ? "text-[#FFB547]"
+                      : "text-[#8D9AAA]"
+                  }`}
+                >
+                  {isApplied
+                    ? "GREEN CORRIDOR ACTIVE"
+                    : isPending
+                    ? "PREPARING CORRIDOR"
+                    : "NORMAL TRAFFIC"}
+                </span>
+              </div>
+              {emergency && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#8D9AAA]">Priority Vehicle</span>
+                  <span className="font-bold text-[#FF3B4E] uppercase">
+                    {emergency.vehicle?.type || "AMBULANCE"}
+                  </span>
+                </div>
+              )}
+              {etaSec !== null && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#8D9AAA]">Arrival ETA</span>
+                  <span className="font-bold text-[#18D88B]">{etaSec}s</span>
+                </div>
+              )}
+              <div className="pt-2">
+                <a
+                  href={`http://localhost:3002/display?device=${encodeURIComponent(roadsideDevice.deviceId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex w-full items-center justify-center gap-1.5 rounded bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 border border-[#06b6d4]/30 py-1.5 text-[10px] font-semibold text-[#06b6d4] transition shadow-[0_0_8px_rgba(6,182,212,0.15)]"
+                >
+                  <span>📱 OPEN ROADSIDE DISPLAY ↗</span>
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 text-[11px] text-[#5E6B7A]">
+              No roadside hardware provisioned for this junction
+            </div>
+          )}
+        </div>
 
         {/* Action Buttons */}
         <div className="pt-2 space-y-2">

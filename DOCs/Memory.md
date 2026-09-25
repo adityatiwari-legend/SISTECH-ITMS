@@ -782,3 +782,26 @@ This section is the primary handoff area for the next coding session.
 3. Upstream-pressure / per-lane prediction features (improve +120s horizon).
 4. API authentication for multi-user deployment (PRD §7).
 5. Comparison reports page / multi-scenario matrix.
+
+---
+
+## Session Update: Connected Roadside Priority Display (CRPD) Subsystem
+
+### Overview & Deliverables
+Implemented standalone edge IoT roadside priority display system `SISTECH-IOTDISPLAY/` at the repository root:
+- **Standalone PWA (`SISTECH-IOTDISPLAY`):** Next.js 15, React 19, Tailwind v4, Framer Motion. Zero Math.random(), zero fake data, read-only supplementary renderer.
+- **Authoritative Backend Engine (`RoadsideDeviceService`):**
+  - PostgreSQL table `roadside_devices` (migration `008_roadside_devices.sql`).
+  - Auto-seeds 21 real Bhopal controlled signals (`CRPD-I01-01` .. `CRPD-I21-01`).
+  - State machine: `IDLE` → `PREDICT` → `PREPARING` → `CLEARING` → `GREEN` → `PASSING` → `RESTORING` → `IDLE`.
+  - Targeted WebSocket delivery on `/ws`: clients identify via `device:connect`. City-wide 5 Hz telemetry is suppressed for roadside devices; only targeted `device:display` frames and heartbeats are sent.
+  - REST endpoints: `GET /api/devices`, `GET /api/devices/:deviceId`, `GET /api/devices/signal/:signalId`, `GET /api/devices/:deviceId/state`, `POST /api/devices/register`, `POST /api/devices/:deviceId/heartbeat`, `POST /api/devices/:deviceId/reset`.
+- **Command Center & Map Integration:**
+  - Route `/roadside-devices` added to Command Center with live edge telemetry metrics (TOTAL, ONLINE, OFFLINE, ACTIVE), state chips, and direct display links.
+  - `SimulationMap.tsx` updated with non-cluttering IoT status indicator dots at controlled signals (🟢 Online, 🔴 Active Preemption, ⚫ Offline) and detailed CRPD hardware card in `IntersectionInspector`.
+- **Field & Hardware Features:**
+  - Screen Wake Lock API keeps phone/tablet screen on during physical field demos.
+  - Web Audio API warning chimes on PREPARING/PASSING states.
+  - Fullscreen toggle, PWA installable manifest, and LAN Wi-Fi / public ngrok tunnel support.
+  - Section 45 safety isolation: display failure or disconnect NEVER interrupts green corridor preemption.
+

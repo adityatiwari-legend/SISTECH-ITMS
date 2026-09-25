@@ -5,7 +5,8 @@
   "description": "ITMS - Intelligent Traffic Management System with Predictive Rolling Green Corridor",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "SISTECH-IOTDISPLAY"
   ],
   "engines": {
     "node": ">=24.7.0"
@@ -17,7 +18,9 @@
     "dev:api": "npm run dev --workspace apps/api",
     "dev:web": "npm run dev --workspace web",
     "build:web": "npm run build --workspace web",
-    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace @itms/types && npm run typecheck --workspace web",
+    "dev:iot": "npm run dev --workspace sistech-iotdisplay",
+    "build:iot": "npm run build --workspace sistech-iotdisplay",
+    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace @itms/types && npm run typecheck --workspace web && npm run typecheck --workspace sistech-iotdisplay",
     "test:api": "npm run test --workspace apps/api",
     "test:prediction": "python -m pytest services/prediction/tests -q"
   },

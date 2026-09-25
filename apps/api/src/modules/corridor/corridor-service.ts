@@ -42,7 +42,7 @@ import { geoFromCatalog, extractRouteGeometry } from "../simulation/geo.ts";
  *  - every command and transition is persisted; nothing is fabricated.
  */
 
-interface CorridorJunctionRuntime {
+export interface CorridorJunctionRuntime {
   junctionId: string;
   signalId: string;
   sequenceIndex: number;
@@ -61,7 +61,7 @@ interface CorridorJunctionRuntime {
   passedAtSimTimeS: number | null;
 }
 
-interface CorridorRuntime {
+export interface CorridorRuntime {
   corridorId: number;
   eventId: number;
   vehicleId: string;
@@ -954,6 +954,10 @@ export class CorridorService {
             }
           : null,
     };
+  }
+
+  getActiveRuntimes(): CorridorRuntime[] {
+    return [...this.runtime.values()];
   }
 
   async listCorridors(): Promise<CorridorDetail[]> {
