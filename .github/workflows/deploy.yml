@@ -1,0 +1,66 @@
+name: Deploy SISTECH ITMS to VPS
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Production VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Execute Remote SSH Deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            echo "=================================================="
+            echo "🚀 [CI/CD] Starting Deployment on VPS..."
+            echo "=================================================="
+            
+            # Navigate to project directory
+            cd /var/www/sistech-itms
+            
+            # Fetch and pull latest changes
+            echo "📥 Pulling latest changes from master..."
+            git fetch origin master
+            git reset --hard origin/master
+            
+            # Install Node workspace dependencies
+            echo "📦 Installing npm dependencies..."
+            npm install
+            
+            # Build Next.js Production Bundles
+            echo "🔨 Building Frontend & IoT Web bundles..."
+            npm run build:web
+            npm run build:iot
+            
+            # Update Python dependencies if needed
+            if [ -d "services/prediction/venv" ]; then
+              echo "🐍 Checking Python Prediction dependencies..."
+              source services/prediction/venv/bin/activate
+              pip install --no-cache-dir -r services/prediction/requirements.txt
+            fi
+            
+            # Restart all PM2 services gracefully
+            echo "🔄 Restarting microservices via PM2..."
+            pm2 restart all
+            pm2 save
+            
+            echo "=================================================="
+            echo "✅ [CI/CD] Deployment completed successfully!"
+            echo "=================================================="
