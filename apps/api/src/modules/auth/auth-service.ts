@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import { AppError } from "../../errors.ts";
 import type { MobileRepository } from "../../database/repositories/mobile-repository.ts";
@@ -37,8 +37,15 @@ export class AuthService {
       return timingSafeEqual(Buffer.from(derivedKey, "hex"), Buffer.from(expectedHash, "hex"));
     }
     if (algo === "sha256" && salt && expectedHash) {
-      const hash = createHmac("sha256", salt).update(password).digest("hex");
-      return timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(expectedHash, "hex"));
+      const rawHash = createHash("sha256").update(`${password}:${salt}`).digest("hex");
+      if (rawHash.length === expectedHash.length && timingSafeEqual(Buffer.from(rawHash, "hex"), Buffer.from(expectedHash, "hex"))) {
+        return true;
+      }
+      const hmacHash = createHmac("sha256", salt).update(password).digest("hex");
+      if (hmacHash.length === expectedHash.length && timingSafeEqual(Buffer.from(hmacHash, "hex"), Buffer.from(expectedHash, "hex"))) {
+        return true;
+      }
+      return false;
     }
     return false;
   }

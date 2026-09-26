@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env src/main.ts",
     "start": "node --env-file-if-exists=.env src/main.ts",
+    "migrate": "node --env-file-if-exists=.env src/database/run-migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1 \"test/*.test.ts\""
   },

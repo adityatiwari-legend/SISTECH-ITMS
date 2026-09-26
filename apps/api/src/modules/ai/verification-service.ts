@@ -147,10 +147,10 @@ export class AiVerificationService {
           model = this.config.vultrModel || "vultr_serverless_ai";
         }
       } catch (err) {
-        this.logger.error("Vultr AI verification call timed out or failed", {
+        this.logger.warn("Vultr AI verification call timed out or failed, falling back to grounded vision rules", {
           error: String(err),
         });
-        throw new AppError(503, "AI_UNAVAILABLE", "AI service is unavailable.");
+        model = "itms_grounded_fallback";
       }
     }
 

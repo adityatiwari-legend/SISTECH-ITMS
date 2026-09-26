@@ -391,6 +391,10 @@ export class EmergencyService {
           hospitalId: body.destinationHospitalId ? Number(body.destinationHospitalId) : null,
           patientCondition: body.patientCondition ?? null,
           severity: body.severity ?? "codeRed",
+          originAddress: body.originAddress ?? null,
+          destinationAddress: body.destinationAddress ?? null,
+          pickupLatitude: body.pickupLatitude ?? null,
+          pickupLongitude: body.pickupLongitude ?? null,
         },
         route
           ? {
@@ -713,7 +717,9 @@ export class EmergencyService {
     const isMobile =
       (event.driver_id !== null && event.driver_id !== undefined) ||
       (event.fleet_vehicle_id !== null && event.fleet_vehicle_id !== undefined) ||
-      Boolean(event.driver_name);
+      Boolean(event.driver_name) ||
+      Boolean(event.patient_condition) ||
+      Boolean(event.origin_address);
 
     const mobile: MobileEmergencyMeta | null = isMobile
       ? {
@@ -722,18 +728,46 @@ export class EmergencyService {
           driverName: event.driver_name ?? null,
           driverCode: event.driver_code ?? null,
           driverPhone: event.driver_phone ?? null,
+          driverLicense: event.driver_license ?? null,
           vehicleCode: event.vehicle_code ?? null,
           registrationNumber: event.registration_number ?? null,
           vehicleModel: event.vehicle_model ?? null,
+          vehicleType: event.vehicle_type ?? null,
+          lastLatitude: event.last_latitude ?? null,
+          lastLongitude: event.last_longitude ?? null,
+          lastSpeedKmh: event.last_speed_kmh ?? null,
+          lastHeading: event.last_heading ?? null,
+          lastTelemetryAtIso: event.last_telemetry_at?.toISOString() ?? null,
           hospitalId: event.hospital_id ?? null,
           hospitalName: event.hospital_name ?? null,
           hospitalCode: event.hospital_code ?? null,
+          hospitalAddress: event.hospital_address ?? null,
+          hospitalPhone: event.hospital_phone ?? null,
+          hospitalAvailableBeds: event.hospital_available_beds ?? null,
+          hospitalTraumaLevel: event.hospital_trauma_level ?? null,
+          originAddress: event.origin_address ?? null,
+          destinationAddress: event.destination_address ?? null,
+          pickupLatitude: event.pickup_latitude ?? null,
+          pickupLongitude: event.pickup_longitude ?? null,
           patientCondition: event.patient_condition ?? null,
           severity: event.severity ?? null,
           authorizationStatus: event.authorization_status ?? "pending",
           verificationStatus: event.verification_status ?? "pending",
           isCorridorAuthorized: event.is_corridor_authorized ?? false,
           hasPatientImage: Boolean(event.has_patient_image),
+          evidenceId: event.evidence_id ?? null,
+          evidenceFileName: event.evidence_file_name ?? null,
+          evidenceUploadedAtIso: event.evidence_uploaded_at?.toISOString() ?? null,
+          requestId: event.request_id ?? null,
+          aiVerdict: event.ai_verdict ?? null,
+          aiConfidenceScore: event.ai_confidence_score ?? null,
+          aiReason: event.ai_reason ?? null,
+          aiDetectedFeatures: event.ai_detected_features ?? [],
+          aiModel: event.ai_model ?? null,
+          reviewerName: event.reviewer_name ?? null,
+          reviewNotes: event.review_notes ?? null,
+          rejectionReason: event.rejection_reason ?? null,
+          reviewDecidedAtIso: event.review_decided_at?.toISOString() ?? null,
         }
       : null;
 
@@ -747,7 +781,7 @@ export class EmergencyService {
       createdAtIso: event.created_at.toISOString(),
       activatedAtIso: event.activated_at?.toISOString() ?? null,
       arrivedAtIso: event.arrived_at?.toISOString() ?? null,
-      vehicle: this.mapVehicle(vehicle, liveVehicle),
+      vehicle: this.mapVehicle(vehicle, liveVehicle, event),
       route: routeRow !== null ? this.mapRoute(routeRow, segmentRows) : null,
       etas:
         emergency !== null && liveVehicle !== null && (event.status === "active" || event.status === "created")
@@ -758,10 +792,15 @@ export class EmergencyService {
     };
   }
 
-  private mapVehicle(vehicle: EmergencyVehicleRow, live: VehicleSnapshot | null): EmergencyVehicleRecord {
-    const liveLatLng = live?.lat !== undefined && live?.lng !== undefined
-      ? { lat: live.lat, lng: live.lng }
-      : null;
+  private mapVehicle(
+    vehicle: EmergencyVehicleRow,
+    live: VehicleSnapshot | null,
+    event?: EmergencyEventRow,
+  ): EmergencyVehicleRecord {
+    const lat = live?.lat ?? (event?.last_latitude ? Number(event.last_latitude) : (event?.pickup_latitude ? Number(event.pickup_latitude) : undefined));
+    const lng = live?.lng ?? (event?.last_longitude ? Number(event.last_longitude) : (event?.pickup_longitude ? Number(event.pickup_longitude) : undefined));
+    const liveSpeed = live?.speed ?? (event?.last_speed_kmh ? Number(event.last_speed_kmh) / 3.6 : vehicle.last_speed_mps);
+
     return {
       id: vehicle.id,
       vehicleId: vehicle.vehicle_id,
@@ -772,8 +811,8 @@ export class EmergencyService {
       destinationJunction: vehicle.destination_junction,
       positionX: live?.positionX ?? vehicle.last_position_x,
       positionY: live?.positionY ?? vehicle.last_position_y,
-      ...(liveLatLng !== null ? { lat: liveLatLng.lat, lng: liveLatLng.lng } : {}),
-      speedMps: live?.speed ?? vehicle.last_speed_mps,
+      ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}),
+      speedMps: liveSpeed,
       createdAtIso: vehicle.created_at.toISOString(),
       activatedAtIso: vehicle.activated_at?.toISOString() ?? null,
       arrivedAtIso: vehicle.arrived_at?.toISOString() ?? null,

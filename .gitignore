@@ -22,3 +22,7 @@ data/training/
 # OS
 Thumbs.db
 .DS_Store
+
+# Uploaded evidence and scratch files
+uploads/
+apps/api/uploads/

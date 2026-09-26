@@ -49,13 +49,45 @@ export interface EmergencyEventRow {
   driver_name?: string | null;
   driver_code?: string | null;
   driver_phone?: string | null;
+  driver_license?: string | null;
   vehicle_code?: string | null;
   registration_number?: string | null;
   vehicle_model?: string | null;
+  vehicle_type?: string | null;
+  last_latitude?: number | null;
+  last_longitude?: number | null;
+  last_speed_kmh?: number | null;
+  last_heading?: number | null;
+  last_telemetry_at?: Date | null;
   hospital_name?: string | null;
   hospital_code?: string | null;
+  hospital_address?: string | null;
+  hospital_phone?: string | null;
+  hospital_available_beds?: number | null;
+  hospital_trauma_level?: string | null;
+  origin_address?: string | null;
+  destination_address?: string | null;
+  pickup_latitude?: number | null;
+  pickup_longitude?: number | null;
+  verification_id?: number | null;
+  request_id?: string | null;
   verification_status?: string | null;
   is_corridor_authorized?: boolean | null;
+  verification_submitted_at?: Date | null;
+  evidence_id?: number | null;
+  evidence_file_name?: string | null;
+  evidence_file_size?: number | null;
+  evidence_uploaded_at?: Date | null;
+  ai_verdict?: string | null;
+  ai_confidence_score?: number | null;
+  ai_reason?: string | null;
+  ai_detected_features?: string[] | null;
+  ai_model?: string | null;
+  ai_evaluated_at?: Date | null;
+  reviewer_name?: string | null;
+  review_notes?: string | null;
+  rejection_reason?: string | null;
+  review_decided_at?: Date | null;
   has_patient_image?: boolean | null;
 }
 
@@ -96,6 +128,10 @@ export interface NewEmergencyInput {
   patientCondition?: string | null;
   severity?: string | null;
   authorizationStatus?: string | null;
+  originAddress?: string | null;
+  destinationAddress?: string | null;
+  pickupLatitude?: number | null;
+  pickupLongitude?: number | null;
 }
 
 export interface NewRouteInput {
@@ -143,8 +179,9 @@ export class EmergencyRepository {
       const eventResult = await tx.query<EmergencyEventRow>(
         `INSERT INTO emergency_events
            (vehicle_id, origin_junction, destination_junction, priority, status,
-            driver_id, fleet_vehicle_id, hospital_id, patient_condition, severity, authorization_status)
-         VALUES ($1, $2, $3, $4, 'created', $5, $6, $7, $8, $9, $10) RETURNING *`,
+            driver_id, fleet_vehicle_id, hospital_id, patient_condition, severity, authorization_status,
+            origin_address, destination_address, pickup_latitude, pickup_longitude)
+         VALUES ($1, $2, $3, $4, 'created', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
         [
           vehicle.id,
           input.originJunction,
@@ -156,6 +193,10 @@ export class EmergencyRepository {
           input.patientCondition ?? null,
           input.severity ?? "codeRed",
           input.authorizationStatus ?? "pending",
+          input.originAddress ?? null,
+          input.destinationAddress ?? null,
+          input.pickupLatitude ?? null,
+          input.pickupLongitude ?? null,
         ],
       );
       const event = eventResult.rows[0]!;
@@ -206,32 +247,85 @@ export class EmergencyRepository {
     });
   }
 
-  async getEvent(id: number): Promise<EmergencyEventRow | null> {
-    const result = await this.db.query<EmergencyEventRow>(
-      `SELECT e.*,
+  private buildEventSelectQuery(whereOrOrder: string): string {
+    return `SELECT e.*,
               d.name AS driver_name,
               d.driver_code,
               d.phone AS driver_phone,
+              d.license_number AS driver_license,
               fv.vehicle_code,
               fv.registration_number,
               fv.model AS vehicle_model,
+              fv.vehicle_type,
+              fv.last_latitude,
+              fv.last_longitude,
+              fv.last_speed_kmh,
+              fv.last_heading,
+              fv.last_telemetry_at,
               h.name AS hospital_name,
               h.code AS hospital_code,
-              v.verification_status,
-              v.is_corridor_authorized,
-              EXISTS(SELECT 1 FROM emergency_evidence ev WHERE ev.event_id = e.id) AS has_patient_image
+              h.address AS hospital_address,
+              h.emergency_phone AS hospital_phone,
+              h.available_beds AS hospital_available_beds,
+              h.trauma_level AS hospital_trauma_level,
+              v.id AS verification_id,
+              v.request_id,
+              COALESCE(v.status, 'pending') AS verification_status,
+              COALESCE(v.is_corridor_authorized, false) AS is_corridor_authorized,
+              v.submitted_at AS verification_submitted_at,
+              ev.id AS evidence_id,
+              ev.file_name AS evidence_file_name,
+              ev.file_size_bytes AS evidence_file_size,
+              ev.uploaded_at AS evidence_uploaded_at,
+              ai.verdict AS ai_verdict,
+              ai.confidence_score AS ai_confidence_score,
+              ai.reason AS ai_reason,
+              ai.detected_features AS ai_detected_features,
+              ai.model AS ai_model,
+              ai.evaluated_at AS ai_evaluated_at,
+              mvd.reviewer_name,
+              mvd.notes AS review_notes,
+              mvd.rejection_reason,
+              mvd.decided_at AS review_decided_at,
+              (ev.id IS NOT NULL) AS has_patient_image
        FROM emergency_events e
        LEFT JOIN drivers d ON d.id = e.driver_id
        LEFT JOIN fleet_vehicles fv ON fv.id = e.fleet_vehicle_id
        LEFT JOIN hospitals h ON h.id = e.hospital_id
        LEFT JOIN LATERAL (
-         SELECT status AS verification_status, is_corridor_authorized
+         SELECT id, request_id, status, is_corridor_authorized, submitted_at
          FROM emergency_verifications
          WHERE event_id = e.id
          ORDER BY id DESC
          LIMIT 1
        ) v ON true
-       WHERE e.id = $1`,
+       LEFT JOIN LATERAL (
+         SELECT id, file_name, file_size_bytes, uploaded_at
+         FROM emergency_evidence
+         WHERE event_id = e.id
+         ORDER BY id DESC
+         LIMIT 1
+       ) ev ON true
+       LEFT JOIN LATERAL (
+         SELECT verdict, confidence_score, reason, detected_features, model, evaluated_at
+         FROM ai_verification_results
+         WHERE verification_id = v.id
+         ORDER BY id DESC
+         LIMIT 1
+       ) ai ON true
+       LEFT JOIN LATERAL (
+         SELECT reviewer_name, notes, rejection_reason, decided_at
+         FROM manual_verification_decisions
+         WHERE verification_id = v.id
+         ORDER BY id DESC
+         LIMIT 1
+       ) mvd ON true
+       ${whereOrOrder}`;
+  }
+
+  async getEvent(id: number): Promise<EmergencyEventRow | null> {
+    const result = await this.db.query<EmergencyEventRow>(
+      this.buildEventSelectQuery("WHERE e.id = $1"),
       [id],
     );
     return result.rows[0] ?? null;
@@ -239,30 +333,7 @@ export class EmergencyRepository {
 
   async listEvents(): Promise<EmergencyEventRow[]> {
     const result = await this.db.query<EmergencyEventRow>(
-      `SELECT e.*,
-              d.name AS driver_name,
-              d.driver_code,
-              d.phone AS driver_phone,
-              fv.vehicle_code,
-              fv.registration_number,
-              fv.model AS vehicle_model,
-              h.name AS hospital_name,
-              h.code AS hospital_code,
-              v.verification_status,
-              v.is_corridor_authorized,
-              EXISTS(SELECT 1 FROM emergency_evidence ev WHERE ev.event_id = e.id) AS has_patient_image
-       FROM emergency_events e
-       LEFT JOIN drivers d ON d.id = e.driver_id
-       LEFT JOIN fleet_vehicles fv ON fv.id = e.fleet_vehicle_id
-       LEFT JOIN hospitals h ON h.id = e.hospital_id
-       LEFT JOIN LATERAL (
-         SELECT status AS verification_status, is_corridor_authorized
-         FROM emergency_verifications
-         WHERE event_id = e.id
-         ORDER BY id DESC
-         LIMIT 1
-       ) v ON true
-       ORDER BY e.id DESC`,
+      this.buildEventSelectQuery("ORDER BY e.id DESC"),
     );
     return result.rows;
   }

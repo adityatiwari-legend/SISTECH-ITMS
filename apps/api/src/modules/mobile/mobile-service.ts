@@ -255,8 +255,10 @@ export class MobileService {
       );
     }
 
-    // Resolve Origin Junction
-    const origin = this.resolveValidJunction(body.origin, body.latitude, body.longitude);
+    // Resolve Origin Junction with dual coordinate support (latitude/originLat)
+    const pickupLat = typeof body.latitude === "number" ? body.latitude : (typeof (body as any).originLat === "number" ? (body as any).originLat : undefined);
+    const pickupLng = typeof body.longitude === "number" ? body.longitude : (typeof (body as any).originLng === "number" ? (body as any).originLng : undefined);
+    const origin = this.resolveValidJunction(body.origin, pickupLat, pickupLng);
 
     // Resolve Destination Junction
     let hospital = null;
@@ -268,7 +270,15 @@ export class MobileService {
     const destination = this.resolveDestinationJunction(body.destination, hospital, origin);
 
     const emergencyType: EmergencyType = body.type || vehicle.vehicleType || "ambulance";
-    const priority: EmergencyPriority = body.priority || "critical";
+    let priority: EmergencyPriority = "critical";
+    const rawPriority = (body.priority || "").toLowerCase();
+    if (rawPriority === "critical") {
+      priority = "critical";
+    } else if (rawPriority === "urgent" || rawPriority === "high") {
+      priority = "high";
+    } else if (rawPriority === "standard" || rawPriority === "normal" || rawPriority === "medium" || rawPriority === "low") {
+      priority = "normal";
+    }
 
     // Create via core emergency service with full mobile metadata
     const detail = await this.emergencyService.createEmergency({
@@ -281,6 +291,10 @@ export class MobileService {
       destinationHospitalId: hospitalId ?? undefined,
       patientCondition: body.patientCondition,
       severity: body.severity,
+      originAddress: body.originAddress ?? "Bhopal Driver Pickup Location",
+      destinationAddress: body.destinationAddress ?? (hospital ? hospital.name : undefined),
+      pickupLatitude: pickupLat,
+      pickupLongitude: pickupLng,
     });
 
     // Update fleet vehicle and driver status

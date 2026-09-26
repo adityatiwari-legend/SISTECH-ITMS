@@ -350,21 +350,49 @@ export interface MobileEmergencyMeta {
   driverName?: string | null;
   driverCode?: string | null;
   driverPhone?: string | null;
+  driverLicense?: string | null;
   vehicleCode?: string | null;
   registrationNumber?: string | null;
   vehicleModel?: string | null;
+  vehicleType?: string | null;
+  lastLatitude?: number | null;
+  lastLongitude?: number | null;
+  lastSpeedKmh?: number | null;
+  lastHeading?: number | null;
+  lastTelemetryAtIso?: string | null;
   hospitalId?: number | null;
   hospitalName?: string | null;
   hospitalCode?: string | null;
+  hospitalAddress?: string | null;
+  hospitalPhone?: string | null;
+  hospitalAvailableBeds?: number | null;
+  hospitalTraumaLevel?: string | null;
+  originAddress?: string | null;
+  destinationAddress?: string | null;
+  pickupLatitude?: number | null;
+  pickupLongitude?: number | null;
   patientCondition?: string | null;
   severity?: string | null;
   authorizationStatus?: string | null;
   verificationStatus?: string | null;
   isCorridorAuthorized?: boolean;
   hasPatientImage?: boolean;
+  evidenceId?: number | null;
+  evidenceFileName?: string | null;
+  evidenceUploadedAtIso?: string | null;
+  requestId?: string | null;
+  aiVerdict?: string | null;
+  aiConfidenceScore?: number | null;
+  aiReason?: string | null;
+  aiDetectedFeatures?: string[];
+  aiModel?: string | null;
+  reviewerName?: string | null;
+  reviewNotes?: string | null;
+  rejectionReason?: string | null;
+  reviewDecidedAtIso?: string | null;
 }
 
-/** Body of POST /api/emergency (validated). */
+/** Body of POST /api/emergency and POST /api/driver/emergency (validated). */
 export interface CreateEmergencyBody {
   type: EmergencyType;
   origin?: string;
@@ -372,11 +400,19 @@ export interface CreateEmergencyBody {
   priority: EmergencyPriority;
   latitude?: number;
   longitude?: number;
+  originLat?: number;
+  originLng?: number;
+  destinationLat?: number;
+  destinationLng?: number;
+  originAddress?: string;
+  destinationAddress?: string;
   destinationHospitalId?: number | string;
   patientCondition?: string;
   severity?: string;
   driverId?: number;
   vehicleId?: number | string;
+  pickupLatitude?: number;
+  pickupLongitude?: number;
 }
 
 // ---------------------------------------------------------------------------

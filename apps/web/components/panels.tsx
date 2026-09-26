@@ -117,6 +117,24 @@ export function ActiveEmergencyPanel({
             </div>
           </div>
 
+          {/* Driver App Dispatch Badge & Triage Strip if initiated by mobile */}
+          {emergency.mobile?.isDriverApp && (
+            <div className="mt-2 rounded-lg border border-[rgba(24,216,139,0.3)] bg-[rgba(24,216,139,0.08)] p-2 font-mono text-[11px] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-bold text-[#18D88B]">
+                  <span>📱 DRIVER:</span> {emergency.mobile.driverName || "Field Responder"} ({emergency.mobile.driverCode || "DRV-802"})
+                </span>
+                <span className="rounded bg-[rgba(24,216,139,0.2)] px-1.5 py-0.5 text-[9px] font-bold text-[#18D88B]">
+                  {emergency.mobile.verificationStatus === "aiApproved" ? "✓ AI VERIFIED" : (emergency.mobile.verificationStatus?.toUpperCase() || "AI ANALYZING")}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-[#8D9AAA]">
+                <span className="truncate">🩺 Triage: <strong className="text-[#FF3B4E]">{emergency.mobile.patientCondition || "Severe Trauma / Acute Condition"}</strong></span>
+                <span className="truncate">🏥 {emergency.mobile.hospitalName || destMeta.fullName}</span>
+              </div>
+            </div>
+          )}
+
           {/* Route Progress Bar */}
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between font-mono text-[10px]">

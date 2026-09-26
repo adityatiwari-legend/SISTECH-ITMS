@@ -44,6 +44,10 @@ jobs:
             echo "📦 Installing npm dependencies..."
             npm install
             
+            # Run Database Migrations
+            echo "🗄️ Running PostgreSQL Database Migrations..."
+            npm run migrate
+            
             # Build Next.js Production Bundles
             echo "🔨 Building Frontend & IoT Web bundles..."
             npm run build:web

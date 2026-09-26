@@ -290,6 +290,16 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
         }
         case "emergency:created":
         case "emergency:update":
+        case "emergency:verification:submitted":
+        case "emergency:verification:analyzing":
+        case "emergency:verified":
+        case "emergency:fraud-flagged":
+        case "emergency:manual-review":
+        case "emergency:approved":
+        case "emergency:rejected":
+        case "corridor:authorized":
+        case "emergency:completed":
+        case "emergency:cancelled":
         case "route:updated":
         case "route:switched": {
           const payload = event.payload as Record<string, unknown>;

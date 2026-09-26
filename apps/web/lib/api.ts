@@ -38,16 +38,41 @@ export class ApiError extends Error {
 }
 
 export function baseUrl(): string {
+  if (typeof window !== "undefined") {
+    const custom = window.localStorage.getItem("itms_api_url");
+    if (custom && custom.trim().length > 0) {
+      return custom.trim().replace(/\/$/, "");
+    }
+  }
   return process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000";
 }
 
 export function patientImageUrl(emergencyId: number): string {
-  return `${baseUrl()}/api/emergency/${emergencyId}/patient-image`;
+  const base = baseUrl();
+  let tokenParam = "";
+  if (typeof window !== "undefined") {
+    const token = window.localStorage.getItem("itms_auth_token");
+    if (token) tokenParam = `?token=${encodeURIComponent(token)}`;
+  }
+  return `${base}/api/emergency/${emergencyId}/patient-image${tokenParam}`;
 }
 
 export function wsUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000";
+  const base = baseUrl();
   return base.replace(/^http/, "ws") + "/ws";
+}
+
+export function getApiTarget(): string {
+  return baseUrl();
+}
+
+export function setApiTarget(url: string | null): void {
+  if (typeof window === "undefined") return;
+  if (!url) {
+    window.localStorage.removeItem("itms_api_url");
+  } else {
+    window.localStorage.setItem("itms_api_url", url.trim().replace(/\/$/, ""));
+  }
 }
 
 /** Simple backend liveness probe (GET /health). */

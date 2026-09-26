@@ -22,7 +22,9 @@
     "build:iot": "npm run build --workspace sistech-iotdisplay",
     "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace @itms/types && npm run typecheck --workspace web && npm run typecheck --workspace sistech-iotdisplay",
     "test:api": "npm run test --workspace apps/api",
-    "test:prediction": "python -m pytest services/prediction/tests -q"
+    "test:prediction": "python -m pytest services/prediction/tests -q",
+    "migrate": "npm run migrate --workspace apps/api",
+    "db:migrate": "npm run migrate --workspace apps/api"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
