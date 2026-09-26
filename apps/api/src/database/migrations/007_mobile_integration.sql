@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS hospitals (
     emergency_phone     TEXT,
     available_beds      INTEGER     NOT NULL DEFAULT 10,
     trauma_level        TEXT        NOT NULL DEFAULT 'Level 1',
-    nearest_junction_id TEXT        NOT NULL REFERENCES intersections(id),
+    nearest_junction_id TEXT        REFERENCES intersections(id) ON DELETE SET NULL,
     status              TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'diverting', 'full')),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -215,6 +215,17 @@ VALUES
   ('FIRE-001', 'MP-04-FT-1010', 'fire_engine', 'Ashok Leyland Water Tender Heavy', 'available'),
   ('POL-001', 'MP-04-PC-1000', 'police', 'Mahindra Scorpio High-Speed Interceptor', 'available')
 ON CONFLICT (vehicle_code) DO NOTHING;
+
+-- Ensure base intersections exist for foreign key integrity on fresh database migrations
+INSERT INTO intersections (id, kind, controlled, x, y, geom)
+VALUES
+  ('I1', 'traffic_light', true, 0, 0, ST_GeomFromText('POINT(0 0)', 0)),
+  ('I2', 'traffic_light', true, 100, 0, ST_GeomFromText('POINT(100 0)', 0)),
+  ('I3', 'traffic_light', true, 200, 0, ST_GeomFromText('POINT(200 0)', 0)),
+  ('I4', 'traffic_light', true, 0, 100, ST_GeomFromText('POINT(0 100)', 0)),
+  ('I5', 'traffic_light', true, 100, 100, ST_GeomFromText('POINT(100 100)', 0)),
+  ('I6', 'traffic_light', true, 200, 100, ST_GeomFromText('POINT(200 100)', 0))
+ON CONFLICT (id) DO NOTHING;
 
 -- Seed Bhopal Emergency Hospitals linked to network junctions
 INSERT INTO hospitals (name, code, address, latitude, longitude, emergency_phone, available_beds, trauma_level, nearest_junction_id, status)
