@@ -333,7 +333,12 @@ export async function mobileRoutes(
       scenario,
     });
 
-    return reply.code(201).send(result);
+    return reply.code(201).send({
+      ...result,
+      status: result.verification.status,
+      isCorridorAuthorized: result.verification.isCorridorAuthorized,
+      requestId: result.verification.requestId,
+    });
   });
 
   app.get("/api/emergency/:id/patient-image", async (request, reply) => {
