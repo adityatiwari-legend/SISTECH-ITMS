@@ -60,13 +60,22 @@ export interface ItmsLiveState {
   lastError: string | null;
 }
 
+export type EmergencyUpsertPayload = Partial<EmergencyEventDetail> & {
+  id: number;
+  version?: number;
+  origin?: string;
+  destination?: string;
+  startedAt?: string;
+  vehicleId?: string;
+};
+
 type Action =
   | { type: "sim"; payload: SimulationStatusSnapshot }
   | { type: "traffic"; payload: TrafficStateResponse }
   | { type: "signals"; payload: SignalSnapshot[] }
   | { type: "vehicles"; payload: VehicleSnapshot[] }
   | { type: "emergencies"; payload: EmergencyEventDetail[] }
-  | { type: "emergency_upsert"; payload: Partial<EmergencyEventDetail> & { id: number; version?: number } }
+  | { type: "emergency_upsert"; payload: EmergencyUpsertPayload }
   | { type: "emergency_finish"; payload: { eventId: number; status: "arrived" | "cancelled" } }
   | { type: "corridors"; payload: CorridorDetail[] }
   | { type: "prediction"; payload: PredictionUpdatePayload }
@@ -92,7 +101,7 @@ function computeNormalizedTraffic(
 
   let avgSpeed = 0;
   if (vehicles.length > 0) {
-    const sumSpeed = vehicles.reduce((acc, v) => acc + (v.speed ?? (v as any).speedMps ?? 0), 0);
+    const sumSpeed = vehicles.reduce((acc, v) => acc + (v.speed ?? (v as { speedMps?: number }).speedMps ?? 0), 0);
     avgSpeed = Math.round((sumSpeed / vehicles.length) * 100) / 100;
   } else if (traffic?.summary.avgSpeedMps) {
     avgSpeed = traffic.summary.avgSpeedMps;
@@ -176,19 +185,19 @@ function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
       next = { ...state, emergencies: action.payload };
       break;
     case "emergency_upsert": {
-      const p = action.payload as any;
+      const p = action.payload;
       const existingIdx = state.emergencies.findIndex((e) => e.id === p.id);
       let updatedEmergencies: EmergencyEventDetail[];
       if (existingIdx >= 0) {
         const existing = state.emergencies[existingIdx];
-        if (p.version !== undefined && (existing as any).version !== undefined && (existing as any).version > p.version) {
+        if (p.version !== undefined && existing.version !== undefined && existing.version > p.version) {
           return state;
         }
         const merged: EmergencyEventDetail = {
           ...existing,
           ...p,
-          version: p.version ?? (existing as any).version,
-        } as EmergencyEventDetail;
+          version: p.version ?? existing.version,
+        };
         updatedEmergencies = [...state.emergencies];
         updatedEmergencies[existingIdx] = merged;
       } else {
@@ -457,7 +466,7 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
                 ...payload,
                 id: eventId,
                 version: typeof payload.version === "number" ? payload.version : undefined,
-              } as any,
+              } as unknown as EmergencyUpsertPayload,
             });
           }
           dispatch({

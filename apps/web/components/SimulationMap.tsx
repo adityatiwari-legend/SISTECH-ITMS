@@ -1035,31 +1035,16 @@ function DynamicLayer({
     return m;
   }, [roadsideDevices]);
 
+  const corridorSignals = React.useMemo(
+    () => data.corridor?.signals ?? [],
+    [data.corridor?.signals]
+  );
+
   const geometry = data.geometry;
-  if (!geometry) return null;
-
-  const corridorSignals = data.corridor?.signals ?? [];
-  const corridorApproaches = new Set(
-    corridorSignals
-      .filter((s) => s.status === "APPLIED" || s.status === "PASSED" || s.status === "PENDING")
-      .map((s) => s.approachSegmentId)
-  );
-
-  const routeSegmentIds = new Set(
-    (data.emergency?.route?.segments ?? []).map((s) => s.segmentId)
-  );
-  const trafficBySegment = new Map(
-    data.trafficSegments.map((s) => [s.segmentId, s] as const)
-  );
-  const signalById = new Map(data.signals.map((s) => [s.id, s] as const));
-  const emergency = data.emergency;
-
-  const isZoomFar = (viewWidth ?? 1000) > 1100;
-  const isZoomMedium = (viewWidth ?? 1000) > 450 && (viewWidth ?? 1000) <= 1100;
-  const isZoomClose = (viewWidth ?? 1000) <= 450;
 
   // Deduplicate signals within 15 meters to eliminate visual clutter and duplicates
   const deduplicatedJunctions = React.useMemo(() => {
+    if (!geometry) return [];
     const list = geometry.junctions;
     const result: typeof list = [];
     const usedPositions: Array<{ x: number; y: number }> = [];
@@ -1089,7 +1074,26 @@ function DynamicLayer({
       }
     }
     return result;
-  }, [geometry.junctions, corridorSignals, selectedJunctionId]);
+  }, [geometry, corridorSignals, selectedJunctionId]);
+
+  if (!geometry) return null;
+
+  const corridorApproaches = new Set(
+    corridorSignals
+      .filter((s) => s.status === "APPLIED" || s.status === "PASSED" || s.status === "PENDING")
+      .map((s) => s.approachSegmentId)
+  );
+
+  const routeSegmentIds = new Set(
+    (data.emergency?.route?.segments ?? []).map((s) => s.segmentId)
+  );
+  const trafficBySegment = new Map(
+    data.trafficSegments.map((s) => [s.segmentId, s] as const)
+  );
+  const signalById = new Map(data.signals.map((s) => [s.id, s] as const));
+
+  const isZoomMedium = (viewWidth ?? 1000) > 450 && (viewWidth ?? 1000) <= 1100;
+  const isZoomClose = (viewWidth ?? 1000) <= 450;
 
   return (
     <g>

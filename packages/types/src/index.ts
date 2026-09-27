@@ -344,6 +344,8 @@ export interface EmergencyEventDetail {
     routeIndex: number;
     remainingDistanceM: number;
   } | null;
+  /** Incremental state sequence version (used to deduplicate and order WS events). */
+  version?: number;
   /** Mobile driver app integration metadata (present when initiated from driver app). */
   mobile?: MobileEmergencyMeta | null;
 }
