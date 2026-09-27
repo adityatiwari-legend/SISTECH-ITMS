@@ -156,6 +156,7 @@ def build_html(title, md_content, subtitle):
 
 
 async def html_to_pdf(html_path: Path, pdf_path: Path):
+    # pyrefly: ignore [missing-import]
     from playwright.async_api import async_playwright
     async with async_playwright() as p:
         browser = await p.chromium.launch()
