@@ -22,6 +22,7 @@ import { MetricsRepository } from "./database/repositories/metrics-repository.ts
 import { ScenarioComparisonService } from "./modules/scenarios/scenario-comparison-service.ts";
 import { DeviceRepository } from "./database/repositories/device-repository.ts";
 import { RoadsideDeviceService } from "./modules/device/device-service.ts";
+import { NetworkRepository } from "./database/repositories/network-repository.ts";
 import { WsBus } from "./modules/websocket/ws-bus.ts";
 import { createDatabasePool } from "./database/db.ts";
 import { runMigrations } from "./database/migrate.ts";
@@ -50,6 +51,15 @@ async function main(): Promise<void> {
     signals: catalog.signals.length,
     geoReferenced: catalog.geoReferenced,
   });
+
+  // Sync static network registry to PostgreSQL immediately on startup
+  try {
+    const networkRepo = new NetworkRepository(db);
+    await networkRepo.syncCatalog(catalog);
+    logger.info("Network catalog synchronized with PostgreSQL registry");
+  } catch (err) {
+    logger.warn("Initial network catalog sync deferred or partial", { error: err });
+  }
 
   // ---- routing (road graph + A* engine) ----
   const roadGraph = new RoadGraph(catalog);

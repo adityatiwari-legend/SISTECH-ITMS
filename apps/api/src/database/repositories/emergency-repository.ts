@@ -161,6 +161,24 @@ export class EmergencyRepository {
     route: RouteRow | null;
   }> {
     return this.db.transaction(async (tx) => {
+      // Ensure origin and destination junctions exist in intersections table (defense-in-depth against legacy FKs)
+      if (input.originJunction) {
+        await tx.query(
+          `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+           VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [input.originJunction],
+        ).catch(() => undefined);
+      }
+      if (input.destinationJunction) {
+        await tx.query(
+          `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+           VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [input.destinationJunction],
+        ).catch(() => undefined);
+      }
+
       const vehicleResult = await tx.query<EmergencyVehicleRow>(
         `INSERT INTO emergency_vehicles
            (vehicle_id, type, priority, status, run_id, origin_junction, destination_junction)

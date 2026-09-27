@@ -69,6 +69,23 @@ export class CorridorRepository {
     const plannedEntries = input.signals.filter((entry) => entry.status !== "SKIPPED");
     const skipped = input.signals.filter((entry) => entry.status === "SKIPPED");
     const corridor = await this.db.transaction(async (tx) => {
+      if (input.originJunction) {
+        await tx.query(
+          `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+           VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [input.originJunction],
+        ).catch(() => undefined);
+      }
+      if (input.destinationJunction) {
+        await tx.query(
+          `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+           VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [input.destinationJunction],
+        ).catch(() => undefined);
+      }
+
       const result = await tx.query<GreenCorridorRow>(
         `INSERT INTO green_corridors
            (event_id, status, origin_junction, destination_junction, junction_count, planned_at_sim_time_s)
