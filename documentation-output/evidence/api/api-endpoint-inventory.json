@@ -1,0 +1,299 @@
+{
+  "title": "ITMS API Endpoint Inventory",
+  "generated_at": "2026-09-27T14:00:00Z",
+  "source": "Source code analysis of apps/api/src/modules/*/routes.ts",
+  "base_url": "http://127.0.0.1:3000",
+  "websocket": "ws://127.0.0.1:3000/ws",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "purpose": "Backend health probe",
+      "response_example": {
+        "status": "ok",
+        "service": "itms-backend",
+        "timestamp": "2026-09-27T14:00:00.000Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/network/geometry",
+      "purpose": "SUMO network geometry (junctions, edges) for SVG rendering",
+      "response_shape": {
+        "junctions": [{"id": "I1", "x": 0, "y": 0, "controlled": true, "kind": "traffic_light"}],
+        "edges": [{"id": "i1_i2", "from": "I1", "to": "I2", "shape": [[0,0],[100,0]]}]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/system",
+      "purpose": "Overall system health status",
+      "response_shape": {
+        "db": {"connected": true},
+        "traci": {"connected": true},
+        "prediction": {"connected": true, "model_version": "xgb-v1"},
+        "simulation": {"status": "running", "simTime": 120}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/decisions",
+      "purpose": "AI decision audit event log",
+      "query_params": {"limit": "integer (default 100)", "emergencyId": "integer (optional)"},
+      "response_shape": {
+        "events": [
+          {
+            "id": "evt-1",
+            "type": "route_computed",
+            "emergencyId": 1,
+            "timestamp": "2026-09-27T14:00:00Z",
+            "details": {"algorithm": "astar", "edgeCount": 6, "etaSeconds": 162}
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/simulation/start",
+      "purpose": "Start SUMO simulation",
+      "body_example": {"scenario": "emergency"},
+      "response_shape": {"ok": true, "simTime": 0}
+    },
+    {
+      "method": "POST",
+      "path": "/api/simulation/pause",
+      "purpose": "Pause running simulation",
+      "body_example": {},
+      "response_shape": {"ok": true}
+    },
+    {
+      "method": "POST",
+      "path": "/api/simulation/resume",
+      "purpose": "Resume paused simulation",
+      "body_example": {},
+      "response_shape": {"ok": true}
+    },
+    {
+      "method": "POST",
+      "path": "/api/simulation/stop",
+      "purpose": "Stop simulation and disconnect TraCI",
+      "body_example": {},
+      "response_shape": {"ok": true}
+    },
+    {
+      "method": "POST",
+      "path": "/api/simulation/speed",
+      "purpose": "Set simulation speed multiplier",
+      "body_example": {"multiplier": 10},
+      "response_shape": {"ok": true, "multiplier": 10}
+    },
+    {
+      "method": "GET",
+      "path": "/api/simulation/state",
+      "purpose": "Current simulation state",
+      "response_shape": {
+        "status": "running",
+        "simTime": 45.0,
+        "stepCount": 45,
+        "vehicleCount": 127,
+        "scenario": "emergency"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/vehicles",
+      "purpose": "All vehicle states from last TraCI step",
+      "response_shape": {
+        "vehicles": [
+          {"id": "car-1", "edgeId": "i1_i2", "x": 25.3, "y": 0, "speedMps": 13.9, "angle": 0, "timeLoss": 2.1}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/signals",
+      "purpose": "All traffic signal states",
+      "response_shape": {
+        "signals": [
+          {"id": "I1", "programId": "p0", "phaseIndex": 0, "state": "GGrrGGrr", "nextSwitchS": 12, "queueLength": 3}
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/signals/:id/state",
+      "purpose": "Manually override a signal state",
+      "body_example": {"phaseIndex": 2, "durationS": 30},
+      "response_shape": {"ok": true}
+    },
+    {
+      "method": "GET",
+      "path": "/api/traffic",
+      "purpose": "Live traffic state for all segments and junctions",
+      "response_shape": {
+        "segments": [
+          {"id": "i1_i2", "vehicleCount": 4, "avgSpeedMps": 11.2, "queueLength": 1, "occupancy": 0.12, "congestion": "LOW"}
+        ],
+        "junctions": [
+          {"id": "I1", "queueLength": 3, "congestion": "MEDIUM", "controlled": true}
+        ],
+        "summary": {"totalVehicles": 127, "avgSpeedMps": 10.4, "congestionLevel": "LOW"}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/traffic/intersections",
+      "purpose": "Intersection registry with live queue/congestion data",
+      "response_shape": {
+        "intersections": [
+          {"id": "I1", "kind": "traffic_light", "controlled": true, "x": 0, "y": 0, "queueLength": 2, "congestion": "LOW"}
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/emergency",
+      "purpose": "Create emergency event and dispatch vehicle",
+      "body_example": {
+        "type": "ambulance",
+        "priority": "critical",
+        "originJunction": "W1",
+        "destinationJunction": "E2"
+      },
+      "response_shape": {
+        "id": 1,
+        "vehicleId": "emv-1-0",
+        "type": "ambulance",
+        "priority": "critical",
+        "status": "created",
+        "route": {"edgeCount": 6, "estimatedTravelTimeS": 162}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/emergency",
+      "purpose": "List all emergency events",
+      "response_shape": {
+        "events": [
+          {"id": 1, "type": "ambulance", "status": "active", "eta": 45, "junctionsPassed": 3}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/emergency/:id",
+      "purpose": "Emergency detail with live position, ETAs, and corridor",
+      "response_shape": {
+        "id": 1,
+        "type": "ambulance",
+        "status": "active",
+        "position": {"x": 150.2, "y": 0.5, "speedMps": 12.1, "angle": 0},
+        "route": {"segments": [], "currentIndex": 2},
+        "etaToJunctions": [{"junctionId": "I3", "etaS": 18}, {"junctionId": "E2", "etaS": 45}],
+        "corridorId": 1
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/corridors",
+      "purpose": "Create green corridor for an emergency",
+      "body_example": {"emergencyId": 1},
+      "response_shape": {"id": 1, "status": "PLANNING", "junctionCount": 4}
+    },
+    {
+      "method": "GET",
+      "path": "/api/corridors",
+      "purpose": "List all corridors",
+      "response_shape": {
+        "corridors": [
+          {"id": 1, "eventId": 1, "status": "ACTIVE", "junctionCount": 4}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/corridors/:id",
+      "purpose": "Corridor detail with per-junction window states",
+      "response_shape": {
+        "id": 1,
+        "status": "ACTIVE",
+        "signals": [
+          {"signalId": "I1", "sequenceIndex": 0, "mode": "switch", "status": "PASSED", "etaSeconds": 12},
+          {"signalId": "I2", "sequenceIndex": 1, "mode": "extend", "status": "APPLIED", "etaSeconds": 28}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/predictions",
+      "purpose": "Current ML traffic predictions for all junctions",
+      "response_shape": {
+        "predictions": [
+          {
+            "junctionId": "I1",
+            "simTimeS": 45.0,
+            "horizons": {
+              "30": {"predictedCount": 8, "source": "ml"},
+              "60": {"predictedCount": 11, "source": "ml"},
+              "90": {"predictedCount": 9, "source": "ml"},
+              "120": {"predictedCount": 7, "source": "fallback"}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/scenarios/compare",
+      "purpose": "Start a baseline vs ITMS comparison run",
+      "body_example": {
+        "type": "ambulance",
+        "priority": "critical",
+        "originJunction": "W1",
+        "destinationJunction": "E2"
+      },
+      "response_shape": {"jobId": "cmp-abc123", "status": "queued"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/scenarios/compare/:jobId",
+      "purpose": "Poll comparison job status and results",
+      "response_shape": {
+        "jobId": "cmp-abc123",
+        "status": "completed",
+        "results": {
+          "deltaTravel TimeS": -80.6,
+          "deltaAvgDelayS": -6.28,
+          "deltaAvgQueue": -3.81,
+          "deltaAvgSpeedMps": 0.27,
+          "deltaThroughputPerH": 13.21
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics",
+      "purpose": "Aggregated performance analytics from all completed comparisons",
+      "response_shape": {
+        "totalComparisons": 5,
+        "avgTimeSavedS": 76.4,
+        "bestTimeSavedS": 80.6,
+        "avgDelayReductionS": 6.1
+      }
+    }
+  ],
+  "websocket_events": [
+    {"event": "traffic:update", "direction": "server→client", "frequency": "~5 Hz"},
+    {"event": "vehicle:update", "direction": "server→client", "frequency": "~5 Hz"},
+    {"event": "signal:update", "direction": "server→client", "frequency": "~5 Hz"},
+    {"event": "prediction:update", "direction": "server→client", "frequency": "~2 Hz"},
+    {"event": "emergency:created", "direction": "server→client", "frequency": "on-event"},
+    {"event": "emergency:update", "direction": "server→client", "frequency": "~5 Hz"},
+    {"event": "corridor:created", "direction": "server→client", "frequency": "on-event"},
+    {"event": "corridor:update", "direction": "server→client", "frequency": "~5 Hz"},
+    {"event": "route:switched", "direction": "server→client", "frequency": "on-event"},
+    {"event": "comparison:update", "direction": "server→client", "frequency": "on-event"},
+    {"event": "system:alert", "direction": "server→client", "frequency": "on-error"},
+    {"event": "heartbeat", "direction": "server→client", "frequency": "every 15s"}
+  ]
+}

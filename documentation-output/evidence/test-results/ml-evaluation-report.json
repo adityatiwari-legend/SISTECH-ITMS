@@ -1,0 +1,42 @@
+{
+  "title": "ITMS ML Prediction Model Evaluation Evidence",
+  "source_file": "services/prediction/evaluation/evaluation_report.json",
+  "generated_at": "2026-09-23T06:36:27.025829+00:00",
+  "dataset": {
+    "path": "data/training_dataset.csv",
+    "sha256": "82a553ba5c59ea69d9a5bdef0f0ba3ba048904ce01a1b25d7b743114b7dec714",
+    "rows": 36000,
+    "runs_total": 40,
+    "split_method": "Run-level 70/15/15 — no temporal leakage",
+    "train_runs": 28,
+    "val_runs": 6,
+    "test_runs": 6
+  },
+  "model_parameters": {
+    "objective": "reg:squarederror",
+    "n_estimators": 600,
+    "max_depth": 8,
+    "learning_rate": 0.06,
+    "subsample": 0.9,
+    "colsample_bytree": 0.9,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "n_jobs": 4,
+    "tree_method": "hist"
+  },
+  "test_metrics": {
+    "30s_horizon": {"mae": 3.58, "rmse": 5.159, "r2": 0.911, "test_rows": 5400},
+    "60s_horizon": {"mae": 4.605, "rmse": 6.881, "r2": 0.873, "test_rows": 5400},
+    "90s_horizon": {"mae": 4.969, "rmse": 8.343, "r2": 0.846, "test_rows": 5400},
+    "120s_horizon": {"mae": 6.942, "rmse": 11.830, "r2": 0.739, "test_rows": 5400}
+  },
+  "latency": {
+    "one_horizon_ms": 1.0068,
+    "all_horizons_ms": 4.5263,
+    "measured_calls": 2000
+  },
+  "notes": [
+    "Values are measured on held-out test runs; nothing is fabricated.",
+    "Run-level split avoids temporal leakage within the dataset."
+  ]
+}

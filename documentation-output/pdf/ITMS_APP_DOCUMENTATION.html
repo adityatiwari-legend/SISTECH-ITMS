@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ITMS - Application & User Documentation</title>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;font-size:11pt;line-height:1.7;color:#1a1a2e;background:white;max-width:210mm;margin:0 auto}
+.cover{min-height:297mm;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:white;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px 40px;page-break-after:always}
+.badge{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:30px;padding:6px 20px;font-size:9pt;letter-spacing:2px;text-transform:uppercase;margin-bottom:32px;color:#a78bfa}
+.logo{font-size:52pt;font-weight:700;letter-spacing:-2px;line-height:1;margin-bottom:12px;background:linear-gradient(90deg,#c084fc,#818cf8,#38bdf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{font-size:15pt;color:#94a3b8;margin-bottom:40px;font-weight:300}
+.divider{width:80px;height:3px;background:linear-gradient(90deg,#c084fc,#38bdf8);border-radius:2px;margin:24px auto}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0;max-width:520px}
+.mc{background:rgba(255,255,255,.06);border:1px solid rgba(109,40,217,.3);border-radius:10px;padding:14px 8px;text-align:center}
+.mv{font-size:20pt;font-weight:700;color:#a78bfa}
+.ml{font-size:7.5pt;color:#94a3b8;margin-top:3px}
+.meta{font-size:12pt;color:#cbd5e1;margin:6px 0}
+.meta strong{color:white}
+.footer{margin-top:48px;font-size:8.5pt;color:#64748b;line-height:1.6}
+.content{padding:40px 50px}
+h1{font-size:22pt;font-weight:700;color:#0f172a;margin:40px 0 18px;padding-bottom:10px;border-bottom:3px solid #6d28d9;page-break-before:always}
+h1:first-child{page-break-before:avoid}
+h2{font-size:15pt;font-weight:600;color:#1e293b;margin:30px 0 14px;padding-left:12px;border-left:4px solid #6d28d9}
+h3{font-size:12pt;font-weight:600;color:#334155;margin:20px 0 10px}
+h4{font-size:10.5pt;font-weight:600;color:#475569;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.5px}
+p{margin:10px 0}
+a{color:#6d28d9;text-decoration:none}
+strong{font-weight:600;color:#0f172a}
+em{font-style:italic;color:#475569}
+ul,ol{margin:10px 0 10px 26px}
+li{margin:4px 0}
+code{font-family:'JetBrains Mono','Consolas',monospace;font-size:8.5pt;background:#f1f5f9;color:#6d28d9;padding:2px 5px;border-radius:4px;border:1px solid #e2e8f0}
+pre{background:#0f172a;color:#e2e8f0;padding:18px 22px;border-radius:8px;margin:14px 0;border-left:4px solid #6d28d9;overflow-x:auto}
+pre code{background:transparent;border:none;color:#e2e8f0;padding:0;font-size:8.5pt}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:9.5pt}
+th{background:#0f172a;color:white;padding:8px 12px;text-align:left;font-weight:600;font-size:8.5pt;letter-spacing:.3px}
+td{padding:7px 12px;border-bottom:1px solid #e2e8f0}
+tr:nth-child(even) td{background:#f8fafc}
+blockquote{margin:14px 0;padding:10px 18px;background:#f0f9ff;border-left:4px solid #0ea5e9;border-radius:0 8px 8px 0;color:#0369a1;font-size:10pt}
+img{max-width:100%;height:auto;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);margin:14px 0;display:block}
+.caption{text-align:center;font-size:8.5pt;color:#64748b;font-style:italic;margin:-6px 0 18px}
+@media print{.content{padding:15mm 20mm}h1{page-break-before:always}}
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="badge">Intelligent Traffic Management System</div>
+  <div class="logo">ITMS</div>
+  <div class="subtitle">Application & User Documentation</div>
+  <div class="divider"></div>
+  <div class="metrics">
+    <div class="mc"><div class="mv">-49%</div><div class="ml">Emergency Travel Time</div></div>
+    <div class="mc"><div class="mv">0.911</div><div class="ml">ML R&sup2; (30s)</div></div>
+    <div class="mc"><div class="mv">132</div><div class="ml">Tests Passing</div></div>
+    <div class="mc"><div class="mv">7/7</div><div class="ml">Phases Complete</div></div>
+  </div>
+  <div class="meta"><strong>Team:</strong> Bitcoders</div>
+  <div class="meta"><strong>Event:</strong> SISTec Innovation Hackathon 2026</div>
+  <div class="meta"><strong>Problem Statement:</strong> IS-8</div>
+  <div class="meta"><strong>Date:</strong> September 27, 2026</div>
+  <div class="footer">
+    Documentation generated from source-code analysis<br>
+    All metrics measured from actual SUMO simulation runs &mdash; nothing fabricated
+  </div>
+</div>
+<div class="content">
+<h1>ITMS — Application & User Documentation</h1>
+
+<strong>Intelligent Traffic Management System</strong>  
+<em>Command Center Operator Guide</em>
+
+<table>
+<tr><th></th><th></th></tr>
+<tr><td><strong>Application</strong></td><td>ITMS Command Center</td></tr>
+<tr><td><strong>Framework</strong></td><td>Next.js 15.5.6 + React 19</td></tr>
+<tr><td><strong>Team</strong></td><td>Bitcoders</td></tr>
+<tr><td><strong>Event</strong></td><td>SISTec Innovation Hackathon 2026</td></tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>Table of Contents</h2>
+
+<ul><li><a href="#1-application-overview">Application Overview</a></li>
+<li><a href="#2-accessing-the-application">Accessing the Application</a></li>
+<li><a href="#3-navigation-structure">Navigation Structure</a></li>
+<li><a href="#4-command-center">Command Center (Dashboard)</a></li>
+<li><a href="#5-traffic-monitoring">Traffic Monitoring</a></li>
+<li><a href="#6-emergency-management">Emergency Management</a></li>
+<li><a href="#7-signal-management">Signal Management</a></li>
+<li><a href="#8-green-corridors">Green Corridors</a></li>
+<li><a href="#9-sumo-simulator">SUMO Simulator</a></li>
+<li><a href="#10-scenario-builder">Scenario Builder</a></li>
+<li><a href="#11-analytics">Analytics</a></li>
+<li><a href="#12-ai-decision-trace">AI Decision Trace</a></li>
+<li><a href="#13-system-settings">System Settings</a></li>
+<li><a href="#14-ai-copilot">AI Copilot</a></li>
+<li><a href="#15-roadside-devices">Roadside Devices</a></li>
+<li><a href="#16-common-workflows">Common Workflows</a></li>
+<li><a href="#17-status-indicators">Status Indicators</a></li>
+<li><a href="#18-known-limitations">Known Limitations</a></li>
+</ul>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>1. Application Overview</h2>
+
+<p>The <strong>ITMS Command Center</strong> is the operator-facing mission control interface for the Intelligent Traffic Management System. It provides:</p>
+
+<ul><li><strong>Live Map</strong>: A real-time SVG visualization of the SUMO traffic network, showing vehicle positions, signal states, congestion levels, and emergency routes</li>
+<li><strong>Emergency Dispatch</strong>: Controls to create and monitor emergency vehicle incidents</li>
+<li><strong>Green Corridor Control</strong>: Real-time monitoring of the Predictive Green Corridor rolling wave</li>
+<li><strong>Traffic Analytics</strong>: Performance comparison charts (Baseline vs ITMS)</li>
+<li><strong>AI Transparency</strong>: Decision audit logs for every A* route, ETA, and safety constraint check</li>
+<li><strong>AI Copilot</strong>: Natural language Q&A interface powered by Vultr Serverless Inference</li>
+</ul>
+<p>The application is built with <strong>Next.js 15 App Router</strong> and uses <strong>WebSocket</strong> for continuous real-time data updates at approximately 5 Hz.</p>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>2. Accessing the Application</h2>
+
+<h3>URLs</h3>
+
+<table>
+<tr><th>Service</th><th>URL</th><th>Status</th></tr>
+<tr><td>Frontend (dev)</td><td><code>http://localhost:3001</code></td><td><code>npm run dev:web</code></td></tr>
+<tr><td>Backend API</td><td><code>http://localhost:3000</code></td><td><code>npm run dev:api</code></td></tr>
+<tr><td>WebSocket</td><td><code>ws://localhost:3000/ws</code></td><td>Auto-connected by frontend</td></tr>
+<tr><td>ML Service</td><td><code>http://localhost:8100</code></td><td><code>cd services/prediction && uvicorn inference.service:app --port 8100</code></td></tr>
+</table>
+
+<h3>Prerequisites</h3>
+
+<p>For full functionality:</p>
+<ul><li>PostgreSQL (port 5433) must be running  </li>
+<li>SUMO (v1.27.1) must be installed and in PATH  </li>
+<li>Backend API must be started  </li>
+<li>SUMO network must be built (<code>npm run build:network</code>)</li>
+</ul>
+<p>Without the backend, pages will display a <strong>disconnected banner</strong> but all UI components remain visible.</p>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>3. Navigation Structure</h2>
+
+<p>The application uses a <strong>collapsible sidebar navigation</strong> (AppShell component). All pages are accessible from the sidebar.</p>
+
+<h3>Pages</h3>
+
+<table>
+<tr><th>Page</th><th>Route</th><th>Icon</th><th>Purpose</th></tr>
+<tr><td>Command Center</td><td><code>/</code></td><td>🗺️</td><td>Main dashboard / live map</td></tr>
+<tr><td>Traffic Monitor</td><td><code>/traffic</code></td><td>🚦</td><td>Live road segment telemetry</td></tr>
+<tr><td>Emergency Operations</td><td><code>/emergencies</code></td><td>🚨</td><td>Dispatch and monitor emergencies</td></tr>
+<tr><td>Signal Control</td><td><code>/signals</code></td><td>🔴</td><td>Traffic signal states</td></tr>
+<tr><td>Corridors</td><td><code>/corridors</code></td><td>💚</td><td>Green corridor status</td></tr>
+<tr><td>Simulator</td><td><code>/simulator</code></td><td>▶️</td><td>SUMO simulation controls</td></tr>
+<tr><td>Scenarios</td><td><code>/scenarios</code></td><td>📊</td><td>Comparison scenario builder</td></tr>
+<tr><td>Analytics</td><td><code>/analytics</code></td><td>📈</td><td>Performance metrics</td></tr>
+<tr><td>AI Decision Trace</td><td><code>/decisions</code></td><td>🧠</td><td>AI routing/corridor audit log</td></tr>
+<tr><td>Settings</td><td><code>/settings</code></td><td>⚙️</td><td>System health status</td></tr>
+<tr><td>AI Copilot</td><td><code>/ai</code></td><td>💬</td><td>LLM-powered Q&A</td></tr>
+<tr><td>Roadside Devices</td><td><code>/roadside-devices</code></td><td>📡</td><td>IoT CRPD display status</td></tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>4. Command Center</h2>
+
+<strong>Route</strong>: <code>/</code>
+
+<p>The main overview page. Provides a comprehensive single-pane view of the entire system.</p>
+
+<h3>Layout</h3>
+
+<pre><code class="lang-">┌──────────────────────────────────────────────────────┐
+<p>│  Header: Sim clock · Step count · System status chips │</p>
+<p>├──────────────────┬───────────────────────────────────┤</p>
+<p>│                  │  Emergency Panel (active)         │</p>
+<p>│   LIVE SUMO MAP  │  ─────────────────────────────── │</p>
+<p>│   (SVG renderer) │  Corridor Chain Panel            │</p>
+<p>│                  │  ─────────────────────────────── │</p>
+<p>│   Roads colored  │  Signals Panel (compact)         │</p>
+<p>│   by congestion  │  ─────────────────────────────── │</p>
+<p>│                  │  AI Decision Timeline            │</p>
+<p>├──────────────────┴───────────────────────────────────┤</p>
+<p>│  AI Copilot Modal (activated by ? button)            │</p>
+<p>└──────────────────────────────────────────────────────┘</p>
+</code></pre>
+
+<h3>Live Simulation Map Features</h3>
+
+<ul><li><strong>Junctions</strong>: Displayed as colored circles. Traffic-light junctions are larger with ring animations.</li>
+<li><strong>Road Segments</strong>: Lines colored by congestion: 🟢 LOW → 🟡 MEDIUM → 🟠 HIGH → 🔴 CRITICAL</li>
+<li><strong>Emergency Vehicles</strong>: Animated pulsing indicator showing live GPS position from TraCI</li>
+<li><strong>Emergency Route</strong>: Highlighted path from origin to destination</li>
+<li><strong>Green Corridor</strong>: Highlighted intersections with active green overrides</li>
+<li><strong>Hover tooltips</strong>: Junction name + signal state + queue length on hover</li>
+<li><strong>Zoom & Pan</strong>: Via keyboard (arrow keys, <code>+</code>/<code>-</code>) or pinch gesture</li>
+</ul>
+<h3>Metric Cards</h3>
+
+<p>Four cards displayed in header:</p>
+<ul><li><strong>Sim Time</strong>: Formatted simulation clock</li>
+<li><strong>Active Emergencies</strong>: Count with link to <code>/emergencies</code></li>
+<li><strong>Active Corridors</strong>: Count with link to <code>/corridors</code></li>
+<li><strong>System Status</strong>: Database / TraCI / ML health chips</li>
+</ul>
+<h3>AI Copilot Access</h3>
+
+<p>Click the <strong>floating <code>?</code> button</strong> (bottom-right) to open the AI Copilot modal. Context is automatically injected: current traffic state, active emergencies, and which decision event you last hovered.</p>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>5. Traffic Monitoring</h2>
+
+<strong>Route</strong>: <code>/traffic</code>
+
+<h3>What You See</h3>
+
+<table>
+<tr><th>Panel</th><th>Content</th></tr>
+<tr><td><strong>Summary Strip</strong></td><td>Total vehicles, network-average speed, congestion distribution</td></tr>
+<tr><td><strong>Segment Table</strong></td><td>Every road segment with: name, current count, speed (m/s), queue, occupancy, congestion badge</td></tr>
+<tr><td><strong>Junction Grid</strong></td><td>Each junction with controlled/uncontrolled status and current queue</td></tr>
+<tr><td><strong>Heatmap</strong></td><td>Color-coded congestion overlay (refreshes at 5 Hz)</td></tr>
+</table>
+
+<h3>Congestion Color Key</h3>
+
+<table>
+<tr><th>Color</th><th>Level</th><th>Occupancy</th><th>Speed Ratio</th><th>Queue</th></tr>
+<tr><td>🟢 Green</td><td>LOW</td><td>< 15%</td><td>> 60%</td><td>< 2</td></tr>
+<tr><td>🟡 Yellow</td><td>MEDIUM</td><td>< 30%</td><td>> 35%</td><td>< 6</td></tr>
+<tr><td>🟠 Orange</td><td>HIGH</td><td>< 45%</td><td>> 15%</td><td>< 12</td></tr>
+<tr><td>🔴 Red</td><td>CRITICAL</td><td>≥ 45%</td><td>≤ 15%</td><td>≥ 12</td></tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>6. Emergency Management</h2>
+
+<strong>Route</strong>: <code>/emergencies</code>
+
+<h3>Dispatching an Emergency</h3>
+
+<ul><li>Click <strong>+ New Emergency</strong> button (top-right)</li>
+<li>Fill in the dispatch form:</li>
+<li><strong>Type</strong>: Ambulance / Fire Engine / Police</li>
+<li><strong>Priority</strong>: Critical / High / Normal</li>
+<li><strong>Origin Junction</strong>: Select from live junction list</li>
+<li><strong>Destination Junction</strong>: Select from live junction list</li>
+<li>Click <strong>Dispatch</strong></li>
+<li>The system will:</li>
+<li>Compute an A* route</li>
+<li>Persist to database</li>
+<li>Spawn the vehicle in SUMO via TraCI</li>
+<li>Automatically create a Green Corridor</li>
+</ul>
+<h3>Emergency Detail View</h3>
+
+<p>Each emergency card shows:</p>
+<ul><li><strong>Status badge</strong>: CREATED → ACTIVE → ARRIVED</li>
+<li><strong>Vehicle type</strong> and icon</li>
+<li><strong>Origin → Destination</strong> with junction IDs</li>
+<li><strong>Current speed</strong> (m/s) from TraCI</li>
+<li><strong>Estimated ETA</strong> (seconds remaining)</li>
+<li><strong>Route progress</strong>: Number of junctions passed / total</li>
+<li><strong>Corridor status</strong>: ACTIVE / PENDING / COMPLETED</li>
+</ul>
+<h3>Emergency Timeline</h3>
+
+<p>The right panel shows a chronological log:</p>
+<ul><li>Emergency created</li>
+<li>Route computed (A* cost in seconds)</li>
+<li>Corridor activated</li>
+<li>Each corridor junction APPLIED / PASSED / SKIPPED</li>
+<li>Route switch events (if dynamic rerouting occurred)</li>
+<li>Vehicle arrival</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>7. Signal Management</h2>
+
+<strong>Route</strong>: <code>/signals</code>
+
+<h3>What You See</h3>
+
+<ul><li><strong>Grid of Signal Cards</strong>: One card per traffic-light junction</li>
+<li>Each card shows:</li>
+<li>Junction ID + name</li>
+<li>Current phase index and state string (e.g., <code>GGrrGGrr</code>)</li>
+<li>Time until next switch (countdown)</li>
+<li>Queue length at this junction</li>
+<li>Congestion level badge</li>
+</ul>
+<h3>Manual Override</h3>
+
+<p>Click a signal card to open the <strong>Signal Override Modal</strong>:</p>
+<ul><li>Select a phase index</li>
+<li>Enter a duration override (seconds)</li>
+<li>Click <strong>Apply</strong></li>
+<li>The system calls <code>POST /api/signals/:id/state</code></li>
+</ul>
+<blockquote><strong>Note</strong>: Manual overrides are temporary — they last until the simulation program cycle completes or the corridor restores the normal program.</blockquote>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>8. Green Corridors</h2>
+
+<strong>Route</strong>: <code>/corridors</code>
+
+<h3>What You See</h3>
+
+<ul><li><strong>Active Corridors</strong>: Each corridor has:</li>
+<li>Status: PLANNING → VALIDATING → ACTIVE → COMPLETED / CANCELLED</li>
+<li>Emergency vehicle reference (type + ID)</li>
+<li>Origin → Destination junctions</li>
+<li>Junction count (how many signals are in the corridor)</li>
+<li>Planned / activated timestamp</li>
+</ul>
+<ul><li><strong>Corridor Chain</strong>: Visual rail showing each junction in the corridor:</li>
+<li>PENDING (🔵) — Waiting for vehicle to approach</li>
+<li>APPLIED (💚) — Green signal currently active</li>
+<li>PASSED (⚪) — Vehicle has passed through</li>
+<li>SKIPPED (🔴) — Safety constraint rejected this junction</li>
+<li>NOOP (⚪) — Normal green already covered ETA</li>
+</ul>
+<h3>Safety Constraint Annotations</h3>
+
+<p>If a junction was SKIPPED, the corridor card shows the rejection reason, e.g.:</p>
+<ul><li><code>"red_extension_limit"</code> — cross traffic would be held too long</li>
+<li><code>"downstream_spillback"</code> — downstream occupancy too high</li>
+<li><code>"min_green_window"</code> — ETA window too short</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>9. SUMO Simulator</h2>
+
+<strong>Route</strong>: <code>/simulator</code>
+
+<h3>Simulation Controls</h3>
+
+<table>
+<tr><th>Button</th><th>Action</th><th>API Call</th></tr>
+<tr><td>▶ Start</td><td>Start SUMO simulation</td><td><code>POST /api/simulation/start</code></td></tr>
+<tr><td>⏸ Pause</td><td>Pause simulation</td><td><code>POST /api/simulation/pause</code></td></tr>
+<tr><td>▶ Resume</td><td>Resume simulation</td><td><code>POST /api/simulation/resume</code></td></tr>
+<tr><td>⏹ Stop</td><td>Stop simulation</td><td><code>POST /api/simulation/stop</code></td></tr>
+<tr><td>🔄 Reset</td><td>Reset all state</td><td><code>POST /api/simulation/reset</code></td></tr>
+</table>
+
+<h3>Speed Control</h3>
+
+<p>Use the <strong>Speed Multiplier</strong> slider or input to set simulation speed:</p>
+<ul><li><code>1×</code> — Real-time (1 simulation second = 1 wall-clock second)</li>
+<li><code>10×</code> — 10× faster  </li>
+<li><code>100×</code> — Maximum speed</li>
+</ul>
+<h3>Scenario Selection</h3>
+
+<p>Before starting, select the scenario:</p>
+<ul><li><strong>Baseline</strong> — Normal traffic, no emergency</li>
+<li><strong>Emergency</strong> — Emergency-ready scenario (normal demand)</li>
+<li><strong>Emergency Low</strong> — Low traffic demand</li>
+<li><strong>Emergency High</strong> — High traffic demand</li>
+</ul>
+<h3>Live Stats Panel</h3>
+
+<p>While running, shows:</p>
+<ul><li>Current simulation time (sim seconds)</li>
+<li>Step count</li>
+<li>Vehicle count (total in network)</li>
+<li>TraCI connection status</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>10. Scenario Builder</h2>
+
+<strong>Route</strong>: <code>/scenarios</code>
+
+<h3>Running a Comparison</h3>
+
+<p>The Scenario Builder runs a <strong>controlled experiment</strong> measuring ITMS impact:</p>
+
+<ul><li><strong>Configure Scenario</strong>:</li>
+<li>Emergency type (Ambulance / Fire Engine / Police)</li>
+<li>Priority level</li>
+<li>Origin junction</li>
+<li>Destination junction</li>
+</ul>
+<ul><li><strong>Click "Run Comparison"</strong>:</li>
+<li>The system queues a background job</li>
+<li>First runs <strong>Baseline</strong> (no ITMS)</li>
+<li>Then runs <strong>ITMS</strong> (same conditions + full AI control)</li>
+<li>Each run has identical traffic demand, same origin/destination, same timing</li>
+</ul>
+<ul><li><strong>View Results</strong>:</li>
+<li>Delta Travel Time (s)</li>
+<li>Delta Average Vehicle Delay (s)</li>
+<li>Delta Queue Length</li>
+<li>Delta Average Speed (m/s)</li>
+<li>Delta Throughput (vehicles/hour)</li>
+</ul>
+<ul><li><strong>Navigate to Analytics</strong> to see historical comparison chart</li>
+</ul>
+<h3>Comparison Job States</h3>
+
+<table>
+<tr><th>State</th><th>Meaning</th></tr>
+<tr><td><code>queued</code></td><td>Waiting to start</td></tr>
+<tr><td><code>running_baseline</code></td><td>Executing baseline run</td></tr>
+<tr><td><code>running_itms</code></td><td>Executing ITMS run</td></tr>
+<tr><td><code>completed</code></td><td>Results available</td></tr>
+<tr><td><code>failed</code></td><td>Error occurred</td></tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>11. Analytics</h2>
+
+<strong>Route</strong>: <code>/analytics</code>
+
+<h3>What You See</h3>
+
+<ul><li><strong>Summary Cards</strong>: Latest comparison delta values (e.g., "−80.6 s travel time saved")</li>
+<li><strong>Comparison Chart</strong>: Bar chart of all completed comparisons by type + priority</li>
+<li><strong>Historical Table</strong>: All completed <code>comparisons</code> records with timestamps</li>
+</ul>
+<h3>Chart Dimensions</h3>
+
+<ul><li>X-axis: Comparison job (type + origin → destination)</li>
+<li>Y-axis: Delta metric (select from dropdown: travel time / delay / queue / speed)</li>
+<li>Color: Emergency type (green = ambulance, red = fire, blue = police)</li>
+</ul>
+<blockquote><strong>Note</strong>: Analytics data is only available after running at least one comparison via the Scenario Builder.</blockquote>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>12. AI Decision Trace</h2>
+
+<strong>Route</strong>: <code>/decisions</code>
+
+<h3>What You See</h3>
+
+<p>A <strong>live audit log</strong> of every AI decision made by the system:</p>
+
+<table>
+<tr><th>Event Type</th><th>Icon</th><th>Description</th></tr>
+<tr><td><code>route_computed</code></td><td>🛣️</td><td>New A* route computed (includes cost, edge count, ETA)</td></tr>
+<tr><td><code>route_switched</code></td><td>🔀</td><td>Dynamic route change (reason, old ETA, new ETA)</td></tr>
+<tr><td><code>corridor_planned</code></td><td>🔋</td><td>Green corridor planned for each junction</td></tr>
+<tr><td><code>safety_rejected</code></td><td>⚠️</td><td>Safety constraint blocked a corridor command</td></tr>
+<tr><td><code>signal_applied</code></td><td>💚</td><td>Signal state applied via TraCI</td></tr>
+<tr><td><code>signal_restored</code></td><td>🔄</td><td>Normal signal program restored</td></tr>
+<tr><td><code>eta_updated</code></td><td>⏱️</td><td>ETA recalculated for a junction</td></tr>
+<tr><td><code>prediction_refresh</code></td><td>🧠</td><td>ML prediction results updated</td></tr>
+</table>
+
+<h3>Filtering</h3>
+
+<ul><li>Filter by emergency ID</li>
+<li>Filter by event type</li>
+<li>Time range selector</li>
+<li>Export to JSON</li>
+</ul>
+<h3>Clicking a Decision</h3>
+
+<p>Click any decision row to open the <strong>AI Copilot modal</strong> pre-populated with a question about that decision. The LLM receives the full decision context.</p>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>13. System Settings</h2>
+
+<strong>Route</strong>: <code>/settings</code>
+
+<h3>Health Dashboard</h3>
+
+<table>
+<tr><th>Service</th><th>Indicator</th><th>Check</th></tr>
+<tr><td>Backend API</td><td>🟢/🔴</td><td><code>GET /health</code> HTTP probe</td></tr>
+<tr><td>PostgreSQL</td><td>🟢/🔴</td><td>Backend internal DB pool probe</td></tr>
+<tr><td>SUMO TraCI</td><td>🟢/🔴</td><td>Backend TraCI connection state</td></tr>
+<tr><td>ML Prediction</td><td>🟢/🔴</td><td><code>GET http://localhost:8100/health</code></td></tr>
+<tr><td>WebSocket</td><td>🟢/🔴</td><td>Frontend WS heartbeat</td></tr>
+</table>
+
+<h3>Configuration Display</h3>
+
+<p>Shows (read-only) the current active configuration values loaded from environment:</p>
+<ul><li>Demo profile and city</li>
+<li>SUMO binary path</li>
+<li>Green corridor parameters</li>
+<li>Congestion thresholds</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>14. AI Copilot</h2>
+
+<strong>Route</strong>: <code>/ai</code> (also accessible via floating <code>?</code> button anywhere)
+
+<h3>Capabilities</h3>
+
+<p>The AI Copilot uses <strong>Vultr Serverless Inference</strong> (DeepSeek model by default) to answer natural language questions about the current traffic state.</p>
+
+<p>Context injected automatically:</p>
+<ul><li>Active emergencies (type, origin, destination, ETA, route)</li>
+<li>Active corridors (status, junctions, applied windows)</li>
+<li>Current traffic summary (congestion, average speed, queue)</li>
+<li>Predictions (next 30–120s per junction)</li>
+<li>Any selected decision event</li>
+</ul>
+<h3>Example Questions</h3>
+
+<ul><li><em>"Why was the corridor for Ambulance #3 rejected at junction I4?"</em></li>
+<li><em>"What's the fastest route from W1 to E2 given current traffic?"</em></li>
+<li><em>"How much time did ITMS save in the last comparison?"</em></li>
+<li><em>"Which junction is most congested right now?"</em></li>
+</ul>
+<h3>Requirements</h3>
+
+<code>VULTR_SERVERLESS_INFERENCE_API_KEY</code> must be set in the backend <code>.env</code> to enable responses. Without it, the copilot shows an error message.
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>15. Roadside Devices</h2>
+
+<strong>Route</strong>: <code>/roadside-devices</code>
+
+<h3>What You See</h3>
+
+<p>Connected Roadside Priority Displays (CRPD) — IoT devices mounted at intersections that receive real-time corridor status.</p>
+
+<p>Each device card shows:</p>
+<ul><li>Device ID and location</li>
+<li>Connection status (ONLINE / OFFLINE)</li>
+<li>Current display mode (NORMAL / EMERGENCY / CORRIDOR)</li>
+<li>Last signal received timestamp</li>
+<li>Linked junction ID</li>
+</ul>
+<blockquote><strong>Note</strong>: Roadside device integration requires physical CRPD hardware or a compatible simulator. In the current demo environment, this page shows the schema and UI without live device data.</blockquote>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>16. Common Workflows</h2>
+
+<h3>Workflow 1: Start a Simulation and Monitor Traffic</h3>
+
+<ul><li>Navigate to <strong>Simulator</strong> (<code>/simulator</code>)</li>
+<li>Select scenario: <strong>Emergency</strong></li>
+<li>Click <strong>▶ Start</strong></li>
+<li>Navigate to <strong>Command Center</strong> (<code>/</code>)</li>
+<li>Observe: vehicles appear on the map, signal states update, congestion colors change</li>
+</ul>
+<h3>Workflow 2: Dispatch an Emergency Vehicle</h3>
+
+<ul><li>Ensure simulation is running (green status)</li>
+<li>Navigate to <strong>Emergency Management</strong> (<code>/emergencies</code>)</li>
+<li>Click <strong>+ New Emergency</strong></li>
+<li>Select: Type = Ambulance, Priority = Critical, Origin = W1, Destination = E2</li>
+<li>Click <strong>Dispatch</strong></li>
+<li>Return to <strong>Command Center</strong> — observe:</li>
+<li>Emergency vehicle appears on map with pulsing indicator</li>
+<li>Route highlighted in orange</li>
+<li>Green Corridor activates — junctions ahead flash green</li>
+<li>Corridor chain shows APPLIED → PASSED as vehicle advances</li>
+</ul>
+<h3>Workflow 3: Run Baseline vs ITMS Comparison</h3>
+
+<ul><li>Navigate to <strong>Scenarios</strong> (<code>/scenarios</code>)</li>
+<li>Configure: Ambulance, Critical, W1 → E2</li>
+<li>Click <strong>Run Comparison</strong> (takes ~60–120 seconds)</li>
+<li>Navigate to <strong>Analytics</strong> (<code>/analytics</code>)</li>
+<li>View delta: expected −80.6 s travel time saving</li>
+</ul>
+<h3>Workflow 4: Investigate a Safety Constraint Rejection</h3>
+
+<ul><li>Navigate to <strong>AI Decision Trace</strong> (<code>/decisions</code>)</li>
+<li>Filter by event type: <code>safety_rejected</code></li>
+<li>Click the rejection event</li>
+<li>Read the reason (e.g., <code>"downstream_spillback"</code>)</li>
+<li>Click <strong>Ask Copilot</strong> — the AI explains the constraint in plain language</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>17. Status Indicators</h2>
+
+<h3>Connection Status Banner</h3>
+
+<p>If the frontend cannot reach the backend WebSocket:</p>
+
+<blockquote>⚠️ <strong>BACKEND DISCONNECTED</strong> — Attempting to reconnect...</blockquote>
+
+<p>The banner shows reconnect attempt count and elapsed time.</p>
+
+<h3>Stale Data Banner</h3>
+
+<p>If traffic data is older than <code>TRAFFIC_STALE_AFTER_SECONDS</code> (default: 5 s):</p>
+
+<blockquote>🕐 <strong>STALE DATA</strong> — Last update: X seconds ago</blockquote>
+
+<h3>Simulation Status Chip</h3>
+
+<table>
+<tr><th>Chip Color</th><th>Meaning</th></tr>
+<tr><td>🔵 Blue</td><td>Stopped / Idle</td></tr>
+<tr><td>🟢 Green</td><td>Running</td></tr>
+<tr><td>🟡 Yellow</td><td>Paused</td></tr>
+<tr><td>🔴 Red</td><td>Error</td></tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+
+<h2>18. Known Limitations</h2>
+
+<table>
+<tr><th>Limitation</th><th>Impact</th></tr>
+<tr><td>Requires database to start</td><td>Most API calls fail without PostgreSQL; UI shows disconnected state</td></tr>
+<tr><td>Requires SUMO</td><td>Simulation cannot start; all realtime data is unavailable</td></tr>
+<tr><td>No persistent auth</td><td>Web app has no login; any user with network access can use it</td></tr>
+<tr><td>Single active simulation</td><td>Cannot run two scenarios simultaneously</td></tr>
+<tr><td>Comparison runs are sequential</td><td>~60–120 s wall-clock time per comparison at normal speed</td></tr>
+<tr><td>City network requires build</td><td><code>npm run fetch:city && npm run build:city-network</code> must run first</td></tr>
+<tr><td>Screenshots show offline state</td><td>All screenshots in this documentation were taken without a live backend (database not running)</td></tr>
+<tr><td>No mobile UI</td><td>Mobile app is a separate Android/iOS application (not covered here)</td></tr>
+</table>
+
+</div>
+</body>
+</html>

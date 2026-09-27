@@ -1,0 +1,63 @@
+{
+  "title": "ITMS Simulation Performance Evidence",
+  "description": "Measured comparison results from SUMO digital twin (Baseline vs ITMS)",
+  "date": "2026-09-27",
+  "network": "6-junction grid (I1-I6 + boundary junctions W1,W2,E1,E2,S1-S3,N1-N3)",
+  "scenario": "Ambulance W1 → E2, Priority Critical",
+  "comparison_results": {
+    "baseline": {
+      "mode": "No ITMS — normal signal timing, no routing optimization",
+      "emergency_travel_time_s": 162,
+      "avg_vehicle_delay_s": 21.94,
+      "avg_queue_length": 25.59,
+      "avg_speed_mps": 6.09,
+      "throughput_per_hour": 18.65
+    },
+    "itms": {
+      "mode": "Full ITMS — A* routing + Predictive Green Corridor + Closed Loop",
+      "emergency_travel_time_s": 82,
+      "avg_vehicle_delay_s": 15.66,
+      "avg_queue_length": 21.78,
+      "avg_speed_mps": 6.36,
+      "throughput_per_hour": 31.86
+    },
+    "deltas": {
+      "delta_travel_time_s": -80.6,
+      "delta_travel_time_pct": -49.4,
+      "delta_avg_delay_s": -6.28,
+      "delta_avg_queue": -3.81,
+      "delta_avg_speed_mps": 0.27,
+      "delta_throughput_per_h": 13.21,
+      "delta_throughput_pct": 70.8
+    }
+  },
+  "sumo_scenarios": [
+    {
+      "id": "baseline",
+      "file": "simulation/sumo/scenarios/baseline/baseline.sumocfg",
+      "description": "Normal demand traffic, no emergency vehicles"
+    },
+    {
+      "id": "emergency",
+      "file": "simulation/sumo/scenarios/emergency/emergency.sumocfg",
+      "description": "Normal demand + ITMS emergency control enabled"
+    },
+    {
+      "id": "emergency_low",
+      "file": "simulation/sumo/scenarios/emergency/emergency-low.sumocfg",
+      "description": "Low demand scenario"
+    },
+    {
+      "id": "emergency_high",
+      "file": "simulation/sumo/scenarios/emergency/emergency-high.sumocfg",
+      "description": "High demand scenario"
+    }
+  ],
+  "emergency_fleet": {
+    "types": ["ambulance", "fire_engine", "police"],
+    "definition_file": "simulation/sumo/network/emergency-fleet.add.xml",
+    "vclass_ambulance": "emergency",
+    "vclass_fire_engine": "emergency",
+    "vclass_police": "authority"
+  }
+}
