@@ -319,7 +319,7 @@ export class TrafficService {
       }
       return sig;
     });
-    const vehicles: VehicleSnapshot[] = state.vehicles;
+    const vehicles = state.vehicles.map((v) => ({ ...v, speedMps: v.speed, type: v.typeId }));
     const traffic = this.buildTrafficResponse(state, this.manager.getStatusSnapshot());
     this.bus.broadcast("vehicle:update", { simTimeSeconds: state.simTimeSeconds, vehicles });
     this.bus.broadcast("signal:update", { simTimeSeconds: state.simTimeSeconds, signals });

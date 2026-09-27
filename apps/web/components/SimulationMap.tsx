@@ -898,7 +898,7 @@ const StaticLayer = React.memo(function StaticLayer({
     const out: Array<{ key: string; points: string; width: number; isMajor: boolean }> = [];
     for (const segment of geometry.segments) {
       const isMajor = segment.laneCount >= 2;
-      const laneWidth = laneStrokeWidth(segment.laneCount);
+      const laneWidth = laneStrokeWidth(segment.laneCount, geometry);
       for (const lane of segment.lanes) {
         out.push({
           key: lane.id,
@@ -924,7 +924,7 @@ const StaticLayer = React.memo(function StaticLayer({
             stroke={isMajor ? "#222D3E" : "#161E2B"}
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth={casingWidth(segment.laneCount) * (isMajor ? 1.15 : 1)}
+            strokeWidth={casingWidth(segment.laneCount, geometry) * (isMajor ? 1.15 : 1)}
           />
         );
       })}
@@ -1067,7 +1067,7 @@ function DynamicLayer({
               stroke={CONGESTION_COLORS[traffic.congestion]}
               strokeOpacity={traffic.congestion === "CRITICAL" ? 0.9 : 0.65}
               strokeLinecap="round"
-              strokeWidth={casingWidth(segment.laneCount) * 0.72}
+              strokeWidth={casingWidth(segment.laneCount, geometry) * 0.72}
             />
           );
         })}
@@ -1083,7 +1083,7 @@ function DynamicLayer({
                 fill="none"
                 stroke="rgba(255, 59, 78, 0.2)"
                 strokeLinecap="round"
-                strokeWidth={casingWidth(segment.laneCount) * 1.35}
+                strokeWidth={casingWidth(segment.laneCount, geometry) * 1.35}
               />
               <polyline
                 points={flippedPoints(segment.coordinates, geometry)}
@@ -1091,7 +1091,7 @@ function DynamicLayer({
                 stroke="#FF3B4E"
                 strokeOpacity={0.9}
                 strokeLinecap="round"
-                strokeWidth={casingWidth(segment.laneCount) * 0.78}
+                strokeWidth={casingWidth(segment.laneCount, geometry) * 0.78}
                 markerMid="url(#route-arrow)"
                 markerEnd="url(#route-arrow)"
               />
@@ -1110,7 +1110,7 @@ function DynamicLayer({
                 fill="none"
                 stroke="rgba(24, 216, 139, 0.3)"
                 strokeLinecap="round"
-                strokeWidth={casingWidth(segment.laneCount) * 1.55}
+                strokeWidth={casingWidth(segment.laneCount, geometry) * 1.55}
                 filter="url(#glow-green)"
               />
               <polyline
@@ -1119,7 +1119,7 @@ function DynamicLayer({
                 stroke="#18D88B"
                 strokeOpacity={0.95}
                 strokeLinecap="round"
-                strokeWidth={casingWidth(segment.laneCount) * 0.88}
+                strokeWidth={casingWidth(segment.laneCount, geometry) * 0.88}
                 className="itms-corridor-flow"
               />
             </g>
@@ -1901,15 +1901,16 @@ function scaleFactor(geometry: NetworkGeometryResponse): number {
     geometry.extent.maxX - geometry.extent.minX,
     geometry.extent.maxY - geometry.extent.minY
   );
-  return clamp(span / 700, 0.8, 6);
+  return clamp(span / 700, 0.8, 28);
 }
 
-function casingWidth(laneCount: number): number {
-  return Math.max(2.2, laneCount * 2.6 + 1.2);
+function casingWidth(laneCount: number, geometry?: NetworkGeometryResponse): number {
+  const sf = geometry ? Math.max(1, scaleFactor(geometry) * 0.35) : 1;
+  return Math.max(2.2, laneCount * 2.6 + 1.2) * sf;
 }
 
-function laneStrokeWidth(laneCount: number): number {
-  return Math.max(1.4, (casingWidth(laneCount) - 0.8) / Math.max(1, laneCount));
+function laneStrokeWidth(laneCount: number, geometry?: NetworkGeometryResponse): number {
+  return Math.max(1.4, (casingWidth(laneCount, geometry) - 0.8) / Math.max(1, laneCount));
 }
 
 function vehicleRadius(geometry: NetworkGeometryResponse, typeId: string): number {

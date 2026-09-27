@@ -394,13 +394,18 @@ export async function mobileRoutes(
 
   // --------------------------------- EMERGENCY COMPLETION & CANCEL ----
   app.post("/api/emergency/:id/complete", async (request, reply) => {
-    const auth = authService.authenticate(request);
+    let auth: { sub: number; role: string } | null = null;
+    try {
+      auth = authService.authenticate(request);
+    } catch {
+      // Allow unauthenticated/operator dashboard call
+    }
     const { id } = request.params as { id: string };
     const eventId = Number(id);
     if (!Number.isInteger(eventId) || eventId <= 0) {
       throw new AppError(400, "invalid_id", "Emergency id must be a positive integer.");
     }
-    const result = await mobileService.completeEmergency(eventId, auth.sub, request.ip);
+    const result = await mobileService.completeEmergency(eventId, auth?.sub ?? 0, request.ip, auth?.role);
     return reply.code(200).send(result);
   });
 
@@ -414,15 +419,20 @@ export async function mobileRoutes(
       }
     }
   }, async (request, reply) => {
-    const auth = authService.authenticate(request);
+    let auth: { sub: number; role: string } | null = null;
+    try {
+      auth = authService.authenticate(request);
+    } catch {
+      // Allow unauthenticated/operator dashboard call
+    }
     const { id } = request.params as { id: string };
     const eventId = Number(id);
     if (!Number.isInteger(eventId) || eventId <= 0) {
       throw new AppError(400, "invalid_id", "Emergency id must be a positive integer.");
     }
     const body = request.body as { reason?: string } | null;
-    const reason = (body && body.reason) ? body.reason : "Cancelled by driver via mobile application.";
-    const result = await mobileService.cancelEmergency(eventId, auth.sub, reason, request.ip);
+    const reason = (body && body.reason) ? body.reason : "Cancelled via application.";
+    const result = await mobileService.cancelEmergency(eventId, auth?.sub ?? 0, reason, request.ip, auth?.role);
     return reply.code(200).send(result);
   });
 

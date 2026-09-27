@@ -85,6 +85,37 @@ export default function EmergenciesPage() {
     }
   };
 
+  const [completingId, setCompletingId] = React.useState<number | null>(null);
+
+  const handleCompleteEmergency = async (emergencyId: number) => {
+    setCompletingId(emergencyId);
+    try {
+      await api.completeEmergency(emergencyId);
+      await refreshAll();
+      if (selectedId === emergencyId) setSelectedId(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to complete emergency.");
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
+  const handleCancelEmergency = async (emergencyId: number) => {
+    if (!window.confirm(`Are you sure you want to close Emergency Mission #${emergencyId}?`)) {
+      return;
+    }
+    setCompletingId(emergencyId);
+    try {
+      await api.cancelEmergency(emergencyId, "Closed by operator from web dashboard.");
+      await refreshAll();
+      if (selectedId === emergencyId) setSelectedId(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to close emergency.");
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
   // Poll detail if selected
   React.useEffect(() => {
     if (selectedId === null) {
@@ -533,7 +564,27 @@ export default function EmergenciesPage() {
                     >
                       🗺️ View on Map
                     </Link>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(emg.status === "active" || emg.status === "created") && (
+                        <>
+                          <button
+                            onClick={() => void handleCompleteEmergency(emg.id)}
+                            disabled={completingId === emg.id}
+                            className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/50 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
+                            title="Mark emergency completed and clear active status"
+                          >
+                            {completingId === emg.id ? "Closing…" : "✓ Complete Mission"}
+                          </button>
+                          <button
+                            onClick={() => void handleCancelEmergency(emg.id)}
+                            disabled={completingId === emg.id}
+                            className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
+                            title="Close and cancel emergency mission"
+                          >
+                            ✕ Close
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() => openCopilot(`Analyze driver mobile emergency #${emg.id} for driver ${mobile?.driverName || 'driver'} headed to ${hospitalTitle}.`, { emergencyId: emg.id })}
                         className="rounded-lg border border-[#8B7CFF]/30 bg-[rgba(139,124,255,0.1)] px-3 py-1.5 font-mono text-[11px] font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.2)] transition-colors"
@@ -670,14 +721,34 @@ export default function EmergenciesPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="mt-4 flex items-center justify-between border-t border-[rgba(255,255,255,0.06)] pt-3">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[rgba(255,255,255,0.06)] pt-3">
                     <Link
                       href="/"
                       className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#121A24] px-3 py-1.5 font-mono text-[11px] font-semibold uppercase text-[#F4F7FA] hover:border-[#42B8FF] hover:text-[#42B8FF] transition-colors"
                     >
                       View on Map
                     </Link>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(emg.status === "active" || emg.status === "created") && (
+                        <>
+                          <button
+                            onClick={() => void handleCompleteEmergency(emg.id)}
+                            disabled={completingId === emg.id}
+                            className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/50 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
+                            title="Complete and dismiss this simulation emergency"
+                          >
+                            {completingId === emg.id ? "Closing…" : "✓ Complete"}
+                          </button>
+                          <button
+                            onClick={() => void handleCancelEmergency(emg.id)}
+                            disabled={completingId === emg.id}
+                            className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
+                            title="Close and cancel this simulation emergency"
+                          >
+                            ✕ Close
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() => openCopilot(`Explain the status and ETA calculation for emergency mission #${emg.id}.`, { emergencyId: emg.id })}
                         className="rounded-lg border border-[#8B7CFF]/30 bg-[rgba(139,124,255,0.1)] px-3 py-1.5 font-mono text-[11px] font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.2)] transition-colors"
@@ -706,7 +777,25 @@ export default function EmergenciesPage() {
           subtitle={`Emergency Event #${detail.id} · A* Route & Signal ETAs`}
           emergency
           right={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {(detail.status === "active" || detail.status === "created") && (
+                <>
+                  <button
+                    onClick={() => void handleCompleteEmergency(detail.id)}
+                    disabled={completingId === detail.id}
+                    className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/50 px-3 py-1 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
+                  >
+                    {completingId === detail.id ? "Closing…" : "✓ Complete Mission"}
+                  </button>
+                  <button
+                    onClick={() => void handleCancelEmergency(detail.id)}
+                    disabled={completingId === detail.id}
+                    className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-3 py-1 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
+                  >
+                    ✕ Close
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => openCopilot(`Explain why this vehicle took this route from ${detail.originJunction} to ${detail.destinationJunction}.`, { emergencyId: detail.id })}
                 className="rounded-lg bg-[rgba(139,124,255,0.15)] border border-[#8B7CFF]/30 px-3 py-1 font-mono text-[11px] font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.25)] transition-all"

@@ -168,6 +168,8 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
       if (traffic !== null) dispatch({ type: "traffic", payload: traffic });
       const signals = await safeRest(api.getSignals);
       if (signals !== null) dispatch({ type: "signals", payload: signals.signals });
+      const vehicles = await safeRest(api.getVehicles);
+      if (vehicles !== null && vehicles.vehicles) dispatch({ type: "vehicles", payload: vehicles.vehicles });
     };
 
     const refreshLists = async (): Promise<void> => {

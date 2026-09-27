@@ -642,24 +642,36 @@ export class MobileService {
     eventId: number,
     driverId: number,
     ipAddress?: string,
+    callerRole?: string,
   ): Promise<{ status: "completed"; eventId: number }> {
     const event = await this.emergencyService.getEmergency(eventId);
-    if (event.mobile?.driverId !== driverId) {
+    if (event.status === "completed") {
+      return { status: "completed", eventId };
+    }
+    const isAuthorized =
+      callerRole === "operator" ||
+      callerRole === "admin" ||
+      !event.mobile?.driverId ||
+      event.mobile.driverId === driverId ||
+      driverId === 0;
+
+    if (!isAuthorized) {
       throw new AppError(403, "forbidden", "You can only complete your own emergencies.");
     }
-    if (event.status === "completed" || event.status === "cancelled") {
+    if (event.status === "cancelled") {
       throw new AppError(409, "invalid_state_transition", `Cannot complete an emergency that is ${event.status}.`);
     }
 
-    const driver = await this.mobileRepo.getDriverById(driverId);
-    const vehicle = await this.mobileRepo.getAssignedVehicleForDriver(driverId);
+    const effectiveDriverId = event.mobile?.driverId ?? (driverId > 0 ? driverId : null);
+    const driver = effectiveDriverId ? await this.mobileRepo.getDriverById(effectiveDriverId) : null;
+    const vehicle = effectiveDriverId ? await this.mobileRepo.getAssignedVehicleForDriver(effectiveDriverId) : null;
 
     // Cancel active corridor if running
     try {
       const corridors = await this.corridorService.listCorridors();
-      const active = corridors.find((c) => c.eventId === eventId && c.status === "ACTIVE");
+      const active = corridors.find((c) => c.eventId === eventId && (c.status === "ACTIVE" || c.status === "PLANNING"));
       if (active) {
-        await this.corridorService.cancelCorridor(active.id, "Emergency marked complete by driver.");
+        await this.corridorService.cancelCorridor(active.id, "Emergency marked complete.");
       }
     } catch (err) {
       // Non-fatal corridor cancellation error
@@ -676,10 +688,13 @@ export class MobileService {
       await this.mobileRepo.updateDriverStatus(driver.id, "on_duty");
     }
 
+    const actorRole: "driver" | "admin" | "operator" | "system" =
+      callerRole === "admin" ? "admin" : callerRole === "operator" ? "operator" : "driver";
+
     await this.mobileRepo.recordAudit(
       "emergency_completed",
-      driver?.driver_code ?? String(driverId),
-      "driver",
+      driver?.driver_code ?? (callerRole ?? (driverId ? String(driverId) : "operator")),
+      actorRole,
       eventId,
       {},
       ipAddress,
@@ -687,7 +702,7 @@ export class MobileService {
 
     this.bus.broadcast("emergency:completed", {
       eventId,
-      driverId,
+      driverId: effectiveDriverId ?? 0,
       completedAt: new Date().toISOString(),
     });
 
@@ -700,17 +715,29 @@ export class MobileService {
     driverId: number,
     reason: string,
     ipAddress?: string,
+    callerRole?: string,
   ): Promise<{ status: "cancelled"; eventId: number; reason: string }> {
     const event = await this.emergencyService.getEmergency(eventId);
-    if (event.mobile?.driverId !== driverId) {
+    if (event.status === "cancelled") {
+      return { status: "cancelled", eventId, reason };
+    }
+    const isAuthorized =
+      callerRole === "operator" ||
+      callerRole === "admin" ||
+      !event.mobile?.driverId ||
+      event.mobile.driverId === driverId ||
+      driverId === 0;
+
+    if (!isAuthorized) {
       throw new AppError(403, "forbidden", "You can only cancel your own emergencies.");
     }
-    if (event.status === "completed" || event.status === "cancelled") {
+    if (event.status === "completed") {
       throw new AppError(409, "invalid_state_transition", `Cannot cancel an emergency that is ${event.status}.`);
     }
 
-    const driver = await this.mobileRepo.getDriverById(driverId);
-    const vehicle = await this.mobileRepo.getAssignedVehicleForDriver(driverId);
+    const effectiveDriverId = event.mobile?.driverId ?? (driverId > 0 ? driverId : null);
+    const driver = effectiveDriverId ? await this.mobileRepo.getDriverById(effectiveDriverId) : null;
+    const vehicle = effectiveDriverId ? await this.mobileRepo.getAssignedVehicleForDriver(effectiveDriverId) : null;
 
     // Cancel active corridor if running
     try {
@@ -723,7 +750,7 @@ export class MobileService {
       // Non-fatal
     }
 
-    await this.emergencyRepo.cancelEmergency(eventId, reason, driver?.driver_code ?? "driver");
+    await this.emergencyRepo.cancelEmergency(eventId, reason, driver?.driver_code ?? (callerRole ?? "operator"));
 
     if (vehicle) {
       await this.mobileRepo.updateVehicleStatus(vehicle.id, "available", null);
@@ -732,10 +759,13 @@ export class MobileService {
       await this.mobileRepo.updateDriverStatus(driver.id, "on_duty");
     }
 
+    const cancelActorRole: "driver" | "admin" | "operator" | "system" =
+      callerRole === "admin" ? "admin" : callerRole === "operator" ? "operator" : "driver";
+
     await this.mobileRepo.recordAudit(
       "emergency_cancelled",
-      driver?.driver_code ?? String(driverId),
-      "driver",
+      driver?.driver_code ?? (callerRole ?? (driverId ? String(driverId) : "operator")),
+      cancelActorRole,
       eventId,
       { reason },
       ipAddress,
@@ -743,7 +773,7 @@ export class MobileService {
 
     this.bus.broadcast("emergency:cancelled", {
       eventId,
-      driverId,
+      driverId: effectiveDriverId ?? 0,
       reason,
       cancelledAt: new Date().toISOString(),
     });

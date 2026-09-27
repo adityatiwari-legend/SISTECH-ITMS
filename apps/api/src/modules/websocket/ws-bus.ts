@@ -196,22 +196,35 @@ export class WsBus {
       return payload;
     }
 
-    if (type === "vehicle:update") {
-      // Driver A receives only relevant vehicle telemetry (if emergencyId is matched)
-      if (typeof payload?.emergencyId === "number" && payload.emergencyId === meta.subscribedEventId) {
-        return payload;
-      }
-      return null;
-    }
-
-    if (type === "signal:update" || type === "prediction:update" || type === "traffic:update") {
-      if (typeof payload?.emergencyId === "number" && payload.emergencyId === meta.subscribedEventId) {
-        return payload;
-      }
-      return null; // suppress city-wide telemetry
-    }
-
     const targetEventId = payload?.eventId ?? payload?.emergencyId;
+
+    if (type === "vehicle:update") {
+      if (typeof targetEventId === "number") {
+        return meta.subscribedEventId === targetEventId ? payload : null;
+      }
+      if (meta.subscribedEventId != null) {
+        return null;
+      }
+      return payload;
+    }
+
+    if (type === "signal:update") {
+      if (typeof targetEventId === "number") {
+        return meta.subscribedEventId === targetEventId ? payload : null;
+      }
+      if (meta.subscribedEventId != null) {
+        return null;
+      }
+      return payload;
+    }
+
+    if (type === "traffic:update" || type === "prediction:update") {
+      if (meta.subscribedEventId != null && typeof targetEventId === "number") {
+        return meta.subscribedEventId === targetEventId ? payload : null;
+      }
+      return payload;
+    }
+
     if (typeof targetEventId === "number") {
       if (meta.subscribedEventId === targetEventId) return payload;
       return null;

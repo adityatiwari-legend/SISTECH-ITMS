@@ -485,6 +485,23 @@ export class SimulationManager {
       }
       try {
         await this.stepInternal();
+
+        // Continuous traffic sustain: if scenario completed (all routed vehicles completed),
+        // restart scenario cleanly so live traffic never stops.
+        if (
+          this.autoLoopActive &&
+          this.status === "running" &&
+          this.vehicles.length === 0 &&
+          this.simTimeSeconds >= 590
+        ) {
+          this.logger.info("Simulation scenario reached end with 0 vehicles; auto-looping to sustain city traffic", {
+            simTime: this.simTimeSeconds,
+            scenario: this.scenario,
+          });
+          const target = this.scenario ?? "baseline";
+          await this.stop();
+          await this.start(target, { autoRun: true });
+        }
       } catch (err) {
         if (!this.autoLoopActive) break;
         const message = err instanceof Error ? err.message : String(err);

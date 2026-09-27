@@ -147,6 +147,13 @@ export const api = {
   createEmergency: (body: CreateEmergencyBody) => request<EmergencyEventDetail>("/api/emergency", { method: "POST", body: JSON.stringify(body) }),
   getEmergencies: () => request<{ emergencies: EmergencyEventDetail[] }>("/api/emergency"),
   getEmergency: (id: number) => request<EmergencyEventDetail>(`/api/emergency/${id}`),
+  completeEmergency: (id: number) =>
+    request<{ status: "completed"; eventId: number }>(`/api/emergency/${id}/complete`, { method: "POST", body: JSON.stringify({}) }),
+  cancelEmergency: (id: number, reason?: string) =>
+    request<{ status: "cancelled"; eventId: number; reason: string }>(`/api/emergency/${id}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
 
   // corridors
   createCorridor: (body: CreateCorridorBody) => request<CorridorDetail>("/api/corridors", { method: "POST", body: JSON.stringify(body) }),

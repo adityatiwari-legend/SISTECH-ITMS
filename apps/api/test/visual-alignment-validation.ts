@@ -54,7 +54,7 @@ async function runValidation() {
   // Verify signals ordering (S01, S02, S03...)
   console.log("\nSignal Sequence on Route:");
   previewAiims.signals.slice(0, 8).forEach((s) => {
-    console.log(`  * ${s.id} (${s.name}): lat=${s.lat}, lng=${s.lng}, isTrafficLight=${s.isTrafficLight}`);
+    console.log(`  * ${s.id}: lat=${s.lat}, lng=${s.lng}, isTrafficLight=${s.isTrafficLight}`);
   });
 
   const signalIds = previewAiims.signals.map((s) => s.id);
