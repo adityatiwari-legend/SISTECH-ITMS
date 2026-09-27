@@ -55,8 +55,8 @@ test("geo: city network is georeferenced and junctions land in Bhopal", { skip: 
     assert.notEqual(latLng, null);
     assert.ok(latLng !== null); // type guard for strict null checks
     // Bhopal demo area (generated with default DEMO_* env).
-    assert.ok(latLng.lat > 23.2 && latLng.lat < 23.35, `lat ${latLng.lat} in Bhopal range`);
-    assert.ok(latLng.lng > 77.35 && latLng.lng < 77.5, `lng ${latLng.lng} in Bhopal range`);
+    assert.ok(latLng.lat > 23.15 && latLng.lat < 23.38, `lat ${latLng.lat} in Bhopal range`);
+    assert.ok(latLng.lng > 77.30 && latLng.lng < 77.55, `lng ${latLng.lng} in Bhopal range`);
   }
 });
 

@@ -1060,8 +1060,12 @@ export class CorridorService {
         const etaObj = etaByJunction.get(junction.junctionId);
         const etaSec = etaObj ? etaObj.etaSeconds : null;
         const stage = this.deriveJunctionStage(junction, simTime, etaSec);
+        const junc = this.catalog.junctions.find((j) => j.id === junction.junctionId);
+        const latLng = junc ? geoFromCatalog(this.catalog).sumoToLatLng(junc.x, junc.y) : null;
         return {
           junctionId: junction.junctionId,
+          lat: latLng ? Math.round(latLng.lat * 1e6) / 1e6 : null,
+          lng: latLng ? Math.round(latLng.lng * 1e6) / 1e6 : null,
           sequenceIndex: junction.sequenceIndex,
           status: junction.status,
           stage,

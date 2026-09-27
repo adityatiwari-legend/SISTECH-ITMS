@@ -22,6 +22,7 @@ import { RunRepository } from "../../database/repositories/run-repository.ts";
 import { TrafficRepository } from "../../database/repositories/traffic-repository.ts";
 import { LEVEL_ORDER, type CongestionLevel, type SegmentMetrics } from "./metrics.ts";
 import type { RoadGraph } from "../routing/road-graph.ts";
+import { geoFromCatalog, type GeoTransformer } from "../simulation/geo.ts";
 
 /**
  * Traffic intelligence orchestration (Phases.md 2.x):
@@ -46,6 +47,7 @@ export class TrafficService {
   private readonly bus: WsBus;
   private readonly catalog: NetworkCatalog;
   private readonly roadGraph: RoadGraph;
+  private readonly geo: GeoTransformer;
 
   private segmentInfo: Array<{ id: string; roadId: string; from: string; to: string }>;
   private currentRunId: number | null = null;
@@ -77,6 +79,7 @@ export class TrafficService {
     this.catalog = options.catalog;
     this.bus = options.bus;
     this.roadGraph = options.roadGraph;
+    this.geo = geoFromCatalog(options.catalog);
     this.networkRepo = new NetworkRepository(options.db);
     this.runRepo = new RunRepository(options.db);
     this.trafficRepo = new TrafficRepository();
@@ -300,7 +303,22 @@ export class TrafficService {
       return;
     }
     this.broadcastRevision = this.revision;
-    const signals: SignalSnapshot[] = this.manager.getSignals();
+    const rawSignals: SignalSnapshot[] = this.manager.getSignals();
+    const signals: SignalSnapshot[] = rawSignals.map((sig) => {
+      if (sig.lat !== undefined && sig.lng !== undefined) return sig;
+      const junc = this.catalog.junctions.find((j) => j.id === sig.id);
+      if (junc) {
+        const latLng = this.geo.sumoToLatLng(junc.x, junc.y);
+        if (latLng) {
+          return {
+            ...sig,
+            lat: Math.round(latLng.lat * 1e6) / 1e6,
+            lng: Math.round(latLng.lng * 1e6) / 1e6,
+          };
+        }
+      }
+      return sig;
+    });
     const vehicles: VehicleSnapshot[] = state.vehicles;
     const traffic = this.buildTrafficResponse(state, this.manager.getStatusSnapshot());
     this.bus.broadcast("vehicle:update", { simTimeSeconds: state.simTimeSeconds, vehicles });

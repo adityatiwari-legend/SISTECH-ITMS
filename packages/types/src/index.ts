@@ -76,6 +76,8 @@ export interface SignalSnapshot {
    */
   queueLength: number;
   controlledLanes: string[];
+  lat?: number;
+  lng?: number;
 }
 
 /** Aggregated status of the simulation manager. */

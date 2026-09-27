@@ -189,7 +189,9 @@ export async function mobileRoutes(
           originLng: { type: "number" },
           originJunction: { type: "string" },
           destinationJunction: { type: "string" },
-          destinationHospitalId: { type: "integer", minimum: 1 }
+          destinationHospitalId: { type: "integer", minimum: 1 },
+          destinationLat: { type: "number" },
+          destinationLng: { type: "number" }
         }
       }
     }
@@ -200,6 +202,8 @@ export async function mobileRoutes(
       originJunction?: string;
       destinationJunction?: string;
       destinationHospitalId?: number;
+      destinationLat?: number;
+      destinationLng?: number;
     };
     return mobileService.previewRoute(body);
   });

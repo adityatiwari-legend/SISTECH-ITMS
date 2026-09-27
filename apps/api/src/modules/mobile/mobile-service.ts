@@ -63,86 +63,151 @@ export class MobileService {
 
   // ------------------------------------------------ GPS TRANSLATION ----
   /**
-   * Maps WGS84 GPS (latitude, longitude) to the nearest SUMO network junction & road segment.
-   * Completely replaces client-side offline mock mapping in LIVE mode.
+   * Distance from point P to line segment AB squared (in cartesian meters).
    */
+  private distToSegmentSquared(
+    px: number,
+    py: number,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+  ): { distSq: number; t: number; projX: number; projY: number } {
+    const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+    if (l2 === 0) {
+      return {
+        distSq: (px - x1) * (px - x1) + (py - y1) * (py - y1),
+        t: 0,
+        projX: x1,
+        projY: y1,
+      };
+    }
+    let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const projX = x1 + t * (x2 - x1);
+    const projY = y1 + t * (y2 - y1);
+    const distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
+    return { distSq, t, projX, projY };
+  }
+
+  /**
+   * Snaps a WGS84 GPS coordinate (latitude, longitude) to the nearest drivable road
+   * segment in the SUMO road network, returning candidate graph junctions and snapped coordinates.
+   */
+  snapGpsToDrivableRoad(
+    latitude: number,
+    longitude: number,
+    role: "origin" | "destination" = "origin",
+  ): {
+    candidateJunctions: string[];
+    nearestSegmentId: string | null;
+    distanceM: number;
+    snappedLatLng: { lat: number; lng: number } | null;
+  } {
+    // 1. Geographic bounds validation (Bhopal Metropolitan Area)
+    if (latitude < 23.10 || latitude > 23.40 || longitude < 77.25 || longitude > 77.60) {
+      throw new AppError(
+        400,
+        "out_of_bounds",
+        `GPS coordinate (${latitude}, ${longitude}) is outside the operational Bhopal service area.`,
+      );
+    }
+
+    const sumoPoint = this.geo.latLngToSumo(latitude, longitude);
+    if (sumoPoint === null) {
+      throw new AppError(
+        400,
+        "projection_error",
+        `Failed to project GPS coordinate (${latitude}, ${longitude}) into Bhopal metric CRS.`,
+      );
+    }
+
+    const graph = this.routeEngine.getGraph();
+    interface SegmentCandidate {
+      segmentId: string;
+      fromJunction: string;
+      toJunction: string;
+      distanceM: number;
+      projX: number;
+      projY: number;
+      t: number;
+    }
+
+    const candidates: SegmentCandidate[] = [];
+
+    for (const seg of this.catalog.segments) {
+      if (!graph.hasNode(seg.fromJunction) || !graph.hasNode(seg.toJunction)) {
+        continue;
+      }
+      for (const lane of seg.lanes) {
+        for (let i = 0; i < lane.shape.length - 1; i++) {
+          const p1 = lane.shape[i]!;
+          const p2 = lane.shape[i + 1]!;
+          const res = this.distToSegmentSquared(sumoPoint.x, sumoPoint.y, p1.x, p1.y, p2.x, p2.y);
+          const distM = Math.sqrt(res.distSq);
+          candidates.push({
+            segmentId: seg.id,
+            fromJunction: seg.fromJunction,
+            toJunction: seg.toJunction,
+            distanceM: distM,
+            projX: res.projX,
+            projY: res.projY,
+            t: res.t,
+          });
+        }
+      }
+    }
+
+    candidates.sort((a, b) => a.distanceM - b.distanceM);
+
+    if (candidates.length === 0) {
+      throw new AppError(422, "road_snap_failed", "No drivable road segments found in network.");
+    }
+
+    const best = candidates[0]!;
+    const snappedLatLng = this.geo.sumoToLatLng(best.projX, best.projY);
+
+    // Extract ordered candidate junctions for routing
+    const junctionSet = new Set<string>();
+    const topSegments = candidates.slice(0, 15);
+
+    for (const c of topSegments) {
+      if (role === "origin") {
+        junctionSet.add(c.toJunction);
+        junctionSet.add(c.fromJunction);
+      } else {
+        junctionSet.add(c.fromJunction);
+        junctionSet.add(c.toJunction);
+      }
+    }
+
+    return {
+      candidateJunctions: Array.from(junctionSet),
+      nearestSegmentId: best.segmentId,
+      distanceM: Math.round(best.distanceM * 10) / 10,
+      snappedLatLng,
+    };
+  }
+
   translateGpsToNetwork(latitude: number, longitude: number): {
     junctionId: string;
     distanceM: number;
     segmentId: string | null;
   } {
-    // If network has proj4 georeferencing, transform to SUMO cartesian meters
-    const sumoPoint = this.geo.latLngToSumo(latitude, longitude);
-
-    let nearestJunctionId = "I1";
-    let minDistance = Infinity;
-
-    if (sumoPoint !== null) {
-      for (const j of this.catalog.junctions) {
-        const dx = j.x - sumoPoint.x;
-        const dy = j.y - sumoPoint.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < minDistance) {
-          minDistance = dist;
-          nearestJunctionId = j.id;
-        }
-      }
-    } else {
-      // Synthetic / non-georeferenced fallback: Use spherical distance to junction approx
-      // For synthetic grid (I1..I6), map proportional coordinates or return closest
-      // Default to I1 or closest matching known coordinate
-      nearestJunctionId = "I1";
-      minDistance = 50;
+    try {
+      const snapped = this.snapGpsToDrivableRoad(latitude, longitude, "origin");
+      return {
+        junctionId: snapped.candidateJunctions[0] ?? "I1",
+        distanceM: snapped.distanceM,
+        segmentId: snapped.nearestSegmentId,
+      };
+    } catch {
+      return {
+        junctionId: this.catalog.junctions[0]?.id ?? "I1",
+        distanceM: 999,
+        segmentId: null,
+      };
     }
-
-    // Find nearest incoming segment to that junction
-    const nearestJunction = this.catalog.junctions.find((j) => j.id === nearestJunctionId);
-    let nearestSegmentId: string | null = null;
-    if (nearestJunction && nearestJunction.incLanes.length > 0) {
-      nearestSegmentId = nearestJunction.incLanes[0]?.split("_")[0] ?? null;
-    }
-
-    return {
-      junctionId: nearestJunctionId,
-      distanceM: Math.round(minDistance * 10) / 10,
-      segmentId: nearestSegmentId,
-    };
-  }
-
-  // Helper to ensure an origin junction always maps to a valid catalog junction
-  private resolveValidJunction(preferredId?: string, lat?: number, lng?: number): string {
-    if (preferredId && this.catalog.junctions.some((j) => j.id === preferredId)) {
-      return preferredId;
-    }
-    if (lat !== undefined && lng !== undefined) {
-      const translated = this.translateGpsToNetwork(lat, lng).junctionId;
-      if (this.catalog.junctions.some((j) => j.id === translated)) {
-        return translated;
-      }
-    }
-    return this.catalog.junctions[0]?.id ?? "I1";
-  }
-
-  // Helper to ensure a destination junction always maps to a valid catalog junction
-  private resolveDestinationJunction(
-    preferredId?: string,
-    hospital?: { nearestJunctionId?: string; latitude: number; longitude: number } | null,
-    originJunction?: string,
-  ): string {
-    if (preferredId && this.catalog.junctions.some((j) => j.id === preferredId)) {
-      return preferredId;
-    }
-    if (hospital) {
-      if (hospital.nearestJunctionId && this.catalog.junctions.some((j) => j.id === hospital.nearestJunctionId)) {
-        return hospital.nearestJunctionId;
-      }
-      const translated = this.translateGpsToNetwork(hospital.latitude, hospital.longitude).junctionId;
-      if (this.catalog.junctions.some((j) => j.id === translated)) {
-        return translated;
-      }
-    }
-    const candidate = this.catalog.junctions.find((j) => j.id !== originJunction);
-    return candidate?.id ?? this.catalog.junctions[this.catalog.junctions.length - 1]?.id ?? "I6";
   }
 
   // ------------------------------------------------ ROUTE PREVIEW ----
@@ -152,6 +217,8 @@ export class MobileService {
     originJunction?: string;
     destinationJunction?: string;
     destinationHospitalId?: number;
+    destinationLat?: number;
+    destinationLng?: number;
   }): Promise<{
     routeId: string;
     originJunction: string;
@@ -166,45 +233,98 @@ export class MobileService {
       costSeconds: number;
       coordinates: Array<{ lat: number; lng: number }>;
     }>;
+    signals: Array<{
+      id: string;
+      type: string;
+      isTrafficLight: boolean;
+      lat: number;
+      lng: number;
+    }>;
   }> {
-    const origin = this.resolveValidJunction(input.originJunction, input.originLat, input.originLng);
+    const graph = this.routeEngine.getGraph();
 
-    let hospital = null;
-    if (input.destinationHospitalId) {
-      hospital = await this.mobileRepo.getHospitalById(input.destinationHospitalId);
+    let originCandidates: string[] = [];
+    if (typeof input.originLat === "number" && typeof input.originLng === "number") {
+      const snap = this.snapGpsToDrivableRoad(input.originLat, input.originLng, "origin");
+      originCandidates = snap.candidateJunctions;
+    } else if (input.originJunction && graph.hasNode(input.originJunction)) {
+      originCandidates = [input.originJunction];
+    } else {
+      originCandidates = [this.catalog.junctions[0]?.id ?? "I1"];
     }
-    const destination = this.resolveDestinationJunction(input.destinationJunction, hospital, origin);
 
-    let route;
-    try {
-      route = this.routeEngine.computeRoute(origin, destination);
-    } catch {
-      // In case the chosen junction pair is not directly routable, fallback to a reachable alternative
-      const fallbackDest = this.catalog.junctions.find((j) => j.id !== origin && j.id !== destination)?.id ?? destination;
-      try {
-        route = this.routeEngine.computeRoute(origin, fallbackDest);
-      } catch {
-        route = {
-          algorithm: "astar",
-          originJunction: origin,
-          destinationJunction: destination,
-          junctions: [origin, destination],
-          segments: [],
-          totalLengthM: 2000,
-          estimatedTravelTimeS: 150,
-          freeFlowTravelTimeS: 150,
-          expandedNodes: 1,
-        };
+    let destCandidates: string[] = [];
+    if (typeof input.destinationLat === "number" && typeof input.destinationLng === "number") {
+      const snap = this.snapGpsToDrivableRoad(input.destinationLat, input.destinationLng, "destination");
+      destCandidates = snap.candidateJunctions;
+    } else if (input.destinationHospitalId) {
+      const hospital = await this.mobileRepo.getHospitalById(input.destinationHospitalId);
+      if (hospital) {
+        const snap = this.snapGpsToDrivableRoad(hospital.latitude, hospital.longitude, "destination");
+        destCandidates = snap.candidateJunctions;
       }
+    } else if (input.destinationJunction && graph.hasNode(input.destinationJunction)) {
+      destCandidates = [input.destinationJunction];
     }
 
+    if (destCandidates.length === 0) {
+      destCandidates = [this.catalog.junctions[this.catalog.junctions.length - 1]?.id ?? "I6"];
+    }
+
+    // Attempt A* computation across candidate pairs to find the fastest valid connected road path
+    let route: ComputedRoute | null = null;
+    let chosenOrigin = originCandidates[0]!;
+    let chosenDest = destCandidates[0]!;
+
+    for (const oJ of originCandidates) {
+      for (const dJ of destCandidates) {
+        if (oJ === dJ) continue;
+        try {
+          const r = this.routeEngine.computeRoute(oJ, dJ);
+          if (r.segments.length > 0) {
+            if (!route || r.estimatedTravelTimeS < route.estimatedTravelTimeS) {
+              route = r;
+              chosenOrigin = oJ;
+              chosenDest = dJ;
+            }
+          }
+        } catch {
+          // Continue testing next candidate pair
+        }
+      }
+      if (route !== null) break;
+    }
+
+    if (route === null || route.segments.length === 0) {
+      throw new AppError(
+        422,
+        "route_unreachable",
+        "No drivable road route found connecting origin and destination through the Bhopal road network. DO NOT fall back to a straight line.",
+      );
+    }
+
+    // Validate route connectivity and structure
+    const routeProblems = this.routeEngine.validateRoute(route);
+    if (routeProblems.length > 0) {
+      throw new AppError(
+        422,
+        "invalid_route_connectivity",
+        `Route failed topological connectivity validation: ${JSON.stringify(routeProblems)}`,
+      );
+    }
+
+    // Extract exact road edge geometry preserving turns, curves, intersections, and road shape
     const segmentsWithCoords = route.segments.map((seg) => {
       const netSeg = this.catalog.segments.find((s) => s.id === seg.segmentId);
       const coords: Array<{ lat: number; lng: number }> = [];
       if (netSeg && netSeg.lanes.length > 0) {
         for (const pt of netSeg.lanes[0]!.shape) {
           const latLng = this.geo.sumoToLatLng(pt.x, pt.y);
-          if (latLng) coords.push(latLng);
+          if (latLng) {
+            if (latLng.lat >= 23.10 && latLng.lat <= 23.40 && latLng.lng >= 77.25 && latLng.lng <= 77.60) {
+              coords.push(latLng);
+            }
+          }
         }
       }
       return {
@@ -217,13 +337,52 @@ export class MobileService {
       };
     });
 
+    // Real traffic signals / intersections along the traversed route edges in order
+    const routeJunctionIds: string[] = [];
+    if (route.junctions.length > 0) {
+      routeJunctionIds.push(route.junctions[0]!);
+    }
+    for (const seg of route.segments) {
+      if (!routeJunctionIds.includes(seg.toJunction)) {
+        routeJunctionIds.push(seg.toJunction);
+      }
+    }
+
+    const routeJunctions = routeJunctionIds
+      .map((jId) => this.catalog.junctions.find((j) => j.id === jId))
+      .filter((j): j is typeof this.catalog.junctions[number] => j !== undefined);
+
+    const trafficLightJunctions = routeJunctions.filter(
+      (j) => j.kind === "traffic_light" || this.catalog.signals.some((s) => s.id === j.id),
+    );
+
+    const candidateJunctions = trafficLightJunctions.length >= 2 ? trafficLightJunctions : routeJunctions;
+
+    const signals = candidateJunctions
+      .map((j, idx) => {
+        const latLng = this.geo.sumoToLatLng(j.x, j.y);
+        const seq = String(idx + 1).padStart(2, "0");
+        return {
+          id: `S${seq}`,
+          junctionId: j.id,
+          name: `Signal S${seq} (${j.id})`,
+          type: j.kind,
+          isTrafficLight: j.kind === "traffic_light" || this.catalog.signals.some((s) => s.id === j.id),
+          lat: latLng ? Math.round(latLng.lat * 1e6) / 1e6 : 0,
+          lng: latLng ? Math.round(latLng.lng * 1e6) / 1e6 : 0,
+          sequenceIndex: idx,
+        };
+      })
+      .filter((s) => s.lat !== 0 && s.lng !== 0);
+
     return {
-      routeId: `preview-${origin}-${destination}-${Date.now()}`,
-      originJunction: origin,
-      destinationJunction: destination,
+      routeId: `route-${chosenOrigin}-${chosenDest}-${Date.now()}`,
+      originJunction: chosenOrigin,
+      destinationJunction: chosenDest,
       totalLengthM: route.totalLengthM,
       estimatedTravelTimeS: route.estimatedTravelTimeS,
       segments: segmentsWithCoords,
+      signals,
     };
   }
 
@@ -258,16 +417,55 @@ export class MobileService {
     // Resolve Origin Junction with dual coordinate support (latitude/originLat)
     const pickupLat = typeof body.latitude === "number" ? body.latitude : (typeof (body as any).originLat === "number" ? (body as any).originLat : undefined);
     const pickupLng = typeof body.longitude === "number" ? body.longitude : (typeof (body as any).originLng === "number" ? (body as any).originLng : undefined);
-    const origin = this.resolveValidJunction(body.origin, pickupLat, pickupLng);
+
+    let originCandidates: string[] = [];
+    if (pickupLat !== undefined && pickupLng !== undefined) {
+      const snap = this.snapGpsToDrivableRoad(pickupLat, pickupLng, "origin");
+      originCandidates = snap.candidateJunctions;
+    } else if (body.origin && this.catalog.junctions.some((j) => j.id === body.origin)) {
+      originCandidates = [body.origin];
+    } else {
+      originCandidates = [this.catalog.junctions[0]?.id ?? "I1"];
+    }
 
     // Resolve Destination Junction
     let hospital = null;
     let hospitalId: number | null = null;
+    let destCandidates: string[] = [];
     if (body.destinationHospitalId) {
       hospital = await this.mobileRepo.getHospitalById(Number(body.destinationHospitalId));
-      if (hospital) hospitalId = hospital.id;
+      if (hospital) {
+        hospitalId = hospital.id;
+        const snap = this.snapGpsToDrivableRoad(hospital.latitude, hospital.longitude, "destination");
+        destCandidates = snap.candidateJunctions;
+      }
+    } else if (body.destination && this.catalog.junctions.some((j) => j.id === body.destination)) {
+      destCandidates = [body.destination];
     }
-    const destination = this.resolveDestinationJunction(body.destination, hospital, origin);
+
+    if (destCandidates.length === 0) {
+      destCandidates = [this.catalog.junctions[this.catalog.junctions.length - 1]?.id ?? "I6"];
+    }
+
+    let origin = originCandidates[0]!;
+    let destination = destCandidates[0]!;
+    let routeFound = false;
+
+    for (const oJ of originCandidates) {
+      for (const dJ of destCandidates) {
+        if (oJ === dJ) continue;
+        try {
+          const r = this.routeEngine.computeRoute(oJ, dJ);
+          if (r.segments.length > 0) {
+            origin = oJ;
+            destination = dJ;
+            routeFound = true;
+            break;
+          }
+        } catch {}
+      }
+      if (routeFound) break;
+    }
 
     const emergencyType: EmergencyType = body.type || vehicle.vehicleType || "ambulance";
     let priority: EmergencyPriority = "critical";

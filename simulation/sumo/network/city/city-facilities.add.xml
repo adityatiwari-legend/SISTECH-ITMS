@@ -4,7 +4,7 @@
   from DEMO_* coordinates; positions are in the network's projected meters).
 -->
 <additional>
-    <poi id="hospital_central" type="hospital" x="2332.48" y="3674.45" color="1.00,0.30,0.30"/>
-    <poi id="ems_station_west" type="ems" x="4401.07" y="4251.67" color="0.40,0.80,1.00"/>
-    <poi id="fire_station_south" type="fire" x="5179.12" y="3023.65" color="1.00,0.60,0.20"/>
+    <poi id="hospital_central" type="hospital" x="8575.23" y="10988.23" color="1.00,0.30,0.30"/>
+    <poi id="ems_station_west" type="ems" x="10643.82" y="11565.45" color="0.40,0.80,1.00"/>
+    <poi id="fire_station_south" type="fire" x="11421.87" y="10337.43" color="1.00,0.60,0.20"/>
 </additional>
