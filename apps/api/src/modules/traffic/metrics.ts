@@ -206,7 +206,11 @@ const LEVEL_ORDER: Record<CongestionLevel, number> = { LOW: 0, MEDIUM: 1, HIGH: 
 export { LEVEL_ORDER };
 
 /** Aggregates segment metrics into a city-level summary. */
-export function computeCitySummary(segments: SegmentMetrics[], totalVehicles: number): CitySummary {
+export function computeCitySummary(
+  segments: SegmentMetrics[],
+  totalVehicles: number,
+  vehicles?: Array<{ speed?: number }>,
+): CitySummary {
   let totalQueue = 0;
   let speedWeighted = 0;
   let congested = 0;
@@ -229,9 +233,18 @@ export function computeCitySummary(segments: SegmentMetrics[], totalVehicles: nu
     }
   }
 
+  let avgSpeedMps = 0;
+  const count = vehicles ? vehicles.length : totalVehicles;
+  if (vehicles && vehicles.length > 0) {
+    const sumSpeed = vehicles.reduce((acc, v) => acc + (v.speed || 0), 0);
+    avgSpeedMps = round3(sumSpeed / vehicles.length);
+  } else if (totalVehicles > 0) {
+    avgSpeedMps = round3(speedWeighted / totalVehicles);
+  }
+
   return {
-    vehicleCount: totalVehicles,
-    avgSpeedMps: totalVehicles > 0 ? round3(speedWeighted / totalVehicles) : 0,
+    vehicleCount: count,
+    avgSpeedMps,
     totalQueueLength: totalQueue,
     congestedSegments: congested,
     criticalSegments: critical,

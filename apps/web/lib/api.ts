@@ -19,6 +19,7 @@ import type {
   VehicleSnapshot,
   RoadsideDeviceRecord,
   DeviceStateSnapshot,
+  SystemStatusResponse,
 } from "@itms/types";
 
 /**
@@ -175,6 +176,7 @@ export const api = {
   getAnalytics: () => request<AnalyticsResponse>("/api/analytics"),
   getDecisions: () => request<{ events: DecisionEvent[] }>("/api/decisions"),
   getSystem: () => request<SystemOverview>("/api/system"),
+  getSystemStatus: () => request<SystemStatusResponse>("/api/system/status"),
 
   // AI Copilot (Vultr Serverless Inference)
   askAiCopilot: (question: string, context?: { intersectionId?: string; emergencyId?: number; decisionId?: string; focus?: string }) =>

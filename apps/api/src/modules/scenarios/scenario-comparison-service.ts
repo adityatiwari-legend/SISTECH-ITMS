@@ -75,14 +75,29 @@ export class ScenarioComparisonService {
     return this.jobs.get(jobId) ?? null;
   }
 
-  /** Starts a comparison job (queued; executed asynchronously). */
-  startComparison(body: CreateComparisonBody): ComparisonResult {
+  hasActiveJob(): boolean {
     if (this.activeJob !== null) {
       const active = this.jobs.get(this.activeJob);
-      if (active !== undefined && active.status === "running") {
-        throw new AppError(409, "comparison_already_running", `Comparison job ${this.activeJob} is still running; wait for it to finish.`);
-      }
+      return active !== undefined && active.status === "running";
     }
+    return false;
+  }
+
+  /** Starts a comparison job (queued; executed asynchronously). */
+  startComparison(body: CreateComparisonBody): ComparisonResult {
+    if (this.hasActiveJob()) {
+      throw new AppError(409, "comparison_already_running", `Comparison job ${this.activeJob} is still running; wait for it to finish.`);
+    }
+
+    const activeEmergencies = this.emergencyService.getActiveEmergencies();
+    if (activeEmergencies.length > 0) {
+      throw new AppError(
+        409,
+        "live_emergency_active",
+        "Cannot start benchmark execution while a live emergency session is active. Please complete or cancel the active emergency first.",
+      );
+    }
+
     // Validate endpoints up front (fail fast, before the long run).
     const problems = this.endpointProblems(body.origin, body.destination);
     if (problems !== null) {

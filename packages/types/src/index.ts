@@ -221,6 +221,8 @@ export interface WsEvent<T> {
     | "corridor:authorized"
     | "emergency:completed"
     | "emergency:cancelled"
+    | "vehicle:position"
+    | "vehicle.position.updated"
     | "heartbeat"
     | "device:connect"
     | "device:connected"
@@ -413,6 +415,7 @@ export interface CreateEmergencyBody {
   severity?: string;
   driverId?: number;
   vehicleId?: number | string;
+  vehicleCode?: string;
   pickupLatitude?: number;
   pickupLongitude?: number;
 }
@@ -960,5 +963,70 @@ export interface DeviceDisplayPayload {
 export interface DeviceStateSnapshot {
   device: RoadsideDeviceRecord;
   display: DeviceDisplayPayload;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10 — Authoritative Emergency Session & State Synchronization
+// ---------------------------------------------------------------------------
+
+export type ExecutionMode = "SIMULATION" | "REAL_GPS";
+
+export interface EmergencySession {
+  emergencyId: number;
+  driverId?: number | null;
+  vehicleId: string;
+  sumoVehicleId?: string;
+  status: EmergencyStatus;
+  priority: EmergencyPriority;
+  type: EmergencyType;
+  mode: ExecutionMode;
+  origin: string;
+  destination: string;
+  originLat?: number | null;
+  originLng?: number | null;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
+  routeEdges: string[];
+  routeCoordinates?: Array<{ lat: number; lng: number }>;
+  currentPosition?: { lat: number; lng: number; x?: number; y?: number };
+  speedMps: number;
+  speedKmh: number;
+  heading: number;
+  etaSeconds: number | null;
+  corridorId?: number | null;
+  corridorStatus?: CorridorState | null;
+  version: number;
+  createdAtIso: string;
+  updatedAtIso: string;
+  completedAtIso?: string | null;
+  cancelledAtIso?: string | null;
+}
+
+export interface NormalizedTrafficState {
+  timestamp: string;
+  simTimeSeconds: number;
+  activeVehicleCount: number;
+  averageSpeedMps: number;
+  averageSpeedKmh: number;
+  totalQueueLength: number;
+  congestedSegments: number;
+  congestionLevel: CongestionLevel;
+  signalCount: number;
+  version: number;
+}
+
+export interface SystemStatusResponse {
+  systemStatus: "online" | "degraded" | "offline";
+  sumoStatus: "connected" | "disconnected" | "error";
+  traciStatus: "connected" | "disconnected" | "error";
+  databaseStatus: "connected" | "disconnected" | "error";
+  websocketStatus: "connected" | "disconnected" | "error";
+  mode: ExecutionMode;
+  executionMode?: ExecutionMode;
+  activeEmergencies: number;
+  activeEmergencyCount?: number;
+  activeCorridors: number;
+  websocketClientCount?: number;
+  timestamp: string;
 }
 

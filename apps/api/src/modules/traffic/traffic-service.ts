@@ -339,8 +339,13 @@ export class TrafficService {
 
   getTrafficSnapshot(): TrafficStateResponse {
     const status = this.manager.getStatusSnapshot();
+    const liveVehicles = this.manager.getVehicles();
     if (this.latest === null) {
-      // No live data yet: report the static empty city honestly.
+      const liveVehicleCount = liveVehicles.length;
+      const liveAvgSpeed =
+        liveVehicleCount > 0
+          ? Math.round((liveVehicles.reduce((s, v) => s + (v.speed || 0), 0) / liveVehicleCount) * 1000) / 1000
+          : 0;
       const emptySegments: SegmentTraffic[] = this.segmentInfo.map((info) => ({
         segmentId: info.id,
         roadId: info.roadId,
@@ -355,15 +360,15 @@ export class TrafficService {
         congestion: "LOW" as const,
       }));
       const summary: CityTrafficSummary = {
-        vehicleCount: 0,
-        avgSpeedMps: 0,
+        vehicleCount: liveVehicleCount,
+        avgSpeedMps: liveAvgSpeed,
         totalQueueLength: 0,
         congestedSegments: 0,
         criticalSegments: 0,
         cityLevel: "LOW" as const,
       };
       return {
-        simTimeSeconds: 0,
+        simTimeSeconds: status.simTimeSeconds,
         collectedAtIso: null,
         ageSeconds: null,
         stale: true,
@@ -387,6 +392,16 @@ export class TrafficService {
       ? Math.max(0, Math.round(((Date.now() - collectedAtMs) / 1000) * 10) / 10)
       : null;
     const stale = ageSeconds === null || ageSeconds > this.config.trafficStaleAfterSeconds;
+
+    const liveVehicles = this.manager.getVehicles();
+    const summary: CityTrafficSummary = { ...state.summary };
+    if (liveVehicles.length > 0) {
+      summary.vehicleCount = liveVehicles.length;
+      if (summary.avgSpeedMps === 0) {
+        summary.avgSpeedMps =
+          Math.round((liveVehicles.reduce((s, v) => s + (v.speed || 0), 0) / liveVehicles.length) * 1000) / 1000;
+      }
+    }
 
     const segments: SegmentTraffic[] = state.segments.map((segment) => {
       const info = this.segmentInfo.find((s) => s.id === segment.segmentId);
@@ -427,7 +442,7 @@ export class TrafficService {
       collectedAtIso: state.collectedAtIso,
       ageSeconds,
       stale,
-      summary: state.summary,
+      summary,
       segments,
       intersections,
       system: this.systemInfo(status),

@@ -170,6 +170,9 @@ async function main(): Promise<void> {
     catalog,
     bus: wsBus,
     aiVerificationService,
+    manager,
+    db,
+    executionMode: (process.env.ITMS_EXECUTION_MODE as "SIMULATION" | "REAL_GPS") || "SIMULATION",
   });
 
   const deviceRepository = new DeviceRepository(db);

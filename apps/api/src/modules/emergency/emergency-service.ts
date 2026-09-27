@@ -98,6 +98,7 @@ export class EmergencyService {
 
   private active = new Map<number, ActiveEmergency>();
   private sequence = 0;
+  private version = 0;
   private eventListeners: Array<() => void> = [];
   /** Priority, vehicle type and last persisted status per event (corridor service reads). */
   private priorityByEvent = new Map<number, EmergencyEventDetail["priority"]>();
@@ -323,6 +324,11 @@ export class EmergencyService {
     return this.transitionSimTimesByEvent.get(eventId) ?? null;
   }
 
+  /** Returns all currently active emergency sessions. */
+  getActiveEmergencies(): ActiveEmergency[] {
+    return Array.from(this.active.values());
+  }
+
   // ------------------------------------------------------------------
   // Creation workflow (Phases.md 3.4)
   // ------------------------------------------------------------------
@@ -371,7 +377,16 @@ export class EmergencyService {
     }
 
     this.sequence += 1;
-    const vehicleId = `emv-${status.scenario ?? "sim"}-${this.sequence}-${Date.now() % 10000}`;
+    let vehicleId = body.vehicleCode;
+    if (!vehicleId) {
+      if (body.vehicleId) {
+        const str = String(body.vehicleId);
+        vehicleId = str.startsWith("AMB") || str.startsWith("FE") || str.startsWith("PC") ? str : `AMB-${str.padStart(3, "0")}`;
+      } else {
+        vehicleId = `AMB-${String(this.sequence).padStart(3, "0")}`;
+      }
+    }
+
     let persisted: {
       vehicle: EmergencyVehicleRow;
       event: EmergencyEventRow;
@@ -426,26 +441,36 @@ export class EmergencyService {
           typeId: TYPE_IDS[body.type],
           departSpeed: "0",
         });
+        this.logger.info(`[SUMO_INJECT] Emergency vehicle injected into TraCI`, {
+          emergencyId: persisted.event.id,
+          vehicleId,
+          routeId: sumoRouteId,
+        });
       } catch (err) {
-        if (!body.driverId) {
-          this.logger.error("Emergency vehicle spawn failed", { eventId: persisted.event.id, error: err });
-          try {
-            await this.repository.applyTransition({
-              eventId: persisted.event.id,
-              vehicleRowId: persisted.vehicle.id,
-              status: "failed",
-              activatedAtIso: null,
-              arrivedAtIso: null,
-              positionX: null,
-              positionY: null,
-              speedMps: null,
-            });
-          } catch (dbErr) {
-            this.logger.error("Could not persist failed spawn", { error: dbErr });
-          }
-          throw err;
+        this.logger.error(`[SUMO_INJECT_FAIL] Emergency vehicle spawn failed`, {
+          emergencyId: persisted.event.id,
+          vehicleId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        try {
+          await this.repository.applyTransition({
+            eventId: persisted.event.id,
+            vehicleRowId: persisted.vehicle.id,
+            status: "failed",
+            activatedAtIso: null,
+            arrivedAtIso: null,
+            positionX: null,
+            positionY: null,
+            speedMps: null,
+          });
+        } catch (dbErr) {
+          this.logger.error("Could not persist failed spawn", { error: dbErr });
         }
-        this.logger.warn("SUMO vehicle spawn skipped for driver app emergency", { error: err });
+        throw new AppError(
+          502,
+          "sumo_injection_failed",
+          `SUMO TraCI injection failed for vehicle ${vehicleId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -467,13 +492,33 @@ export class EmergencyService {
     this.typeByEvent.set(persisted.event.id, body.type);
     this.persistedStatusByEvent.set(persisted.event.id, "created");
 
+    // Re-read the persisted record so the response reflects the database
+    // (including the route with its segments and mobile joins).
+    const [eventRow, vehicleRow] = await Promise.all([
+      this.repository.getEvent(persisted.event.id),
+      this.repository.getVehicle(persisted.vehicle.id),
+    ]);
+    if (eventRow === null || vehicleRow === null) {
+      throw new AppError(500, "emergency_corrupt", "Emergency could not be read back after creation.");
+    }
+    const routeRow = eventRow.route_id !== null ? await this.repository.getRoute(eventRow.route_id) : null;
+    const segmentRows = routeRow !== null ? await this.repository.getRouteSegments(routeRow.id) : [];
+    const detail = this.buildDetail(eventRow, vehicleRow, routeRow, segmentRows);
+
+    this.version += 1;
     this.bus.broadcast("emergency:created", {
-      eventId: persisted.event.id,
-      type: body.type,
-      priority: body.priority,
-      origin,
-      destination,
+      ...detail,
+      version: this.version,
+      emergencyId: detail.id,
+      vehicleId,
     });
+    this.logger.info(`[EMERGENCY_CREATE] Emergency created and authoritative broadcast sent`, {
+      emergencyId: detail.id,
+      vehicleId,
+      version: this.version,
+      priority: body.priority,
+    });
+
     if (route) {
       const segmentIds = route.segments.map((segment) => segment.segmentId);
       const catalog = this.routeEngine.getCatalog();
@@ -485,33 +530,16 @@ export class EmergencyService {
         coordinates: extractRouteGeometry(segmentIds, catalog, geo),
         estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
       });
-      this.logger.info("Emergency created", {
+      this.logger.info(`[ROUTE_UPDATED] Route calculated for emergency`, {
         eventId: persisted.event.id,
         type: body.type,
         priority: body.priority,
         routeEdges: route.segments.length,
         estimatedTravelTimeS: round1(route.estimatedTravelTimeS),
       });
-    } else {
-      this.logger.info("Emergency created (mobile telemetry mode)", {
-        eventId: persisted.event.id,
-        type: body.type,
-        priority: body.priority,
-      });
     }
 
-    // Re-read the persisted record so the response reflects the database
-    // (including the route with its segments).
-    const [eventRow, vehicleRow] = await Promise.all([
-      this.repository.getEvent(persisted.event.id),
-      this.repository.getVehicle(persisted.vehicle.id),
-    ]);
-    if (eventRow === null || vehicleRow === null) {
-      throw new AppError(500, "emergency_corrupt", "Emergency could not be read back after creation.");
-    }
-    const routeRow = eventRow.route_id !== null ? await this.repository.getRoute(eventRow.route_id) : null;
-    const segmentRows = routeRow !== null ? await this.repository.getRouteSegments(routeRow.id) : [];
-    return this.buildDetail(eventRow, vehicleRow, routeRow, segmentRows);
+    return detail;
   }
 
   // ------------------------------------------------------------------
@@ -550,6 +578,31 @@ export class EmergencyService {
       }
       if (emergency.status === "created") {
         await this.markActive(emergency, live);
+      } else if (emergency.status === "active") {
+        this.version += 1;
+        const nowIso = new Date().toISOString();
+        this.bus.broadcast("vehicle:position", {
+          type: "vehicle.position.updated",
+          version: this.version,
+          timestamp: nowIso,
+          emergencyId: emergency.eventId,
+          eventId: emergency.eventId,
+          vehicleId: emergency.vehicleId,
+          position: {
+            x: live.positionX,
+            y: live.positionY,
+            lat: live.lat,
+            lng: live.lng,
+          },
+          positionX: live.positionX,
+          positionY: live.positionY,
+          lat: live.lat,
+          lng: live.lng,
+          speedMps: live.speed,
+          speedKmh: Math.round(live.speed * 3.6),
+          heading: live.angle,
+          angle: live.angle,
+        });
       }
     }
   }
@@ -577,13 +630,28 @@ export class EmergencyService {
     } catch (err) {
       this.logger.error("Could not persist emergency activation", { eventId: emergency.eventId, error: err });
     }
+    this.version += 1;
     this.bus.broadcast("emergency:update", {
       eventId: emergency.eventId,
+      emergencyId: emergency.eventId,
       status: "active",
       vehicleId: emergency.vehicleId,
       positionX: live.positionX,
       positionY: live.positionY,
+      lat: live.lat,
+      lng: live.lng,
       speedMps: live.speed,
+      speedKmh: Math.round(live.speed * 3.6),
+      angle: live.angle,
+      heading: live.angle,
+      version: this.version,
+      updatedAtIso: nowIso,
+    });
+    this.logger.info(`[VEHICLE_POSITION] Emergency active update`, {
+      emergencyId: emergency.eventId,
+      vehicleId: emergency.vehicleId,
+      speedMps: live.speed,
+      version: this.version,
     });
   }
 
@@ -611,17 +679,23 @@ export class EmergencyService {
     } catch (err) {
       this.logger.error("Could not persist emergency arrival", { eventId: emergency.eventId, error: err });
     }
+    this.version += 1;
     this.bus.broadcast("emergency:update", {
       eventId: emergency.eventId,
+      emergencyId: emergency.eventId,
       status: "arrived",
       vehicleId: emergency.vehicleId,
       positionX: live?.positionX ?? null,
       positionY: live?.positionY ?? null,
       speedMps: 0,
+      speedKmh: 0,
+      version: this.version,
+      updatedAtIso: nowIso,
     });
-    this.logger.info("Emergency vehicle arrived", {
-      eventId: emergency.eventId,
+    this.logger.info(`[EMERGENCY_COMPLETE] Emergency vehicle arrived`, {
+      emergencyId: emergency.eventId,
       vehicleId: emergency.vehicleId,
+      version: this.version,
     });
   }
 

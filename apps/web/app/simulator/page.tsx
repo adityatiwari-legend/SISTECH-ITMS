@@ -342,18 +342,18 @@ export default function SimulatorPage() {
         />
         <MetricCard
           label="VEHICLE COUNT"
-          value={state.traffic ? `${state.traffic.summary.vehicleCount}` : "—"}
+          value={`${state.normalizedTraffic.activeVehicleCount}`}
           sub="Autonomous Agents"
         />
         <MetricCard
           label="AVERAGE SPEED"
-          value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
+          value={formatSpeed(state.normalizedTraffic.averageSpeedMps)}
           color="#18D88B"
         />
         <MetricCard
           label="QUEUE LENGTH"
-          value={state.traffic ? `${state.traffic.summary.totalQueueLength}` : "—"}
-          color={state.traffic && state.traffic.summary.totalQueueLength > 40 ? "#FFB547" : "#F4F7FA"}
+          value={`${state.normalizedTraffic.queueLength}`}
+          color={state.normalizedTraffic.queueLength > 40 ? "#FFB547" : "#F4F7FA"}
         />
         <MetricCard
           label="EMERGENCY POSITION"

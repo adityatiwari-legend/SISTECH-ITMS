@@ -140,19 +140,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="hidden items-center gap-3 lg:flex">
             <StatusChip
               label="SYSTEM"
-              status={state.systemOnline ? "ONLINE" : "OFFLINE"}
-              color={state.systemOnline ? "#18D88B" : "#FF4757"}
-              pulse={!state.systemOnline}
+              status={state.systemStatus ? state.systemStatus.toUpperCase() : state.systemOnline ? "ONLINE" : "OFFLINE"}
+              color={state.systemStatus === "online" || state.systemOnline ? "#18D88B" : state.systemStatus === "degraded" ? "#FFB547" : "#FF4757"}
+              pulse={state.systemStatus !== "online" && !state.systemOnline}
             />
             <StatusChip
               label="SUMO"
-              status={state.sumoConnected ? "CONNECTED" : "IDLE"}
-              color={state.sumoConnected ? "#18D88B" : "#8D9AAA"}
+              status={state.sumoStatus === "connected" || state.sumoConnected ? "CONNECTED" : "IDLE"}
+              color={state.sumoStatus === "connected" || state.sumoConnected ? "#18D88B" : "#8D9AAA"}
             />
             <StatusChip
               label="TraCI"
-              status={state.sumoConnected && state.sim ? "CONNECTED" : "STANDBY"}
-              color={state.sumoConnected && state.sim ? "#18D88B" : "#8D9AAA"}
+              status={state.traciStatus === "connected" || (state.sumoConnected && state.sim) ? "CONNECTED" : "STANDBY"}
+              color={state.traciStatus === "connected" || (state.sumoConnected && state.sim) ? "#18D88B" : "#8D9AAA"}
             />
           </div>
 
@@ -246,31 +246,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <footer className="relative z-30 flex h-10 shrink-0 items-stretch border-t border-[rgba(255,255,255,0.08)] bg-[#0A0F16] font-mono text-[11px]">
         <KpiCell
           label="TRAFFIC"
-          value={String(state.traffic?.summary.vehicleCount ?? sim?.vehicleCount ?? "—")}
+          value={String(state.normalizedTraffic.activeVehicleCount > 0 ? state.normalizedTraffic.activeVehicleCount : (state.traffic?.summary.vehicleCount ?? sim?.vehicleCount ?? "—"))}
           sub="vehicles"
         />
         <KpiCell
           label="AVG SPEED"
-          value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
+          value={formatSpeed(state.normalizedTraffic.averageSpeedMps)}
         />
         <KpiCell
           label="CONGESTION"
-          value={state.traffic?.summary.cityLevel ?? "NOMINAL"}
+          value={state.normalizedTraffic.congestionLevel}
           color={
-            state.traffic?.summary.cityLevel === "CRITICAL"
+            state.normalizedTraffic.congestionLevel === "CRITICAL"
               ? "#FF4757"
-              : state.traffic?.summary.cityLevel === "HIGH"
+              : state.normalizedTraffic.congestionLevel === "HIGH"
               ? "#FFB547"
               : "#18D88B"
           }
         />
         <KpiCell
           label="QUEUE"
-          value={state.traffic ? String(state.traffic.summary.totalQueueLength) : "—"}
+          value={String(state.normalizedTraffic.queueLength)}
         />
         <KpiCell
           label="SIGNALS"
-          value={`${state.signals.length} ACTIVE`}
+          value={`${state.normalizedTraffic.signalCount || state.signals.length} ACTIVE`}
           color="#42B8FF"
         />
         <KpiCell

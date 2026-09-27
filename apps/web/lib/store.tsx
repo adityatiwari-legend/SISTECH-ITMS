@@ -11,6 +11,7 @@ import type {
   VehicleSnapshot,
   CorridorDetail,
   WsEvent,
+  SystemStatusResponse,
 } from "@itms/types";
 import { api, ApiError, checkBackendHealth, wsUrl } from "./api";
 import { getJunctionMeta } from "./naming";
@@ -23,6 +24,15 @@ import { getJunctionMeta } from "./naming";
 
 export type ConnectionState = "connecting" | "online" | "offline";
 
+export interface NormalizedTrafficState {
+  timestamp: string;
+  activeVehicleCount: number;
+  averageSpeedMps: number;
+  queueLength: number;
+  congestionLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  signalCount: number;
+}
+
 export interface ItmsLiveState {
   sim: SimulationStatusSnapshot | null;
   traffic: TrafficStateResponse | null;
@@ -32,11 +42,19 @@ export interface ItmsLiveState {
   corridors: CorridorDetail[];
   predictions: PredictionUpdatePayload | null;
   trace: DecisionEvent[];
+  normalizedTraffic: NormalizedTrafficState;
   /** Component health chips (TOP BAR) */
   systemOnline: boolean; // backend + ws + sumo healthy
   backendConnected: ConnectionState; // GET /health probe
   websocketConnected: ConnectionState; // open + heartbeats alive
   sumoConnected: boolean; // sim.status === running/paused/completed
+  /** Authoritative backend status */
+  systemStatus: "online" | "degraded" | "offline";
+  sumoStatus: "connected" | "disconnected" | "error";
+  traciStatus: "connected" | "disconnected" | "error";
+  databaseStatus: "connected" | "disconnected" | "error";
+  websocketStatus: "connected" | "disconnected" | "error";
+  executionMode: "SIMULATION" | "REAL_GPS";
   /** Derived overall connection (worst of backend/websocket) for generic banners. */
   connection: ConnectionState;
   lastError: string | null;
@@ -48,15 +66,47 @@ type Action =
   | { type: "signals"; payload: SignalSnapshot[] }
   | { type: "vehicles"; payload: VehicleSnapshot[] }
   | { type: "emergencies"; payload: EmergencyEventDetail[] }
+  | { type: "emergency_upsert"; payload: Partial<EmergencyEventDetail> & { id: number; version?: number } }
+  | { type: "emergency_finish"; payload: { eventId: number; status: "arrived" | "cancelled" } }
   | { type: "corridors"; payload: CorridorDetail[] }
   | { type: "prediction"; payload: PredictionUpdatePayload }
   | { type: "trace"; payload: DecisionEvent }
   | { type: "backend"; payload: ConnectionState }
   | { type: "websocket"; payload: ConnectionState }
+  | { type: "system_status"; payload: SystemStatusResponse }
   | { type: "error"; payload: string | null };
 
 const MAX_TRACE = 300;
 const HEARTBEAT_STALE_MS = 35_000;
+
+function computeNormalizedTraffic(
+  vehicles: VehicleSnapshot[],
+  traffic: TrafficStateResponse | null,
+  sim: SimulationStatusSnapshot | null,
+  signals: SignalSnapshot[],
+): NormalizedTrafficState {
+  const activeCount =
+    vehicles.length > 0
+      ? vehicles.length
+      : (traffic?.summary.vehicleCount ?? sim?.vehicleCount ?? 0);
+
+  let avgSpeed = 0;
+  if (vehicles.length > 0) {
+    const sumSpeed = vehicles.reduce((acc, v) => acc + (v.speed ?? (v as any).speedMps ?? 0), 0);
+    avgSpeed = Math.round((sumSpeed / vehicles.length) * 100) / 100;
+  } else if (traffic?.summary.avgSpeedMps) {
+    avgSpeed = traffic.summary.avgSpeedMps;
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    activeVehicleCount: activeCount,
+    averageSpeedMps: avgSpeed,
+    queueLength: traffic?.summary.totalQueueLength ?? 0,
+    congestionLevel: traffic?.summary.cityLevel ?? "LOW",
+    signalCount: signals.length > 0 ? signals.length : (sim?.signalCount ?? 0),
+  };
+}
 
 function initialState(): ItmsLiveState {
   return {
@@ -68,10 +118,24 @@ function initialState(): ItmsLiveState {
     corridors: [],
     predictions: null,
     trace: [],
+    normalizedTraffic: {
+      timestamp: new Date().toISOString(),
+      activeVehicleCount: 0,
+      averageSpeedMps: 0,
+      queueLength: 0,
+      congestionLevel: "LOW",
+      signalCount: 0,
+    },
     systemOnline: false,
     backendConnected: "connecting",
     websocketConnected: "connecting",
     sumoConnected: false,
+    systemStatus: "online",
+    sumoStatus: "disconnected",
+    traciStatus: "disconnected",
+    databaseStatus: "connected",
+    websocketStatus: "connected",
+    executionMode: "SIMULATION",
     connection: "connecting",
     lastError: null,
   };
@@ -98,19 +162,82 @@ function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
     case "sim":
       next = { ...state, sim: action.payload };
       next = { ...next, sumoConnected: ["running", "paused", "completed"].includes(action.payload.status) };
-      return updateSystem(next);
+      break;
     case "traffic":
-      return { ...state, traffic: action.payload };
+      next = { ...state, traffic: action.payload };
+      break;
     case "signals":
-      return { ...state, signals: action.payload };
+      next = { ...state, signals: action.payload };
+      break;
     case "vehicles":
-      return { ...state, vehicles: action.payload };
+      next = { ...state, vehicles: action.payload };
+      break;
     case "emergencies":
-      return { ...state, emergencies: action.payload };
+      next = { ...state, emergencies: action.payload };
+      break;
+    case "emergency_upsert": {
+      const p = action.payload as any;
+      const existingIdx = state.emergencies.findIndex((e) => e.id === p.id);
+      let updatedEmergencies: EmergencyEventDetail[];
+      if (existingIdx >= 0) {
+        const existing = state.emergencies[existingIdx];
+        if (p.version !== undefined && (existing as any).version !== undefined && (existing as any).version > p.version) {
+          return state;
+        }
+        const merged: EmergencyEventDetail = {
+          ...existing,
+          ...p,
+          version: p.version ?? (existing as any).version,
+        } as EmergencyEventDetail;
+        updatedEmergencies = [...state.emergencies];
+        updatedEmergencies[existingIdx] = merged;
+      } else {
+        const newEmerg: EmergencyEventDetail = {
+          id: p.id,
+          type: p.type ?? "ambulance",
+          priority: p.priority ?? "CRITICAL",
+          status: p.status ?? "active",
+          originJunction: p.originJunction ?? p.origin ?? "",
+          destinationJunction: p.destinationJunction ?? p.destination ?? "",
+          createdAtIso: p.createdAtIso ?? p.startedAt ?? new Date().toISOString(),
+          activatedAtIso: p.activatedAtIso ?? new Date().toISOString(),
+          arrivedAtIso: p.arrivedAtIso ?? null,
+          vehicle: p.vehicle ?? (p.vehicleId ? { vehicleId: p.vehicleId, type: p.type ?? "ambulance", maxSpeedMps: 25 } : null),
+          route: p.route ?? null,
+          etas: p.etas ?? null,
+          live: p.live ?? null,
+          mobile: p.mobile ?? null,
+        } as unknown as EmergencyEventDetail;
+        updatedEmergencies = [newEmerg, ...state.emergencies];
+      }
+      return { ...state, emergencies: updatedEmergencies };
+    }
+    case "emergency_finish": {
+      const { eventId, status } = action.payload;
+      const updated = state.emergencies.map((e) => {
+        if (e.id === eventId) {
+          return {
+            ...e,
+            status,
+            arrivedAtIso: status === "arrived" ? new Date().toISOString() : e.arrivedAtIso,
+          };
+        }
+        return e;
+      });
+      const updatedCorridors = state.corridors.map((c) => {
+        if (c.eventId === eventId) {
+          return { ...c, status: status === "arrived" ? ("COMPLETED" as const) : ("CANCELLED" as const) };
+        }
+        return c;
+      });
+      return { ...state, emergencies: updated, corridors: updatedCorridors };
+    }
     case "corridors":
-      return { ...state, corridors: action.payload };
+      next = { ...state, corridors: action.payload };
+      break;
     case "prediction":
-      return { ...state, predictions: action.payload };
+      next = { ...state, predictions: action.payload };
+      break;
     case "trace": {
       const trace = [action.payload, ...state.trace];
       if (trace.length > MAX_TRACE) trace.length = MAX_TRACE;
@@ -118,15 +245,37 @@ function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
     }
     case "backend":
       next = { ...state, backendConnected: action.payload };
-      return updateSystem(next);
+      break;
     case "websocket":
       next = { ...state, websocketConnected: action.payload };
-      return updateSystem(next);
+      break;
+    case "system_status": {
+      const s = action.payload;
+      next = {
+        ...state,
+        systemStatus: s.systemStatus,
+        sumoStatus: s.sumoStatus,
+        traciStatus: s.traciStatus,
+        databaseStatus: s.databaseStatus,
+        websocketStatus: s.websocketStatus,
+        executionMode: s.mode,
+        sumoConnected: s.sumoStatus === "connected",
+        systemOnline: s.systemStatus === "online",
+      };
+      break;
+    }
     case "error":
       return { ...state, lastError: action.payload };
     default:
       return state;
   }
+
+  next = updateSystem(next);
+  next = {
+    ...next,
+    normalizedTraffic: computeNormalizedTraffic(next.vehicles, next.traffic, next.sim, next.signals),
+  };
+  return next;
 }
 
 const ItmsContext = React.createContext<{
@@ -187,14 +336,18 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const health = await checkBackendHealth();
       dispatch({ type: "backend", payload: health.ok ? "online" : "offline" });
+      const sysStatus = await safeRest(api.getSystemStatus);
+      if (sysStatus) dispatch({ type: "system_status", payload: sysStatus });
       await refreshCore();
       await refreshLists();
     })();
 
-    // ---- backend health poll (independent of WS) ----
+    // ---- backend health & system status poll (independent of WS) ----
     const healthTimer = setInterval(async () => {
       const health = await checkBackendHealth();
       dispatch({ type: "backend", payload: health.ok ? "online" : "offline" });
+      const sysStatus = await safeRest(api.getSystemStatus);
+      if (sysStatus) dispatch({ type: "system_status", payload: sysStatus });
     }, 5000);
 
     // ---- WebSocket with exponential backoff reconnect + heartbeat liveness ----
@@ -211,6 +364,8 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
         reconnectAttempt = 0;
         lastHeartbeatAt = Date.now();
         dispatch({ type: "websocket", payload: "online" });
+        void refreshCore();
+        void refreshLists();
       };
       socket.onmessage = (message) => {
         let event: WsEvent<unknown>;
@@ -291,7 +446,60 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
           break;
         }
         case "emergency:created":
-        case "emergency:update":
+        case "emergency:update": {
+          const payload = event.payload as Record<string, unknown>;
+          const rawId = payload.id ?? payload.eventId ?? payload.emergencyId;
+          const eventId = typeof rawId === "number" ? rawId : Number(rawId);
+          if (Number.isFinite(eventId)) {
+            dispatch({
+              type: "emergency_upsert",
+              payload: {
+                ...payload,
+                id: eventId,
+                version: typeof payload.version === "number" ? payload.version : undefined,
+              } as any,
+            });
+          }
+          dispatch({
+            type: "trace",
+            payload: {
+              ts: event.ts,
+              kind: event.type === "emergency:created" ? "emergency.created" : "emergency.activated",
+              message: describeEvent(event.type, payload),
+              refs: { emergencyEventId: Number.isFinite(eventId) ? eventId : undefined },
+            },
+          });
+          void safeRest(api.getEmergencies).then((emergencies) => {
+            if (emergencies !== null) dispatch({ type: "emergencies", payload: emergencies.emergencies });
+          });
+          break;
+        }
+        case "emergency:completed":
+        case "emergency:cancelled": {
+          const payload = event.payload as Record<string, unknown>;
+          const rawId = payload.id ?? payload.eventId ?? payload.emergencyId;
+          const eventId = typeof rawId === "number" ? rawId : Number(rawId);
+          const status = event.type === "emergency:completed" ? "arrived" : "cancelled";
+          if (Number.isFinite(eventId)) {
+            dispatch({
+              type: "emergency_finish",
+              payload: { eventId, status },
+            });
+          }
+          dispatch({
+            type: "trace",
+            payload: {
+              ts: event.ts,
+              kind: status === "arrived" ? "emergency.arrived" : "emergency.activated",
+              message: describeEvent(event.type, payload),
+              refs: { emergencyEventId: Number.isFinite(eventId) ? eventId : undefined },
+            },
+          });
+          void safeRest(api.getEmergencies).then((emergencies) => {
+            if (emergencies !== null) dispatch({ type: "emergencies", payload: emergencies.emergencies });
+          });
+          break;
+        }
         case "emergency:verification:submitted":
         case "emergency:verification:analyzing":
         case "emergency:verified":
@@ -300,8 +508,6 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
         case "emergency:approved":
         case "emergency:rejected":
         case "corridor:authorized":
-        case "emergency:completed":
-        case "emergency:cancelled":
         case "route:updated":
         case "route:switched": {
           const payload = event.payload as Record<string, unknown>;
@@ -311,15 +517,11 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
             payload: {
               ts: event.ts,
               kind:
-                event.type === "emergency:created"
-                  ? "emergency.created"
-                  : event.type === "route:switched"
-                    ? "route.switched"
-                    : event.type === "route:updated"
-                      ? "route.computed"
-                      : String(payload.status) === "arrived"
-                        ? "emergency.arrived"
-                        : "emergency.activated",
+                event.type === "route:switched"
+                  ? "route.switched"
+                  : event.type === "route:updated"
+                    ? "route.computed"
+                    : "emergency.activated",
               message: describeEvent(event.type, payload),
               refs: { emergencyEventId: eventId },
             },

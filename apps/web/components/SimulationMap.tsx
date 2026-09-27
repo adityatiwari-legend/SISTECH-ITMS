@@ -877,6 +877,7 @@ function NetworkCanvas({
           onSelectJunction={onSelectJunction}
           onHoverJunction={setHoveredJunctionId}
           roadsideDevices={roadsideDevices}
+          viewWidth={view.w}
         />
       </svg>
     </div>
@@ -999,6 +1000,7 @@ function DynamicLayer({
   onSelectJunction,
   onHoverJunction,
   roadsideDevices,
+  viewWidth,
 }: {
   data: SimulationMapData;
   liveEmergency: {
@@ -1021,6 +1023,7 @@ function DynamicLayer({
   onSelectJunction: (id: string | null) => void;
   onHoverJunction: (id: string | null) => void;
   roadsideDevices?: RoadsideDeviceRecord[];
+  viewWidth?: number;
 }) {
   const deviceBySignal = React.useMemo(() => {
     const m = new Map<string, RoadsideDeviceRecord>();
@@ -1050,6 +1053,43 @@ function DynamicLayer({
   );
   const signalById = new Map(data.signals.map((s) => [s.id, s] as const));
   const emergency = data.emergency;
+
+  const isZoomFar = (viewWidth ?? 1000) > 1100;
+  const isZoomMedium = (viewWidth ?? 1000) > 450 && (viewWidth ?? 1000) <= 1100;
+  const isZoomClose = (viewWidth ?? 1000) <= 450;
+
+  // Deduplicate signals within 15 meters to eliminate visual clutter and duplicates
+  const deduplicatedJunctions = React.useMemo(() => {
+    const list = geometry.junctions;
+    const result: typeof list = [];
+    const usedPositions: Array<{ x: number; y: number }> = [];
+
+    // Prioritize corridor signals first, then selected, then controlled
+    const sorted = [...list].sort((a, b) => {
+      const aInCorridor = corridorSignals.some((s) => s.junctionId === a.id) ? 1 : 0;
+      const bInCorridor = corridorSignals.some((s) => s.junctionId === b.id) ? 1 : 0;
+      if (aInCorridor !== bInCorridor) return bInCorridor - aInCorridor;
+      if (a.id === selectedJunctionId) return -1;
+      if (b.id === selectedJunctionId) return 1;
+      const aControlled = a.controlled ? 1 : 0;
+      const bControlled = b.controlled ? 1 : 0;
+      return bControlled - aControlled;
+    });
+
+    for (const junc of sorted) {
+      const isDuplicate = usedPositions.some((pos) => {
+        const dx = pos.x - junc.x;
+        const dy = pos.y - junc.y;
+        return Math.sqrt(dx * dx + dy * dy) < 15;
+      });
+
+      if (!isDuplicate) {
+        usedPositions.push({ x: junc.x, y: junc.y });
+        result.push(junc);
+      }
+    }
+    return result;
+  }, [geometry.junctions, corridorSignals, selectedJunctionId]);
 
   return (
     <g>
@@ -1125,8 +1165,8 @@ function DynamicLayer({
             </g>
           ))}
 
-      {/* 4. Clickable Intersections (Controlled + Uncontrolled) */}
-      {geometry.junctions.map((junction) => {
+      {/* 4. Clickable Intersections (Controlled + Uncontrolled) with 3-Tier Zoom & Deduplication */}
+      {deduplicatedJunctions.map((junction) => {
         const signal = signalById.get(junction.id);
         const corrSignal = corridorSignals.find((s) => s.junctionId === junction.id);
         const roadsideDev = deviceBySignal.get(junction.id);
@@ -1151,6 +1191,25 @@ function DynamicLayer({
         const isDetected = stage === "DETECTED";
         const isPassed = stage === "PASSED" || stage === "RESTORING";
         const isCorridorActive = isCurrentGreen || isClearing || isPreparing || isDetected;
+
+        // ZOOM TIER RENDERING:
+        // Far: Show only active corridor signals, or selected/hovered signals.
+        // Medium: Show major/controlled signals or corridor signals.
+        // Close: Show all deduplicated signals.
+        const shouldRenderMarker =
+          isCorridorActive ||
+          isSelected ||
+          isHovered ||
+          (isZoomMedium && junction.controlled) ||
+          isZoomClose;
+
+        if (!shouldRenderMarker) return null;
+
+        // ZOOM TIER LABEL RULES:
+        // Far: ONLY corridor active or selected/hovered.
+        // Medium: ONLY corridor active or selected/hovered.
+        // Close: Show signal codes and names.
+        const shouldRenderLabel = isCorridorActive || isSelected || isHovered || isZoomClose;
 
         let fillColor = "#1E293B"; // default uncontrolled
         if (junction.controlled && signal && showSignals) {
@@ -1308,16 +1367,18 @@ function DynamicLayer({
             )}
 
             {/* Human-readable label on map */}
-            <text
-              x={junction.x}
-              y={isCorridorActive ? cy - r - 16 : cy - r - 3}
-              textAnchor="middle"
-              fontSize={signalRadius(geometry) * 0.9}
-              fill={isSelected ? "#42B8FF" : isHovered ? "#F4F7FA" : isCurrentGreen ? "#18D88B" : isPreparing ? "#FFB547" : "#94A3B8"}
-              className="font-mono font-bold select-none"
-            >
-              {meta.code}
-            </text>
+            {shouldRenderLabel && (
+              <text
+                x={junction.x}
+                y={isCorridorActive ? cy - r - 16 : cy - r - 3}
+                textAnchor="middle"
+                fontSize={signalRadius(geometry) * (isZoomClose ? 0.8 : 0.9)}
+                fill={isSelected ? "#42B8FF" : isHovered ? "#F4F7FA" : isCurrentGreen ? "#18D88B" : isPreparing ? "#FFB547" : "#94A3B8"}
+                className="font-mono font-bold select-none"
+              >
+                {isZoomClose && junction.controlled ? `${meta.code} · ${meta.name}` : meta.code}
+              </text>
+            )}
 
             {/* Hover Tooltip Card in SVG */}
             {isHovered && !isSelected && (

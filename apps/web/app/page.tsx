@@ -292,21 +292,21 @@ export default function CommandCenterPage() {
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 font-mono">
         <MetricCard
           label="LIVE TRAFFIC"
-          value={state.traffic ? `${state.traffic.summary.vehicleCount} vehicles` : state.vehicles.length > 0 ? `${state.vehicles.length} vehicles` : "—"}
+          value={`${state.normalizedTraffic.activeVehicleCount} vehicles`}
           sub={`${state.traffic?.summary.congestedSegments ?? 0} Congested Links`}
           color="#F4F7FA"
         />
         <MetricCard
           label="AVERAGE SPEED"
-          value={state.traffic ? formatSpeed(state.traffic.summary.avgSpeedMps) : "—"}
+          value={formatSpeed(state.normalizedTraffic.averageSpeedMps)}
           sub="City-Wide Average"
           color="#18D88B"
         />
         <MetricCard
           label="CONGESTION"
-          value={state.traffic?.summary.cityLevel ?? "NOMINAL"}
-          sub={`${state.traffic?.summary.totalQueueLength ?? 0} Waiting Vehicles`}
-          color={state.traffic?.summary.cityLevel === "CRITICAL" ? "#FF3B4E" : state.traffic?.summary.cityLevel === "HIGH" ? "#FFB547" : "#18D88B"}
+          value={state.normalizedTraffic.congestionLevel}
+          sub={`${state.normalizedTraffic.queueLength} Waiting Vehicles`}
+          color={state.normalizedTraffic.congestionLevel === "CRITICAL" ? "#FF3B4E" : state.normalizedTraffic.congestionLevel === "HIGH" ? "#FFB547" : "#18D88B"}
         />
         <MetricCard
           label="ACTIVE EMERGENCY"

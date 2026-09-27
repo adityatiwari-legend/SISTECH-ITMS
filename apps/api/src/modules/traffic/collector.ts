@@ -247,7 +247,7 @@ export class TrafficCollector {
       intervalSeconds: options.intervalSeconds,
       segments: segmentMetrics,
       junctions: junctionStates,
-      summary: computeCitySummary(segmentMetrics, options.vehicles.length),
+      summary: computeCitySummary(segmentMetrics, options.vehicles.length, options.vehicles),
       vehicles: options.vehicles,
     };
   }

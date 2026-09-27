@@ -521,4 +521,9 @@ export async function mobileRoutes(
     );
     return reply.code(200).send(result);
   });
+
+  app.get("/api/system/status", async (_request, reply) => {
+    const status = await mobileService.getSystemStatus();
+    return reply.code(200).send(status);
+  });
 }

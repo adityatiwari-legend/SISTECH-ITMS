@@ -46,30 +46,87 @@ const GRID_JUNCTIONS: Record<string, { code: string; name: string }> = {
 
 // Realistic municipal street names for deterministic assignment to OSM city nodes
 const CITY_LANDMARK_POOL = [
-  "Hospital Junction",
-  "Hamidia Medical Crossing",
+  "Hamidia Hospital Junction",
+  "AIIMS Bhopal Medical Hub",
   "VIP Boulevard Interchange",
   "Upper Lake Promenade",
-  "Central Station Plaza",
+  "Central Station North Plaza",
   "Polytechnic Square",
   "Bhadbhada Arterial Cross",
   "Link Road Commercial Hub",
   "Arera Hills Gateway",
-  "MP Nagar Core Interchange",
+  "MP Nagar Zone-1 Interchange",
   "Shahpura Lake Crossing",
   "New Market Transit Hub",
-  "Govindpura Access Square",
+  "Govindpura Industrial Access",
   "Vallabh Bhawan Express",
-  "Sports Complex Junction",
+  "TT Nagar Stadium Junction",
   "Kolar Road Interchange",
   "Hoshangabad Arterial Link",
   "Ayodhya Bypass Gateway",
   "Bairagarh Express Gate",
-  "Airport Link Junction",
+  "Raja Bhoj Airport Link",
+  "Van Vihar South Gate",
+  "Chunabhatti Commercial Square",
+  "Bittan Market Crossing",
+  "Malviya Nagar Plaza",
+  "Jawahar Chowk Hub",
+  "Roshanpura Intersection",
+  "Lily Cinema Crossing",
+  "Kamla Park Gateway",
+  "Motia Talab Promenade",
+  "Karond Mandi Junction",
+  "Bhanpur Bypass Link",
+  "Misrod Expressway Crossing",
+  "Mandideep Arterial Gate",
+  "Barkatullah University Square",
+  "BHEL Jubilee Gate",
+  "Awadhpuri Main Junction",
+  "Khajuri Kalan Crossing",
+  "Gandhi Nagar Airport Link",
+  "Lalghati Commercial Circle",
+  "Peer Gate Old City Hub",
+  "Moti Masjid Heritage Crossing",
+  "Taj-ul-Masajid Boulevard",
+  "Idgah Hills Observatory Way",
+  "MANIT Engineering Gateway",
+  "SISTech Campus Crossing",
+  "Neelbad Arterial Junction",
+  "Ratibad Rural Arterial",
+  "RRL Research Crossing",
+  "Bagsewaniya Commercial Hub",
+  "Katara Hills Express Link",
+  "Salaiya Extension Crossing",
+  "Gulmohar Colony Square",
+  "Indrapuri Sector-C Cross",
+  "Piplani Central Interchange",
+  "Ayodhya Nagar Commercial Hub",
+  "Ashoka Garden Circle",
+  "Subhash Nagar Overbridge",
+  "Prabhat Square Interchange",
+  "Pul Bogda Junction",
+  "Aishbagh Stadium Gate",
+  "Jahangirabad Police Square",
+  "Kohefiza Medical Circle",
+  "Berasia Road Arterial",
+  "Raisen Road Industrial Link",
+  "Sehore Highway Bypass",
+  "Chhola Mandir Crossing",
+];
+
+const SUFFIX_POOL = [
+  "North Junction",
+  "South Crossing",
+  "East Approach",
+  "West Link",
+  "Central Interchange",
+  "Flyover Approach",
+  "Sector Gate",
 ];
 
 // In-memory cache for deterministic OSM ID mapping
 const dynamicCache = new Map<string, { code: string; name: string }>();
+const nameUsageCount = new Map<string, number>();
 let nextDynamicIndex = 1;
 
 /** Hash string to integer */
@@ -129,8 +186,16 @@ export function getJunctionMeta(rawId: string | null | undefined): JunctionMeta 
   if (!dynamicCache.has(clean)) {
     const code = `I-${String(nextDynamicIndex++).padStart(2, "0")}`;
     const hash = hashString(clean);
-    const name = CITY_LANDMARK_POOL[hash % CITY_LANDMARK_POOL.length]!;
-    dynamicCache.set(clean, { code, name });
+    const baseName = CITY_LANDMARK_POOL[hash % CITY_LANDMARK_POOL.length]!;
+    const usage = nameUsageCount.get(baseName) ?? 0;
+    nameUsageCount.set(baseName, usage + 1);
+
+    let finalName = baseName;
+    if (usage > 0) {
+      const suffix = SUFFIX_POOL[(usage - 1) % SUFFIX_POOL.length]!;
+      finalName = `${baseName} — ${suffix}`;
+    }
+    dynamicCache.set(clean, { code, name: finalName });
   }
 
   const assigned = dynamicCache.get(clean)!;

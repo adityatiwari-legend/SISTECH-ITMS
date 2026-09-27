@@ -9,7 +9,10 @@ import type { CorridorService } from "../corridor/corridor-service.ts";
 import type { RouteEngine, ComputedRoute } from "../routing/route-engine.ts";
 import type { WsBus } from "../websocket/ws-bus.ts";
 import type { AiVerificationService } from "../ai/verification-service.ts";
+import type { SimulationManager } from "../simulation/simulation-manager.ts";
+import type { DatabasePool } from "../../database/db.ts";
 import { AppError } from "../../errors.ts";
+import { createLogger, type Logger } from "../../logger.ts";
 import type {
   CreateEmergencyBody,
   DriverProfile,
@@ -17,10 +20,12 @@ import type {
   EmergencyEventDetail,
   EmergencyPriority,
   EmergencyType,
+  ExecutionMode,
   FleetVehicleRecord,
   HospitalRecord,
   PoliceZoneRecord,
   RouteSummary,
+  SystemStatusResponse,
   VerificationDetail,
 } from "@itms/types";
 
@@ -34,6 +39,10 @@ export interface MobileServiceOptions {
   bus: WsBus;
   aiVerificationService: AiVerificationService;
   uploadsDir?: string;
+  manager?: SimulationManager;
+  db?: DatabasePool;
+  executionMode?: ExecutionMode;
+  logger?: Logger;
 }
 
 export class MobileService {
@@ -47,6 +56,11 @@ export class MobileService {
   private readonly bus: WsBus;
   private readonly aiVerificationService: AiVerificationService;
   private readonly uploadsDir: string;
+  private readonly manager?: SimulationManager;
+  private readonly db?: DatabasePool;
+  private readonly executionMode: ExecutionMode;
+  private readonly logger: Logger;
+  private version = 0;
 
   constructor(options: MobileServiceOptions) {
     this.mobileRepo = options.mobileRepo;
@@ -59,6 +73,10 @@ export class MobileService {
     this.bus = options.bus;
     this.aiVerificationService = options.aiVerificationService;
     this.uploadsDir = options.uploadsDir ?? join(process.cwd(), "uploads", "patient_images");
+    this.manager = options.manager;
+    this.db = options.db;
+    this.executionMode = options.executionMode ?? "SIMULATION";
+    this.logger = options.logger ?? createLogger("mobile-service");
   }
 
   // ------------------------------------------------ GPS TRANSLATION ----
@@ -397,8 +415,19 @@ export class MobileService {
       throw new AppError(404, "driver_not_found", `Driver #${driverId} not found.`);
     }
 
-    // Resolve vehicle - auto-assign if driver doesn't have an active assignment yet
+    // Resolve vehicle - auto-assign or switch if requested and not in active emergency
     let vehicle = await this.mobileRepo.getAssignedVehicleForDriver(driverId);
+    if (body.vehicleCode && (!vehicle || vehicle.vehicleCode !== body.vehicleCode)) {
+      const driverEvents = await this.emergencyRepo.getEventsByDriver(driverId);
+      const driverActive = driverEvents.find((e) => e.status === "active" || e.status === "created");
+      if (!driverActive) {
+        const vehicles = await this.mobileRepo.listFleetVehicles();
+        const matched = vehicles.find((v) => v.vehicleCode === body.vehicleCode);
+        if (matched) {
+          vehicle = await this.mobileRepo.assignVehicleToDriver(driverId, matched.id);
+        }
+      }
+    }
     if (!vehicle) {
       const vehicles = await this.mobileRepo.listFleetVehicles();
       const defaultVehicle = vehicles.find((v) => v.vehicleType === "ambulance") ?? vehicles[0];
@@ -414,12 +443,16 @@ export class MobileService {
       );
     }
 
-    // Resolve Origin Junction with dual coordinate support (latitude/originLat)
-    const pickupLat = typeof body.latitude === "number" ? body.latitude : (typeof (body as any).originLat === "number" ? (body as any).originLat : undefined);
-    const pickupLng = typeof body.longitude === "number" ? body.longitude : (typeof (body as any).originLng === "number" ? (body as any).originLng : undefined);
+    // In SIMULATION mode, guard against mixing remote hardware GPS (e.g. Gwalior 26.2°N) with Bhopal road network (23.2°N)
+    const pickupLat = body.pickupLatitude;
+    const pickupLng = body.pickupLongitude;
+    const isOutsideBhopal =
+      pickupLat !== undefined &&
+      pickupLng !== undefined &&
+      (pickupLat < 23.0 || pickupLat > 23.5 || pickupLng < 77.1 || pickupLng > 77.7);
 
     let originCandidates: string[] = [];
-    if (pickupLat !== undefined && pickupLng !== undefined) {
+    if (!isOutsideBhopal && pickupLat !== undefined && pickupLng !== undefined) {
       const snap = this.snapGpsToDrivableRoad(pickupLat, pickupLng, "origin");
       originCandidates = snap.candidateJunctions;
     } else if (body.origin && this.catalog.junctions.some((j) => j.id === body.origin)) {
@@ -478,7 +511,7 @@ export class MobileService {
       priority = "normal";
     }
 
-    // Create via core emergency service with full mobile metadata
+    // Create via core emergency service with full mobile metadata and canonical vehicleCode
     const detail = await this.emergencyService.createEmergency({
       type: emergencyType,
       origin,
@@ -486,13 +519,14 @@ export class MobileService {
       priority,
       driverId: driver.id,
       vehicleId: vehicle.id,
+      vehicleCode: vehicle.vehicleCode,
       destinationHospitalId: hospitalId ?? undefined,
       patientCondition: body.patientCondition,
       severity: body.severity,
-      originAddress: body.originAddress ?? "Bhopal Driver Pickup Location",
+      originAddress: isOutsideBhopal ? "Bhopal Simulation Origin (MP Nagar)" : (body.originAddress ?? "Bhopal Driver Pickup Location"),
       destinationAddress: body.destinationAddress ?? (hospital ? hospital.name : undefined),
-      pickupLatitude: pickupLat,
-      pickupLongitude: pickupLng,
+      pickupLatitude: isOutsideBhopal ? 23.2332 : pickupLat,
+      pickupLongitude: isOutsideBhopal ? 77.4339 : pickupLng,
     });
 
     // Update fleet vehicle and driver status
@@ -528,7 +562,13 @@ export class MobileService {
     // Refresh detail with enriched mobile join metadata
     const enriched = await this.emergencyService.getEmergency(detail.id);
     if (enriched) {
-      this.bus.broadcast("emergency:created", enriched);
+      this.version += 1;
+      this.bus.broadcast("emergency:created", {
+        ...enriched,
+        version: this.version,
+        emergencyId: enriched.id,
+        vehicleId: vehicle.vehicleCode,
+      });
       return enriched;
     }
 
@@ -569,19 +609,32 @@ export class MobileService {
         nearestSegmentId: mapping.segmentId,
       });
 
-      this.bus.broadcast("vehicle:update", {
-        vehicles: [
-          {
-            id: vehicle.vehicleCode,
-            typeId: vehicle.vehicleType,
-            lat: payload.latitude,
-            lng: payload.longitude,
-            speed: payload.speedMps ?? 0,
-            angle: payload.heading ?? 0,
-            roadId: mapping.segmentId ?? "",
-          },
-        ],
-      });
+      const simStatus = this.manager?.getStatusSnapshot().status;
+      const isSimRunning = simStatus === "running" || simStatus === "paused";
+      const isOutsideBhopal = payload.latitude < 23.0 || payload.latitude > 23.5 || payload.longitude < 77.1 || payload.longitude > 77.7;
+
+      // In SIMULATION mode with active SUMO, SUMO TraCI is authoritative for vehicle movement in Bhopal.
+      // Do not corrupt the Bhopal SUMO ambulance position on Web with physical phone GPS from Gwalior!
+      if (!isSimRunning || !isOutsideBhopal || this.executionMode === "REAL_GPS") {
+        this.bus.broadcast("vehicle:update", {
+          simTimeSeconds: this.manager?.getStatusSnapshot().simTimeSeconds ?? 0,
+          vehicles: [
+            {
+              id: vehicle.vehicleCode,
+              typeId: vehicle.vehicleType,
+              lat: payload.latitude,
+              lng: payload.longitude,
+              speed: payload.speedMps ?? 0,
+              angle: payload.heading ?? 0,
+              roadId: mapping.segmentId ?? "",
+              laneId: "",
+              lanePosition: 0,
+              positionX: 0,
+              positionY: 0,
+            },
+          ],
+        });
+      }
     }
 
     return {
@@ -677,6 +730,14 @@ export class MobileService {
       // Non-fatal corridor cancellation error
     }
 
+    // If vehicle was spawned in SUMO, remove it cleanly so ID is immediately free
+    try {
+      const vehicleCode = vehicle?.vehicleCode ?? event.vehicle?.vehicleId;
+      if (vehicleCode && this.manager?.getStatusSnapshot().status === "running") {
+        await this.manager.removeVehicle(vehicleCode);
+      }
+    } catch {}
+
     // Mark completed in database
     await this.emergencyRepo.completeEmergency(eventId);
 
@@ -700,10 +761,22 @@ export class MobileService {
       ipAddress,
     );
 
+    this.version += 1;
     this.bus.broadcast("emergency:completed", {
       eventId,
+      emergencyId: eventId,
       driverId: effectiveDriverId ?? 0,
+      vehicleId: vehicle?.vehicleCode ?? event.vehicle?.vehicleId ?? "AMB-001",
+      status: "completed",
+      version: this.version,
       completedAt: new Date().toISOString(),
+    });
+
+    this.logger.info(`[EMERGENCY_COMPLETE] Emergency marked completed`, {
+      emergencyId: eventId,
+      vehicleId: vehicle?.vehicleCode ?? event.vehicle?.vehicleId ?? "AMB-001",
+      version: this.version,
+      timestamp: new Date().toISOString(),
     });
 
     return { status: "completed", eventId };
@@ -750,6 +823,14 @@ export class MobileService {
       // Non-fatal
     }
 
+    // Clean up vehicle in SUMO
+    try {
+      const vehicleCode = vehicle?.vehicleCode ?? event.vehicle?.vehicleId;
+      if (vehicleCode && this.manager?.getStatusSnapshot().status === "running") {
+        await this.manager.removeVehicle(vehicleCode);
+      }
+    } catch {}
+
     await this.emergencyRepo.cancelEmergency(eventId, reason, driver?.driver_code ?? (callerRole ?? "operator"));
 
     if (vehicle) {
@@ -771,13 +852,64 @@ export class MobileService {
       ipAddress,
     );
 
+    this.version += 1;
     this.bus.broadcast("emergency:cancelled", {
       eventId,
+      emergencyId: eventId,
       driverId: effectiveDriverId ?? 0,
+      vehicleId: vehicle?.vehicleCode ?? event.vehicle?.vehicleId ?? "AMB-001",
+      status: "cancelled",
       reason,
+      version: this.version,
       cancelledAt: new Date().toISOString(),
     });
 
+    this.logger.info(`[EMERGENCY_CANCEL] Emergency marked cancelled`, {
+      emergencyId: eventId,
+      vehicleId: vehicle?.vehicleCode ?? event.vehicle?.vehicleId ?? "AMB-001",
+      reason,
+      version: this.version,
+      timestamp: new Date().toISOString(),
+    });
+
     return { status: "cancelled", eventId, reason };
+  }
+
+  // ---------------------------------------- SYSTEM STATUS ----
+  async getSystemStatus(): Promise<SystemStatusResponse> {
+    const simStatus = this.manager?.getStatusSnapshot();
+    const isSumoRunning = simStatus?.status === "running" || simStatus?.status === "paused";
+    const traciConnected = Boolean(this.manager?.getTraCIClient());
+    const dbConnected = this.db ? this.db.isHealthy() : true;
+
+    let systemStatus: "online" | "degraded" | "offline" = "online";
+    if (!dbConnected || !traciConnected) {
+      systemStatus = "degraded";
+    }
+    if (!dbConnected && !isSumoRunning) {
+      systemStatus = "offline";
+    }
+
+    const activeEmergencies =
+      (this.emergencyService?.getActiveEmergencies ? this.emergencyService.getActiveEmergencies().length : null) ??
+      (this.emergencyService?.getActiveEventIds ? this.emergencyService.getActiveEventIds().length : null) ??
+      ((this.manager as any)?.getActiveEmergencies ? (this.manager as any).getActiveEmergencies().length : 0);
+    let activeCorridors = 0;
+    try {
+      const corridors = await this.corridorService.listCorridors();
+      activeCorridors = corridors.filter((c) => c.status === "ACTIVE").length;
+    } catch {}
+
+    return {
+      systemStatus,
+      sumoStatus: isSumoRunning ? "connected" : "disconnected",
+      traciStatus: traciConnected ? "connected" : "disconnected",
+      databaseStatus: dbConnected ? "connected" : "disconnected",
+      websocketStatus: "connected",
+      mode: this.executionMode,
+      activeEmergencies,
+      activeCorridors,
+      timestamp: new Date().toISOString(),
+    };
   }
 }
