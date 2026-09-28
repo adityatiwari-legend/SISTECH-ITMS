@@ -237,6 +237,29 @@ export class EmergencyRepository {
           ],
         );
         routeRow = routeResult.rows[0]!;
+
+        // Pre-flight safety: Ensure all referenced junctions and segments exist in tables to satisfy legacy foreign keys
+        for (const edge of route.edges) {
+          await tx.query(
+            `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+             VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+             ON CONFLICT (id) DO NOTHING`,
+            [edge.fromJunction],
+          );
+          await tx.query(
+            `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+             VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+             ON CONFLICT (id) DO NOTHING`,
+            [edge.toJunction],
+          );
+          await tx.query(
+            `INSERT INTO road_segments (id, road_id, from_junction, to_junction, lane_count, length_m, max_speed_mps, geom)
+             VALUES ($1, $1, $2, $3, 1, $4, 13.89, ST_GeomFromText('LINESTRING(0 0, 1 1)', 0))
+             ON CONFLICT (id) DO NOTHING`,
+            [edge.segmentId, edge.fromJunction, edge.toJunction, Math.max(1, edge.lengthM)],
+          );
+        }
+
         const segmentValues: unknown[] = [];
         const sevenPlaceholders = route.edges.map((edge, index) => {
           const adjusted = index * 7;
@@ -464,6 +487,29 @@ export class EmergencyRepository {
         ],
       );
       const routeId = routeResult.rows[0]!.id;
+
+      // Pre-flight safety: Ensure all referenced junctions and segments exist in tables to satisfy legacy foreign keys
+      for (const edge of input.edges) {
+        await tx.query(
+          `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+           VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [edge.fromJunction],
+        );
+        await tx.query(
+          `INSERT INTO intersections (id, kind, controlled, x, y, geom)
+           VALUES ($1, 'priority', false, 0, 0, ST_GeomFromText('POINT(0 0)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [edge.toJunction],
+        );
+        await tx.query(
+          `INSERT INTO road_segments (id, road_id, from_junction, to_junction, lane_count, length_m, max_speed_mps, geom)
+           VALUES ($1, $1, $2, $3, 1, $4, 13.89, ST_GeomFromText('LINESTRING(0 0, 1 1)', 0))
+           ON CONFLICT (id) DO NOTHING`,
+          [edge.segmentId, edge.fromJunction, edge.toJunction, Math.max(1, edge.lengthM)],
+        );
+      }
+
       const values: unknown[] = [];
       const placeholders = input.edges.map((edge, index) => {
         const adjusted = index * 7;

@@ -351,8 +351,8 @@ export class EmergencyService {
       this.logger.warn("Simulation unavailable for mobile driver emergency - running in GPS telemetry mode");
     }
 
-    const origin = body.origin ?? "I1";
-    const destination = body.destination ?? "I6";
+    const origin = this.routeEngine.resolveJunctionId(body.origin ?? "I1");
+    const destination = this.routeEngine.resolveJunctionId(body.destination ?? "I6");
 
     let route: ComputedRoute | null = null;
     const endpointProblem = this.routeEngine.validateEndpoints(origin, destination);

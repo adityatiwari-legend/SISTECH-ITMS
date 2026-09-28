@@ -90,3 +90,27 @@ test("geo: netOffset direction matches SUMO semantics (network = projected + off
   assert.ok(sumo.x > -20_000 && sumo.x < 20_000, `network x ${sumo.x} near origin`);
   assert.ok(sumo.y > -20_000 && sumo.y < 20_000, `network y ${sumo.y} near origin`);
 });
+
+test("routing: resolveJunctionId resolves formatted grid IDs and joinedS cluster signal IDs", async () => {
+  const { RoadGraph } = await import("../src/modules/routing/road-graph.ts");
+  const { RouteEngine } = await import("../src/modules/routing/route-engine.ts");
+
+  // 1. Grid network
+  const gridCatalog = await loadNetworkCatalog(NETWORK_PATH);
+  const gridGraph = new RoadGraph(gridCatalog);
+  const gridEngine = new RouteEngine(gridGraph, gridCatalog);
+
+  assert.equal(gridEngine.resolveJunctionId("I-04"), "I4");
+  assert.equal(gridEngine.resolveJunctionId("I-06"), "I6");
+  assert.equal(gridEngine.resolveJunctionId("W-01"), "W1");
+
+  // 2. City network (if available)
+  if (CITY_NET_AVAILABLE) {
+    const cityCatalog = await loadNetworkCatalog(CITY_NET);
+    const cityGraph = new RoadGraph(cityCatalog);
+    const cityEngine = new RouteEngine(cityGraph, cityCatalog);
+
+    const resolved = cityEngine.resolveJunctionId("joinedS_3778150947_3778155323_cluster_13329917155_3778150932");
+    assert.ok(cityGraph.hasNode(resolved), `resolved junction ${resolved} must exist in city road graph`);
+  }
+});

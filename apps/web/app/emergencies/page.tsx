@@ -1171,11 +1171,29 @@ function NewEmergencyDrawer({ onCreated }: { onCreated: (id: number) => void }) 
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Derive junctions from authoritative signals
-  const junctions = React.useMemo(
-    () => (state.signals ?? []).map((s) => s.id).sort(),
-    [state.signals]
-  );
+  const [intersectionsList, setIntersectionsList] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.getIntersections().then((res) => {
+      if (!cancelled && res.intersections && res.intersections.length > 0) {
+        const controlled = res.intersections.filter((i) => i.controlled).map((i) => i.id);
+        const list = controlled.length >= 2 ? controlled : res.intersections.map((i) => i.id);
+        setIntersectionsList(list);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Derive genuine junction nodes (prioritizing controlled signal intersections)
+  const junctions = React.useMemo(() => {
+    if (intersectionsList.length >= 2) return intersectionsList;
+    if (state.traffic?.intersections && state.traffic.intersections.length >= 2) {
+      const controlled = state.traffic.intersections.filter((i) => i.controlled).map((i) => i.junctionId);
+      return controlled.length >= 2 ? controlled : state.traffic.intersections.map((i) => i.junctionId);
+    }
+    return (state.signals ?? []).map((s) => s.id).sort();
+  }, [intersectionsList, state.traffic?.intersections, state.signals]);
 
   React.useEffect(() => {
     if (junctions.length >= 2 && !origin) {

@@ -73,32 +73,84 @@ export class RouteEngine {
   }
 
   /**
+   * Resolves raw identifiers (such as joined traffic light IDs e.g. joinedS_...,
+   * formatted grid codes e.g. I-04, or signal IDs) to a concrete junction node in the graph.
+   */
+  resolveJunctionId(rawId: string): string {
+    const clean = rawId.trim();
+    if (this.graph.hasNode(clean)) {
+      return clean;
+    }
+
+    // 1. Grid formatted like "I-04" -> "I4", "I-06" -> "I6", "W-01" -> "W1"
+    const gridMatch = clean.match(/^([IEWSN])-?0?([1-9]\d?)$/i);
+    if (gridMatch) {
+      const candidate = `${gridMatch[1]!.toUpperCase()}${gridMatch[2]}`;
+      if (this.graph.hasNode(candidate)) {
+        return candidate;
+      }
+    }
+
+    // 2. Traffic Light ID (e.g. joinedS_3778150947_3778155323_cluster_13329917155_3778150932)
+    // Check if it's a known signal in the network catalog
+    const signal = this.catalog.signals.find((s) => s.id === clean);
+    if (signal) {
+      // Find incoming segments to this signal whose toJunction is in the graph
+      for (const segId of Object.keys(signal.linkIndicesBySegment)) {
+        const seg = this.catalog.segments.find((s) => s.id === segId);
+        if (seg && this.graph.hasNode(seg.toJunction)) {
+          return seg.toJunction;
+        }
+      }
+    }
+
+    // 3. If it starts with joinedS_, extract embedded junction IDs:
+    if (clean.startsWith("joinedS_")) {
+      const parts = clean.slice("joinedS_".length).split("_");
+      for (let i = 0; i < parts.length; i++) {
+        if (parts[i] === "cluster" && i + 2 < parts.length) {
+          const clusterId = `cluster_${parts[i + 1]}_${parts[i + 2]}`;
+          if (this.graph.hasNode(clusterId)) return clusterId;
+        }
+        if (parts[i] && this.graph.hasNode(parts[i]!)) {
+          return parts[i]!;
+        }
+      }
+    }
+
+    return clean;
+  }
+
+  /**
    * Computes the fastest route between two junctions using A* over
    * congestion-adjusted travel times.
    */
   computeRoute(originJunction: string, destinationJunction: string): ComputedRoute {
-    const validation = this.validateEndpoints(originJunction, destinationJunction);
+    const resolvedOrigin = this.resolveJunctionId(originJunction);
+    const resolvedDest = this.resolveJunctionId(destinationJunction);
+
+    const validation = this.validateEndpoints(resolvedOrigin, resolvedDest);
     if (validation !== null) {
       throw new RouteError(validation);
     }
 
     const maxSpeed = this.graph.getMaxFreeFlowSpeed();
     const result: AStarResult = aStar(this.graph, {
-      start: originJunction,
-      goal: destinationJunction,
+      start: resolvedOrigin,
+      goal: resolvedDest,
       edgeCostSeconds: (segmentId) => this.edgeCost(segmentId).costSeconds,
-      heuristicSeconds: (junctionId) => this.graph.distanceBetween(junctionId, destinationJunction) / maxSpeed,
+      heuristicSeconds: (junctionId) => this.graph.distanceBetween(junctionId, resolvedDest) / maxSpeed,
     });
 
     if (!result.found) {
-      throw new RouteError({ code: "unreachable", origin: originJunction, destination: destinationJunction });
+      throw new RouteError({ code: "unreachable", origin: resolvedOrigin, destination: resolvedDest });
     }
 
     const segments = result.segmentIds.map((segmentId) => this.edgeCost(segmentId));
     return {
       algorithm: "astar",
-      originJunction,
-      destinationJunction,
+      originJunction: resolvedOrigin,
+      destinationJunction: resolvedDest,
       junctions: result.junctions,
       segments,
       totalLengthM: segments.reduce((sum, edge) => sum + edge.lengthM, 0),
@@ -113,13 +165,16 @@ export class RouteEngine {
    * otherwise the first problem.
    */
   validateEndpoints(originJunction: string, destinationJunction: string): RouteValidationError | null {
-    if (!this.graph.hasNode(originJunction)) {
+    const resolvedOrigin = this.resolveJunctionId(originJunction);
+    const resolvedDest = this.resolveJunctionId(destinationJunction);
+
+    if (!this.graph.hasNode(resolvedOrigin)) {
       return { code: "unknown_origin", junctionId: originJunction };
     }
-    if (!this.graph.hasNode(destinationJunction)) {
+    if (!this.graph.hasNode(resolvedDest)) {
       return { code: "unknown_destination", junctionId: destinationJunction };
     }
-    if (originJunction === destinationJunction) {
+    if (resolvedOrigin === resolvedDest) {
       return { code: "same_origin_destination", junctionId: originJunction };
     }
     return null;

@@ -444,8 +444,12 @@ export class MobileService {
     }
 
     // In SIMULATION mode, guard against mixing remote hardware GPS (e.g. Gwalior 26.2°N) with Bhopal road network (23.2°N)
-    const pickupLat = body.pickupLatitude;
-    const pickupLng = body.pickupLongitude;
+    const rawBody = body as unknown as Record<string, unknown>;
+    const rawLat = (body.pickupLatitude ?? rawBody.pickupLat ?? rawBody.originLat ?? rawBody.latitude) as number | undefined;
+    const rawLng = (body.pickupLongitude ?? rawBody.pickupLng ?? rawBody.originLng ?? rawBody.longitude) as number | undefined;
+    const pickupLat = typeof rawLat === "number" && !isNaN(rawLat) ? rawLat : undefined;
+    const pickupLng = typeof rawLng === "number" && !isNaN(rawLng) ? rawLng : undefined;
+
     const isOutsideBhopal =
       pickupLat !== undefined &&
       pickupLng !== undefined &&
@@ -455,9 +459,14 @@ export class MobileService {
     if (!isOutsideBhopal && pickupLat !== undefined && pickupLng !== undefined) {
       const snap = this.snapGpsToDrivableRoad(pickupLat, pickupLng, "origin");
       originCandidates = snap.candidateJunctions;
-    } else if (body.origin && this.catalog.junctions.some((j) => j.id === body.origin)) {
-      originCandidates = [body.origin];
-    } else {
+    } else if (body.origin) {
+      const resolved = this.routeEngine.resolveJunctionId(body.origin);
+      if (this.catalog.junctions.some((j) => j.id === resolved)) {
+        originCandidates = [resolved];
+      }
+    }
+
+    if (originCandidates.length === 0) {
       originCandidates = [this.catalog.junctions[0]?.id ?? "I1"];
     }
 
@@ -472,8 +481,18 @@ export class MobileService {
         const snap = this.snapGpsToDrivableRoad(hospital.latitude, hospital.longitude, "destination");
         destCandidates = snap.candidateJunctions;
       }
-    } else if (body.destination && this.catalog.junctions.some((j) => j.id === body.destination)) {
-      destCandidates = [body.destination];
+    } else if (body.destination) {
+      const resolved = this.routeEngine.resolveJunctionId(body.destination);
+      if (this.catalog.junctions.some((j) => j.id === resolved)) {
+        destCandidates = [resolved];
+      }
+    }
+
+    const rawDestLat = (rawBody.destinationLat ?? rawBody.destLat) as number | undefined;
+    const rawDestLng = (rawBody.destinationLng ?? rawBody.destLng) as number | undefined;
+    if (destCandidates.length === 0 && typeof rawDestLat === "number" && typeof rawDestLng === "number") {
+      const snap = this.snapGpsToDrivableRoad(rawDestLat, rawDestLng, "destination");
+      destCandidates = snap.candidateJunctions;
     }
 
     if (destCandidates.length === 0) {

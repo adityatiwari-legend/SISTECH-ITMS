@@ -129,11 +129,29 @@ export default function ScenariosPage() {
   const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Authoritative junctions from signals
-  const controlled = React.useMemo(
-    () => (state.signals ?? []).map((s) => s.id).sort(),
-    [state.signals]
-  );
+  const [intersectionsList, setIntersectionsList] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.getIntersections().then((res) => {
+      if (!cancelled && res.intersections && res.intersections.length > 0) {
+        const controlledList = res.intersections.filter((i) => i.controlled).map((i) => i.id);
+        const list = controlledList.length >= 2 ? controlledList : res.intersections.map((i) => i.id);
+        setIntersectionsList(list);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Authoritative junctions (prioritizing controlled signal intersections)
+  const controlled = React.useMemo(() => {
+    if (intersectionsList.length >= 2) return intersectionsList;
+    if (state.traffic?.intersections && state.traffic.intersections.length >= 2) {
+      const controlledList = state.traffic.intersections.filter((i) => i.controlled).map((i) => i.junctionId);
+      return controlledList.length >= 2 ? controlledList : state.traffic.intersections.map((i) => i.junctionId);
+    }
+    return (state.signals ?? []).map((s) => s.id).sort();
+  }, [intersectionsList, state.traffic?.intersections, state.signals]);
 
   React.useEffect(() => {
     if (controlled.length >= 2 && !origin) {
