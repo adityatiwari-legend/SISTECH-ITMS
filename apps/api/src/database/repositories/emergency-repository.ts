@@ -524,8 +524,13 @@ export class EmergencyRepository {
   }
 
   async getEventsByDriver(driverId: number): Promise<EmergencyEventRow[]> {
-    const result = await this.db.query<EmergencyEventRow>(
-      "SELECT * FROM emergency_events WHERE driver_id = $1 ORDER BY id DESC LIMIT 50",
+    const result = await this.db.query<EmergencyEventRow & { destination_address?: string }>(
+      `SELECT e.*, h.name as destination_address 
+       FROM emergency_events e 
+       LEFT JOIN hospitals h ON e.hospital_id = h.id 
+       WHERE e.driver_id = $1 
+       ORDER BY e.id DESC 
+       LIMIT 50`,
       [driverId],
     );
     return result.rows;

@@ -155,6 +155,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(reason ? { reason } : {}),
     }),
+  
+  // admin verification review
+  approveVerification: (eventId: number, notes?: string) =>
+    request<{ status: "adminApproved"; eventId: number }>(`/api/admin/verifications/${eventId}/approve`, {
+      method: "POST",
+      body: JSON.stringify(notes ? { notes } : {}),
+    }),
+  rejectVerification: (eventId: number, reason?: string) =>
+    request<{ status: "adminRejected"; eventId: number }>(`/api/admin/verifications/${eventId}/reject`, {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
 
   // corridors
   createCorridor: (body: CreateCorridorBody) => request<CorridorDetail>("/api/corridors", { method: "POST", body: JSON.stringify(body) }),

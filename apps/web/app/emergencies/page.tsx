@@ -116,6 +116,32 @@ export default function EmergenciesPage() {
     }
   };
 
+  const [reviewingId, setReviewingId] = React.useState<number | null>(null);
+  
+  const handleApprove = async (emergencyId: number) => {
+    try {
+      setReviewingId(emergencyId);
+      await api.approveVerification(emergencyId, "Manually approved by admin.");
+      await refreshAll();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to approve verification.");
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const handleReject = async (emergencyId: number) => {
+    try {
+      setReviewingId(emergencyId);
+      await api.rejectVerification(emergencyId, "Rejected by admin.");
+      await refreshAll();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to reject verification.");
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
   // Poll detail if selected
   React.useEffect(() => {
     if (selectedId === null) {
@@ -599,6 +625,27 @@ export default function EmergenciesPage() {
                       </button>
                     </div>
                   </div>
+                  
+                  {/* Manual Review Actions */}
+                  {(isFraudFlagged || mobile?.verificationStatus === "manualReview") && emg.status !== "completed" && emg.status !== "cancelled" && (
+                    <div className="mt-3 flex items-center justify-end gap-2 border-t border-[rgba(255,181,71,0.2)] pt-3">
+                      <span className="text-[10px] text-[#FFB547] font-bold mr-auto">⚠ MANUAL REVIEW REQUIRED</span>
+                      <button
+                        onClick={() => void handleApprove(emg.id)}
+                        disabled={reviewingId === emg.id || completingId === emg.id}
+                        className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/40 px-4 py-1.5 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
+                      >
+                        {reviewingId === emg.id ? "Processing..." : "✓ APPROVE VERIFICATION"}
+                      </button>
+                      <button
+                        onClick={() => void handleReject(emg.id)}
+                        disabled={reviewingId === emg.id || completingId === emg.id}
+                        className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-4 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
+                      >
+                        {reviewingId === emg.id ? "Processing..." : "✕ REJECT"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
