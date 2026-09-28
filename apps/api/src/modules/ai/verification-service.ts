@@ -228,7 +228,7 @@ export class AiVerificationService {
     notes?: string,
   ): Promise<VerificationDetail> {
     const list = await this.mobileRepo.listVerifications();
-    const target = list.find((v) => v.id === verificationId);
+    const target = list.find((v) => v.id === verificationId || v.eventId === verificationId);
     if (!target) {
       throw new AppError(404, "verification_not_found", `Verification record #${verificationId} not found.`);
     }
@@ -238,7 +238,7 @@ export class AiVerificationService {
     }
 
     await this.mobileRepo.adminApproveTransaction({
-      verificationId,
+      verificationId: target.id,
       reviewerId,
       reviewerName,
       notes: notes ?? "Authorized by Traffic Operations Supervisor.",
@@ -285,7 +285,7 @@ export class AiVerificationService {
     }
 
     const list = await this.mobileRepo.listVerifications();
-    const target = list.find((v) => v.id === verificationId);
+    const target = list.find((v) => v.id === verificationId || v.eventId === verificationId);
     if (!target) {
       throw new AppError(404, "verification_not_found", `Verification record #${verificationId} not found.`);
     }
@@ -295,7 +295,7 @@ export class AiVerificationService {
     }
 
     await this.mobileRepo.adminRejectTransaction({
-      verificationId,
+      verificationId: target.id,
       reviewerId,
       reviewerName,
       rejectionReason: rejectionReason.trim(),
