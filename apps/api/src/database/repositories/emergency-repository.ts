@@ -645,21 +645,33 @@ export class EmergencyRepository {
       await tx.query(`DELETE FROM emergency_evidence WHERE event_id = $1`, [eventId]);
       await tx.query(`DELETE FROM emergency_verifications WHERE event_id = $1`, [eventId]);
 
-      // 6. Delete route_segments and routes for this event
+      // 6. Get vehicle_id and route_id before unlinking
+      const eventRow = await tx.query<{ vehicle_id: number; route_id: number | null }>(
+        `SELECT vehicle_id, route_id FROM emergency_events WHERE id = $1`,
+        [eventId],
+      );
+      const vehicleRowId = eventRow.rows[0]?.vehicle_id;
+      const routeRowId = eventRow.rows[0]?.route_id;
+
+      // 7. Break circular FK constraints between emergency_events and routes
+      await tx.query(`UPDATE emergency_events SET route_id = NULL WHERE id = $1`, [eventId]);
+      await tx.query(`UPDATE routes SET event_id = NULL WHERE event_id = $1`, [eventId]);
+
+      // 8. Delete route_segments and routes for this event
+      if (routeRowId != null) {
+        await tx.query(`DELETE FROM route_segments WHERE route_id = $1`, [routeRowId]);
+        await tx.query(`DELETE FROM routes WHERE id = $1`, [routeRowId]);
+      }
       const routesResult = await tx.query<{ id: number }>(`SELECT id FROM routes WHERE event_id = $1`, [eventId]);
       for (const r of routesResult.rows) {
         await tx.query(`DELETE FROM route_segments WHERE route_id = $1`, [r.id]);
+        await tx.query(`DELETE FROM routes WHERE id = $1`, [r.id]);
       }
-      await tx.query(`DELETE FROM routes WHERE event_id = $1`, [eventId]);
 
-      // 7. Get vehicle_id before deleting emergency_events
-      const eventRow = await tx.query<{ vehicle_id: number }>(`SELECT vehicle_id FROM emergency_events WHERE id = $1`, [eventId]);
-      const vehicleRowId = eventRow.rows[0]?.vehicle_id;
-
-      // 8. Delete emergency_events
+      // 9. Delete emergency_events
       await tx.query(`DELETE FROM emergency_events WHERE id = $1`, [eventId]);
 
-      // 9. If emergency_vehicle has no other events referencing it, delete it
+      // 10. If emergency_vehicle has no other events referencing it, delete it
       if (vehicleRowId != null) {
         const otherEvents = await tx.query(`SELECT id FROM emergency_events WHERE vehicle_id = $1 LIMIT 1`, [vehicleRowId]);
         if (otherEvents.rows.length === 0) {
