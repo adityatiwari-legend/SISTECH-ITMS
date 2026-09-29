@@ -679,7 +679,7 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
                 id: corridorId,
                 eventId: Number(payload.eventId ?? payload.emergencyId ?? 0),
                 status: validStatus,
-                signals: signals as any,
+                signals: signals as unknown as CorridorDetail["signals"],
               } as unknown as CorridorDetail,
             });
           }

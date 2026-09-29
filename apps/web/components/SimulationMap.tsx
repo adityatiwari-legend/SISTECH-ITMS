@@ -1303,7 +1303,6 @@ function DynamicLayer({
   );
   const signalById = new Map(data.signals.map((s) => [s.id, s] as const));
 
-  const isZoomMedium = (viewWidth ?? 1000) > 450 && (viewWidth ?? 1000) <= 1100;
   const isZoomClose = (viewWidth ?? 1000) <= 450;
 
   return (
