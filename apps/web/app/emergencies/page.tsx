@@ -116,6 +116,24 @@ export default function EmergenciesPage() {
     }
   };
 
+  const [deletingId, setDeletingId] = React.useState<number | null>(null);
+
+  const handleDeleteEmergency = async (emergencyId: number) => {
+    if (!window.confirm(`Are you sure you want to permanently delete Emergency Mission #${emergencyId}?`)) {
+      return;
+    }
+    setDeletingId(emergencyId);
+    try {
+      await api.deleteEmergency(emergencyId);
+      await refreshAll();
+      if (selectedId === emergencyId) setSelectedId(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete emergency.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const [reviewingId, setReviewingId] = React.useState<number | null>(null);
   
   const handleApprove = async (emergencyId: number) => {
@@ -595,7 +613,7 @@ export default function EmergenciesPage() {
                         <>
                           <button
                             onClick={() => void handleCompleteEmergency(emg.id)}
-                            disabled={completingId === emg.id}
+                            disabled={completingId === emg.id || deletingId === emg.id}
                             className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/50 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
                             title="Mark emergency completed and clear active status"
                           >
@@ -603,7 +621,7 @@ export default function EmergenciesPage() {
                           </button>
                           <button
                             onClick={() => void handleCancelEmergency(emg.id)}
-                            disabled={completingId === emg.id}
+                            disabled={completingId === emg.id || deletingId === emg.id}
                             className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
                             title="Close and cancel emergency mission"
                           >
@@ -622,6 +640,14 @@ export default function EmergenciesPage() {
                         className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#121A24] px-3 py-1.5 font-mono text-[11px] font-semibold text-[#8D9AAA] hover:text-[#F4F7FA] transition-colors"
                       >
                         {selectedId === emg.id ? "Hide Details" : "Mission Inspector"}
+                      </button>
+                      <button
+                        onClick={() => void handleDeleteEmergency(emg.id)}
+                        disabled={deletingId === emg.id || completingId === emg.id}
+                        className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.25)] hover:border-[#FF3B4E] disabled:opacity-50 transition-colors"
+                        title="Permanently delete this emergency record"
+                      >
+                        {deletingId === emg.id ? "Deleting…" : "🗑️ Delete"}
                       </button>
                     </div>
                   </div>
@@ -780,7 +806,7 @@ export default function EmergenciesPage() {
                         <>
                           <button
                             onClick={() => void handleCompleteEmergency(emg.id)}
-                            disabled={completingId === emg.id}
+                            disabled={completingId === emg.id || deletingId === emg.id}
                             className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/50 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
                             title="Complete and dismiss this simulation emergency"
                           >
@@ -788,7 +814,7 @@ export default function EmergenciesPage() {
                           </button>
                           <button
                             onClick={() => void handleCancelEmergency(emg.id)}
-                            disabled={completingId === emg.id}
+                            disabled={completingId === emg.id || deletingId === emg.id}
                             className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
                             title="Close and cancel this simulation emergency"
                           >
@@ -807,6 +833,14 @@ export default function EmergenciesPage() {
                         className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#121A24] px-3 py-1.5 font-mono text-[11px] font-semibold text-[#8D9AAA] hover:text-[#F4F7FA] transition-colors"
                       >
                         {selectedId === emg.id ? "Hide Details" : "Mission Inspector"}
+                      </button>
+                      <button
+                        onClick={() => void handleDeleteEmergency(emg.id)}
+                        disabled={deletingId === emg.id || completingId === emg.id}
+                        className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.25)] hover:border-[#FF3B4E] disabled:opacity-50 transition-colors"
+                        title="Permanently delete this emergency record"
+                      >
+                        {deletingId === emg.id ? "Deleting…" : "🗑️ Delete"}
                       </button>
                     </div>
                   </div>
@@ -848,6 +882,14 @@ export default function EmergenciesPage() {
                 className="rounded-lg bg-[rgba(139,124,255,0.15)] border border-[#8B7CFF]/30 px-3 py-1 font-mono text-[11px] font-semibold text-[#8B7CFF] hover:bg-[rgba(139,124,255,0.25)] transition-all"
               >
                 Explain Route (AI)
+              </button>
+              <button
+                onClick={() => void handleDeleteEmergency(detail.id)}
+                disabled={deletingId === detail.id || completingId === detail.id}
+                className="rounded-lg bg-[rgba(255,59,78,0.15)] border border-[#FF3B4E]/50 px-3 py-1 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.25)] hover:border-[#FF3B4E] disabled:opacity-50 transition-all"
+                title="Permanently delete this emergency record"
+              >
+                {deletingId === detail.id ? "Deleting…" : "🗑️ Delete"}
               </button>
               <ActionButton onClick={() => setSelectedId(null)} color="#8D9AAA">
                 Close
@@ -1032,7 +1074,8 @@ export default function EmergenciesPage() {
                   <th className="py-2.5 pr-3">Priority</th>
                   <th className="py-2.5 pr-3">Status</th>
                   <th className="py-2.5 pr-3">Dispatched</th>
-                  <th className="py-2">Arrived</th>
+                  <th className="py-2 pr-3">Arrived</th>
+                  <th className="py-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1074,8 +1117,18 @@ export default function EmergenciesPage() {
                       </Badge>
                     </td>
                     <td className="py-2.5 pr-3 text-[10px] text-[#5E6B7A]">{wallClock(emg.createdAtIso)}</td>
-                    <td className="py-2.5 text-[10px] text-[#18D88B]">
+                    <td className="py-2.5 pr-3 text-[10px] text-[#18D88B]">
                       {emg.arrivedAtIso ? wallClock(emg.arrivedAtIso) : "—"}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <button
+                        onClick={() => void handleDeleteEmergency(emg.id)}
+                        disabled={deletingId === emg.id}
+                        className="rounded px-2 py-0.5 text-[10px] font-bold text-[#FF3B4E] bg-[rgba(255,59,78,0.1)] border border-[#FF3B4E]/30 hover:bg-[rgba(255,59,78,0.25)] hover:border-[#FF3B4E] disabled:opacity-50 transition-colors"
+                        title="Permanently delete this emergency record"
+                      >
+                        {deletingId === emg.id ? "…" : "🗑️ Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}

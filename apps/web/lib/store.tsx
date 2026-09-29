@@ -77,6 +77,7 @@ type Action =
   | { type: "emergencies"; payload: EmergencyEventDetail[] }
   | { type: "emergency_upsert"; payload: EmergencyUpsertPayload }
   | { type: "emergency_finish"; payload: { eventId: number; status: "arrived" | "cancelled" } }
+  | { type: "emergency_delete"; payload: { eventId: number } }
   | { type: "corridors"; payload: CorridorDetail[] }
   | { type: "prediction"; payload: PredictionUpdatePayload }
   | { type: "trace"; payload: DecisionEvent }
@@ -240,6 +241,14 @@ function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
         return c;
       });
       return { ...state, emergencies: updated, corridors: updatedCorridors };
+    }
+    case "emergency_delete": {
+      const { eventId } = action.payload;
+      return {
+        ...state,
+        emergencies: state.emergencies.filter((e) => e.id !== eventId),
+        corridors: state.corridors.filter((c) => c.eventId !== eventId),
+      };
     }
     case "corridors":
       next = { ...state, corridors: action.payload };
@@ -504,6 +513,30 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
               ts: event.ts,
               kind: status === "arrived" ? "emergency.arrived" : "emergency.activated",
               message: describeEvent(event.type, payload),
+              refs: { emergencyEventId: Number.isFinite(eventId) ? eventId : undefined },
+            },
+          });
+          void safeRest(api.getEmergencies).then((emergencies) => {
+            if (emergencies !== null) dispatch({ type: "emergencies", payload: emergencies.emergencies });
+          });
+          break;
+        }
+        case "emergency:deleted": {
+          const payload = event.payload as Record<string, unknown>;
+          const rawId = payload.id ?? payload.eventId ?? payload.emergencyId;
+          const eventId = typeof rawId === "number" ? rawId : Number(rawId);
+          if (Number.isFinite(eventId)) {
+            dispatch({
+              type: "emergency_delete",
+              payload: { eventId },
+            });
+          }
+          dispatch({
+            type: "trace",
+            payload: {
+              ts: event.ts,
+              kind: "emergency.deleted",
+              message: `Emergency #${eventId} deleted by operator`,
               refs: { emergencyEventId: Number.isFinite(eventId) ? eventId : undefined },
             },
           });

@@ -182,7 +182,20 @@ export class EmergencyRepository {
       const vehicleResult = await tx.query<EmergencyVehicleRow>(
         `INSERT INTO emergency_vehicles
            (vehicle_id, type, priority, status, run_id, origin_junction, destination_junction)
-         VALUES ($1, $2, $3, 'created', $4, $5, $6) RETURNING *`,
+         VALUES ($1, $2, $3, 'created', $4, $5, $6)
+         ON CONFLICT (vehicle_id) DO UPDATE SET
+           type = EXCLUDED.type,
+           priority = EXCLUDED.priority,
+           status = 'created',
+           run_id = EXCLUDED.run_id,
+           origin_junction = EXCLUDED.origin_junction,
+           destination_junction = EXCLUDED.destination_junction,
+           last_position_x = NULL,
+           last_position_y = NULL,
+           last_speed_mps = NULL,
+           activated_at = NULL,
+           arrived_at = NULL
+         RETURNING *`,
         [
           input.vehicleId,
           input.type,
@@ -597,8 +610,52 @@ export class EmergencyRepository {
        WHERE e.driver_id = $1 
        ORDER BY e.id DESC 
        LIMIT 50`,
-      [driverId],
+      [driverId]
     );
     return result.rows;
+  }
+
+  async deleteEmergency(eventId: number): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      // 1. Release vehicle and driver in fleet_vehicles & drivers
+      await tx.query(`UPDATE fleet_vehicles SET status = 'available', current_emergency_id = NULL WHERE current_emergency_id = $1`, [eventId]);
+      await tx.query(`UPDATE drivers SET status = 'on_duty' WHERE id = (SELECT driver_id FROM emergency_events WHERE id = $1)`, [eventId]);
+
+      // 2. Delete driver_telemetry referencing this event
+      await tx.query(`DELETE FROM driver_telemetry WHERE event_id = $1`, [eventId]);
+
+      // 3. Delete green_corridors & corridor_signals referencing this event
+      await tx.query(`DELETE FROM corridor_signals WHERE corridor_id IN (SELECT id FROM green_corridors WHERE event_id = $1)`, [eventId]);
+      await tx.query(`DELETE FROM green_corridors WHERE event_id = $1`, [eventId]);
+
+      // 4. Delete emergency_route_switches
+      await tx.query(`DELETE FROM emergency_route_switches WHERE event_id = $1`, [eventId]);
+
+      // 5. Delete patient evidence & verifications
+      await tx.query(`DELETE FROM emergency_patient_evidence WHERE event_id = $1`, [eventId]);
+      await tx.query(`DELETE FROM emergency_verifications WHERE event_id = $1`, [eventId]);
+
+      // 6. Delete route_segments and routes for this event
+      const routesResult = await tx.query<{ id: number }>(`SELECT id FROM routes WHERE event_id = $1`, [eventId]);
+      for (const r of routesResult.rows) {
+        await tx.query(`DELETE FROM route_segments WHERE route_id = $1`, [r.id]);
+      }
+      await tx.query(`DELETE FROM routes WHERE event_id = $1`, [eventId]);
+
+      // 7. Get vehicle_id before deleting emergency_events
+      const eventRow = await tx.query<{ vehicle_id: number }>(`SELECT vehicle_id FROM emergency_events WHERE id = $1`, [eventId]);
+      const vehicleRowId = eventRow.rows[0]?.vehicle_id;
+
+      // 8. Delete emergency_events
+      await tx.query(`DELETE FROM emergency_events WHERE id = $1`, [eventId]);
+
+      // 9. If emergency_vehicle has no other events referencing it, delete it
+      if (vehicleRowId != null) {
+        const otherEvents = await tx.query(`SELECT id FROM emergency_events WHERE vehicle_id = $1 LIMIT 1`, [vehicleRowId]);
+        if (otherEvents.rows.length === 0) {
+          await tx.query(`DELETE FROM emergency_vehicles WHERE id = $1`, [vehicleRowId]);
+        }
+      }
+    });
   }
 }

@@ -434,6 +434,12 @@ export class EmergencyService {
     const sumoRouteId = `route-emv-${persisted.event.id}`;
     if (this.manager.getStatusSnapshot().status === "running" && route !== null && route.segments.length > 0) {
       try {
+        // If vehicle already exists in SUMO from a previous mission, remove it cleanly first
+        try {
+          await this.manager.removeVehicle(vehicleId);
+        } catch {
+          // not in SUMO
+        }
         await this.manager.addVehicleRoute(sumoRouteId, route.segments.map((segment) => segment.segmentId));
         await this.manager.addVehicle({
           vehicleId,
@@ -452,25 +458,35 @@ export class EmergencyService {
           vehicleId,
           error: err instanceof Error ? err.message : String(err),
         });
-        try {
-          await this.repository.applyTransition({
-            eventId: persisted.event.id,
-            vehicleRowId: persisted.vehicle.id,
-            status: "failed",
-            activatedAtIso: null,
-            arrivedAtIso: null,
-            positionX: null,
-            positionY: null,
-            speedMps: null,
+        // ONLY fail the emergency if it is NOT a mobile driver emergency!
+        // Mobile driver emergencies run on real hardware GPS telemetry, not SUMO TraCI!
+        if (!body.driverId) {
+          try {
+            await this.repository.applyTransition({
+              eventId: persisted.event.id,
+              vehicleRowId: persisted.vehicle.id,
+              status: "failed",
+              activatedAtIso: null,
+              arrivedAtIso: null,
+              positionX: null,
+              positionY: null,
+              speedMps: null,
+            });
+          } catch (dbErr) {
+            this.logger.error("Could not persist failed spawn", { error: dbErr });
+          }
+          throw new AppError(
+            502,
+            "sumo_injection_failed",
+            `SUMO TraCI injection failed for vehicle ${vehicleId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        } else {
+          this.logger.warn(`[SUMO_INJECT_BYPASS] Mobile driver emergency proceeding in GPS telemetry mode`, {
+            emergencyId: persisted.event.id,
+            vehicleId,
+            driverId: body.driverId,
           });
-        } catch (dbErr) {
-          this.logger.error("Could not persist failed spawn", { error: dbErr });
         }
-        throw new AppError(
-          502,
-          "sumo_injection_failed",
-          `SUMO TraCI injection failed for vehicle ${vehicleId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
       }
     }
 
@@ -707,10 +723,19 @@ export class EmergencyService {
     });
   }
 
-  /** Simulation stopped/ended/disconnected: any unfinished emergency failed. */
+  /** Simulation stopped/ended/disconnected: any unfinished non-mobile emergency failed. */
   private async handleSimStopped(reason: "stopped" | "simulation_ended" | "disconnected"): Promise<void> {
     for (const emergency of this.active.values()) {
       if (emergency.status !== "created" && emergency.status !== "active") continue;
+      // Do not fail mobile driver emergencies when SUMO auto-loops or restarts!
+      const detail = await this.repository.getEvent(emergency.eventId);
+      if (detail?.driver_id != null) {
+        this.logger.info("Preserving active mobile driver emergency across simulation auto-loop", {
+          eventId: emergency.eventId,
+          driverId: detail.driver_id,
+        });
+        continue;
+      }
       this.persistedStatusByEvent.set(emergency.eventId, "failed");
       try {
         await this.repository.applyTransition({
@@ -738,7 +763,12 @@ export class EmergencyService {
         speedMps: null,
       });
     }
-    this.active.clear();
+    // Remove non-mobile emergencies from active map
+    for (const [id, emg] of [...this.active.entries()]) {
+      if (emg.status === "failed") {
+        this.active.delete(id);
+      }
+    }
     void reason;
   }
 
@@ -760,7 +790,8 @@ export class EmergencyService {
     return this.buildDetail(event, vehicle, routeRow, segmentRows);
   }
 
-  async listEmergencies(): Promise<EmergencyEventDetail[]> {    const events = await this.repository.listEvents();
+  async listEmergencies(): Promise<EmergencyEventDetail[]> {
+    const events = await this.repository.listEvents();
     const details: EmergencyEventDetail[] = [];
     for (const event of events) {
       const vehicle = await this.repository.getVehicle(event.vehicle_id);
@@ -770,6 +801,26 @@ export class EmergencyService {
       details.push(this.buildDetail(event, vehicle, routeRow, segmentRows));
     }
     return details;
+  }
+
+  async deleteEmergency(id: number): Promise<void> {
+    const emergency = this.active.get(id);
+    if (emergency) {
+      try {
+        await this.manager.removeVehicle(emergency.vehicleId);
+      } catch {
+        // ignore if not in SUMO
+      }
+      this.active.delete(id);
+    }
+    this.priorityByEvent.delete(id);
+    this.typeByEvent.delete(id);
+    this.persistedStatusByEvent.delete(id);
+    this.transitionSimTimesByEvent.delete(id);
+    await this.repository.deleteEmergency(id);
+    this.version += 1;
+    this.bus.broadcast("emergency:deleted", { eventId: id, id } as any);
+    this.logger.info("Emergency deleted", { eventId: id });
   }
 
   // ------------------------------------------------------------------

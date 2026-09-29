@@ -164,6 +164,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(reason ? { reason } : {}),
     }),
+  deleteEmergency: (id: number) =>
+    request<{ status: "deleted"; eventId: number }>(`/api/emergency/${id}`, {
+      method: "DELETE",
+    }),
   
   // admin verification review
   approveVerification: (eventId: number, notes?: string) =>

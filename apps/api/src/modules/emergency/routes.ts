@@ -69,4 +69,17 @@ export async function emergencyRoutes(
     }
     return detail.route;
   });
+
+  const handleDelete = async (request: any, reply: any) => {
+    const { id } = request.params as { id: string };
+    const numericId = Number(id);
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      throw new AppError(400, "invalid_emergency_id", `Emergency id "${id}" is not a positive integer.`);
+    }
+    await emergencyService.deleteEmergency(numericId);
+    return reply.code(200).send({ status: "deleted", eventId: numericId });
+  };
+
+  app.delete("/api/emergency/:id", { schema: { params: idParamSchema } }, handleDelete);
+  app.post("/api/emergency/:id/delete", { schema: { params: idParamSchema } }, handleDelete);
 }
