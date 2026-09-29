@@ -196,7 +196,16 @@ export class WsBus {
       return payload;
     }
 
-    const targetEventId = payload?.eventId ?? payload?.emergencyId;
+    const targetEventId = payload?.eventId ?? payload?.emergencyId ?? payload?.id;
+
+    // If this emergency event explicitly belongs to this authenticated driver, auto-subscribe and deliver
+    const eventDriverId = payload?.driverId ?? payload?.mobile?.driverId;
+    if (meta.driverId != null && eventDriverId != null && eventDriverId === meta.driverId) {
+      if (typeof targetEventId === "number") {
+        meta.subscribedEventId = targetEventId;
+      }
+      return payload;
+    }
 
     if (type === "vehicle:update") {
       if (typeof targetEventId === "number") {

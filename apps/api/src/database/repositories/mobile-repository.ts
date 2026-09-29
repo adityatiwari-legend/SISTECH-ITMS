@@ -504,11 +504,21 @@ export class MobileRepository {
       }
       if (input.nearestSegmentId) {
         await this.db.query(
-          `INSERT INTO road_segments (id, road_id, from_junction, to_junction, lane_count, length_m, max_speed_mps, geom)
-           VALUES ($1, $1, COALESCE($2, 'I1'), COALESCE($2, 'I1'), 1, 10, 13.89, ST_GeomFromText('LINESTRING(0 0, 1 1)', 0))
+          `INSERT INTO roads (id, name, from_junction, to_junction)
+           VALUES ($1, $1, COALESCE($2, 'I1'), COALESCE($2, 'I1'))
            ON CONFLICT (id) DO NOTHING`,
           [input.nearestSegmentId, input.nearestJunctionId],
         );
+        try {
+          await this.db.query(
+            `INSERT INTO road_segments (id, road_id, from_junction, to_junction, lane_count, length_m, max_speed_mps, geom)
+             VALUES ($1, $1, COALESCE($2, 'I1'), COALESCE($2, 'I1'), 1, 10, 13.89, ST_GeomFromText('LINESTRING(0 0, 1 1)', 0))
+             ON CONFLICT (id) DO NOTHING`,
+            [input.nearestSegmentId, input.nearestJunctionId],
+          );
+        } catch {
+          // Non-fatal if road_segments constraint is relaxed or already satisfied
+        }
       }
       await this.db.query(
         `INSERT INTO driver_telemetry

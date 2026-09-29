@@ -42,10 +42,10 @@ export function baseUrl(): string {
   if (typeof window !== "undefined") {
     const custom = window.localStorage.getItem("itms_api_url");
     if (custom && custom.trim().length > 0) {
-      return custom.trim().replace(/\/$/, "");
+      return custom.trim().replace(/\/+$/, "");
     }
   }
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000";
+  return (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000").replace(/\/+$/, "");
 }
 
 export function patientImageUrl(emergencyId: number): string {
@@ -59,8 +59,17 @@ export function patientImageUrl(emergencyId: number): string {
 }
 
 export function wsUrl(): string {
-  const base = baseUrl();
-  return base.replace(/^http/, "ws") + "/ws";
+  const base = baseUrl().replace(/\/+$/, "");
+  let wsBase = base;
+  if (wsBase.startsWith("http://")) {
+    wsBase = "ws://" + wsBase.slice(7);
+  } else if (wsBase.startsWith("https://")) {
+    wsBase = "wss://" + wsBase.slice(8);
+  }
+  if (wsBase.endsWith("/ws")) {
+    return wsBase;
+  }
+  return `${wsBase}/ws`;
 }
 
 export function getApiTarget(): string {

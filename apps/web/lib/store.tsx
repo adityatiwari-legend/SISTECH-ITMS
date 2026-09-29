@@ -357,6 +357,9 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "backend", payload: health.ok ? "online" : "offline" });
       const sysStatus = await safeRest(api.getSystemStatus);
       if (sysStatus) dispatch({ type: "system_status", payload: sysStatus });
+      // Dual-channel sync: periodically refresh emergencies list to safeguard against dropped WS frames
+      const emergencies = await safeRest(api.getEmergencies);
+      if (emergencies !== null) dispatch({ type: "emergencies", payload: emergencies.emergencies });
     }, 5000);
 
     // ---- WebSocket with exponential backoff reconnect + heartbeat liveness ----
