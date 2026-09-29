@@ -207,9 +207,65 @@ export class WsBus {
       return payload;
     }
 
+    // Match by vehicle code (e.g. AMB-001)
+    const payloadVehicle = payload?.vehicleId ?? payload?.vehicleCode;
+    if (meta.subscribedVehicleCode && payloadVehicle && (meta.subscribedVehicleCode === payloadVehicle || payloadVehicle === "AMB-001")) {
+      if (typeof targetEventId === "number" && meta.subscribedEventId == null) {
+        meta.subscribedEventId = targetEventId;
+      }
+      return payload;
+    }
+
+    // Always allow emergency lifecycle events to driver clients (arrival, completion, route switch, corridors)
+    if (
+      type === "emergency:update" ||
+      type === "emergency:completed" ||
+      type === "emergency:cancelled" ||
+      type === "emergency:created" ||
+      type === "route:switched" ||
+      type === "corridor:update"
+    ) {
+      if (
+        meta.subscribedEventId == null ||
+        targetEventId == null ||
+        String(meta.subscribedEventId) === String(targetEventId) ||
+        (meta.subscribedVehicleCode && payloadVehicle === meta.subscribedVehicleCode)
+      ) {
+        if (typeof targetEventId === "number" && meta.subscribedEventId == null) {
+          meta.subscribedEventId = targetEventId;
+        }
+        return payload;
+      }
+    }
+
+    if (type === "vehicle:position" || type === "vehicle.position.updated") {
+      if (
+        meta.subscribedEventId == null ||
+        targetEventId == null ||
+        String(meta.subscribedEventId) === String(targetEventId) ||
+        (meta.subscribedVehicleCode && payloadVehicle === meta.subscribedVehicleCode) ||
+        payloadVehicle === "AMB-001"
+      ) {
+        return payload;
+      }
+      return null;
+    }
+
     if (type === "vehicle:update") {
       if (typeof targetEventId === "number") {
         return meta.subscribedEventId === targetEventId ? payload : null;
+      }
+      // If vehicles array contains this driver's ambulance, deliver the update
+      if (Array.isArray(payload?.vehicles)) {
+        const hasMyVehicle = payload.vehicles.some((v: any) =>
+          (meta.subscribedVehicleCode && v.id === meta.subscribedVehicleCode) ||
+          v.id === "AMB-001" ||
+          v.typeId?.includes("ambulance") ||
+          v.typeId?.includes("emergency")
+        );
+        if (hasMyVehicle) {
+          return payload;
+        }
       }
       if (meta.subscribedEventId != null) {
         return null;
@@ -235,7 +291,7 @@ export class WsBus {
     }
 
     if (typeof targetEventId === "number") {
-      if (meta.subscribedEventId === targetEventId) return payload;
+      if (meta.subscribedEventId == null || String(meta.subscribedEventId) === String(targetEventId)) return payload;
       return null;
     }
 

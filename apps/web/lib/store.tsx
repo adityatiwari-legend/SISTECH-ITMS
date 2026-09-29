@@ -480,6 +480,12 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
                 version: typeof payload.version === "number" ? payload.version : undefined,
               } as unknown as EmergencyUpsertPayload,
             });
+            if (payload.status === "arrived" || payload.status === "completed") {
+              dispatch({
+                type: "emergency_finish",
+                payload: { eventId, status: "arrived" },
+              });
+            }
           }
           dispatch({
             type: "trace",

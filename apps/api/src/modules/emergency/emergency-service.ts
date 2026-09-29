@@ -48,6 +48,7 @@ interface ActiveEmergency {
   eventId: number;
   vehicleRowId: number;
   vehicleId: string;
+  driverId?: number | null;
   routeRowId: number | null;
   status: EmergencyEventDetail["status"];
   routeEdges: string[];
@@ -494,6 +495,7 @@ export class EmergencyService {
       eventId: persisted.event.id,
       vehicleRowId: persisted.vehicle.id,
       vehicleId,
+      driverId: body.driverId ?? null,
       routeRowId: persisted.route?.id ?? null,
       status: "created",
       routeEdges: route ? route.segments.map((segment) => segment.segmentId) : [],
@@ -603,7 +605,9 @@ export class EmergencyService {
           timestamp: nowIso,
           emergencyId: emergency.eventId,
           eventId: emergency.eventId,
+          driverId: emergency.driverId ?? null,
           vehicleId: emergency.vehicleId,
+          vehicleCode: emergency.vehicleId,
           position: {
             x: live.positionX,
             y: live.positionY,
@@ -699,14 +703,26 @@ export class EmergencyService {
     this.bus.broadcast("emergency:update", {
       eventId: emergency.eventId,
       emergencyId: emergency.eventId,
+      driverId: emergency.driverId ?? null,
       status: "arrived",
       vehicleId: emergency.vehicleId,
+      vehicleCode: emergency.vehicleId,
       positionX: live?.positionX ?? null,
       positionY: live?.positionY ?? null,
       speedMps: 0,
       speedKmh: 0,
       version: this.version,
       updatedAtIso: nowIso,
+    });
+    this.bus.broadcast("emergency:completed", {
+      eventId: emergency.eventId,
+      emergencyId: emergency.eventId,
+      driverId: emergency.driverId ?? null,
+      vehicleId: emergency.vehicleId,
+      vehicleCode: emergency.vehicleId,
+      status: "arrived",
+      version: this.version,
+      completedAt: nowIso,
     });
     this.logger.info(`[EMERGENCY_COMPLETE] Emergency vehicle arrived`, {
       emergencyId: emergency.eventId,
