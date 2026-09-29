@@ -96,8 +96,8 @@ export default function CommandCenterPage() {
   }, [state.trace, decisions]);
 
   const activeEmergency =
-    state.emergencies.find((e) => (e.status === "active" || e.status === "created") && e.mobile?.isDriverApp) ??
-    state.emergencies.find((e) => e.status === "active") ??
+    state.emergencies.find((e) => (e.status === "active" || e.status === "created" || (e.status as string) === "corridorAssigned") && e.mobile?.isDriverApp) ??
+    state.emergencies.find((e) => e.status === "active" || (e.status as string) === "corridorAssigned") ??
     state.emergencies.find((e) => e.status === "created") ??
     null;
 

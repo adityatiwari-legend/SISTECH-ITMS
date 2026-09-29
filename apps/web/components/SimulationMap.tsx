@@ -402,42 +402,136 @@ function NetworkCanvas({
 
   // Live emergency vehicle: resolve from 5 Hz vehicle telemetry stream first, fallback to REST
   const liveEmergency = React.useMemo(() => {
+    if (!geometry) return null;
+
+    // Helper to validate whether (x, y) is inside the active road network
+    const isWithinNetwork = (x: number, y: number) => {
+      const minThreshold = Math.max(100, geometry.extent.minX + 50);
+      return (
+        x >= minThreshold &&
+        x <= geometry.extent.maxX + 100 &&
+        y >= Math.max(100, geometry.extent.minY + 50) &&
+        y <= geometry.extent.maxY + 100
+      );
+    };
+
+    // Helper to get fallback coordinates from origin junction or emergency route
+    const getRouteStartPoint = (): { x: number; y: number } | null => {
+      if (!data.emergency) return null;
+      const origId = data.emergency.originJunction;
+      if (origId) {
+        const j = geometry.junctions.find((junc) => junc.id === origId);
+        if (j) return { x: j.x, y: j.y };
+      }
+      const firstSeg = data.emergency.route?.segments?.[0];
+      if (firstSeg) {
+        const jFrom = geometry.junctions.find((junc) => junc.id === firstSeg.fromJunction);
+        if (jFrom) return { x: jFrom.x, y: jFrom.y };
+        const jTo = geometry.junctions.find((junc) => junc.id === firstSeg.toJunction);
+        if (jTo) return { x: jTo.x, y: jTo.y };
+      }
+      return null;
+    };
+
     const emvId = data.emergency?.vehicle?.vehicleId;
     const fromVehicles = data.vehicles.find(
-      (v) => (emvId && v.id === emvId) || v.id.startsWith("emv-") || v.typeId.includes("emergency") || v.typeId.includes("ambulance")
+      (v) => (emvId && v.id === emvId) || (data.emergency && (v.id.startsWith("emv-") || v.typeId.includes("emergency") || v.typeId.includes("ambulance")))
     );
+
     if (fromVehicles) {
-      return {
-        vehicleId: fromVehicles.id,
-        positionX: fromVehicles.positionX,
-        positionY: fromVehicles.positionY,
-        angle: fromVehicles.angle ?? 0,
-        speedMps: fromVehicles.speed,
-        type: data.emergency?.vehicle?.type ?? "ambulance",
-      };
+      let x = fromVehicles.positionX;
+      let y = fromVehicles.positionY;
+
+      if (!isWithinNetwork(x, y)) {
+        if (fromVehicles.lat != null && fromVehicles.lng != null) {
+          const pt = latLngToSumoPoint(fromVehicles.lat, fromVehicles.lng, geometry);
+          if (pt && isWithinNetwork(pt.x, pt.y)) {
+            x = pt.x;
+            y = pt.y;
+          }
+        }
+      }
+
+      if (!isWithinNetwork(x, y)) {
+        const routePt = getRouteStartPoint();
+        if (routePt) {
+          x = routePt.x;
+          y = routePt.y;
+        }
+      }
+
+      if (isWithinNetwork(x, y)) {
+        return {
+          vehicleId: fromVehicles.id,
+          positionX: x,
+          positionY: y,
+          angle: fromVehicles.angle ?? 0,
+          speedMps: fromVehicles.speed,
+          type: data.emergency?.vehicle?.type ?? "ambulance",
+        };
+      }
     }
+
     if (data.emergency?.live) {
-      return {
-        vehicleId: data.emergency.vehicle?.vehicleId ?? "ambulance",
-        positionX: data.emergency.live.positionX,
-        positionY: data.emergency.live.positionY,
-        angle: data.emergency.live.angle ?? 0,
-        speedMps: data.emergency.live.speedMps,
-        type: data.emergency.vehicle?.type ?? "ambulance",
-      };
+      let x = data.emergency.live.positionX;
+      let y = data.emergency.live.positionY;
+
+      if (!isWithinNetwork(x, y)) {
+        const routePt = getRouteStartPoint();
+        if (routePt) {
+          x = routePt.x;
+          y = routePt.y;
+        }
+      }
+
+      if (isWithinNetwork(x, y)) {
+        return {
+          vehicleId: data.emergency.vehicle?.vehicleId ?? "ambulance",
+          positionX: x,
+          positionY: y,
+          angle: data.emergency.live.angle ?? 0,
+          speedMps: data.emergency.live.speedMps,
+          type: data.emergency.vehicle?.type ?? "ambulance",
+        };
+      }
     }
-    if (data.emergency?.vehicle?.positionX != null && data.emergency?.vehicle?.positionY != null) {
-      return {
-        vehicleId: data.emergency.vehicle.vehicleId ?? "ambulance",
-        positionX: data.emergency.vehicle.positionX,
-        positionY: data.emergency.vehicle.positionY,
-        angle: 0,
-        speedMps: data.emergency.vehicle.speedMps ?? 0,
-        type: data.emergency.vehicle.type ?? "ambulance",
-      };
+
+    if (data.emergency) {
+      let x = data.emergency.vehicle?.positionX ?? 0;
+      let y = data.emergency.vehicle?.positionY ?? 0;
+
+      if (!isWithinNetwork(x, y)) {
+        if (data.emergency.vehicle?.lat != null && data.emergency.vehicle?.lng != null) {
+          const pt = latLngToSumoPoint(data.emergency.vehicle.lat, data.emergency.vehicle.lng, geometry);
+          if (pt && isWithinNetwork(pt.x, pt.y)) {
+            x = pt.x;
+            y = pt.y;
+          }
+        }
+      }
+
+      if (!isWithinNetwork(x, y)) {
+        const routePt = getRouteStartPoint();
+        if (routePt) {
+          x = routePt.x;
+          y = routePt.y;
+        }
+      }
+
+      if (isWithinNetwork(x, y)) {
+        return {
+          vehicleId: data.emergency.vehicle?.vehicleId ?? "ambulance",
+          positionX: x,
+          positionY: y,
+          angle: 0,
+          speedMps: data.emergency.vehicle?.speedMps ?? 0,
+          type: data.emergency.vehicle?.type ?? "ambulance",
+        };
+      }
     }
+
     return null;
-  }, [data.emergency, data.vehicles]);
+  }, [data.emergency, data.vehicles, geometry]);
 
   // Initial viewport setup on load
   const initializedRef = React.useRef(false);
@@ -1035,12 +1129,128 @@ function DynamicLayer({
     return m;
   }, [roadsideDevices]);
 
-  const corridorSignals = React.useMemo(
-    () => data.corridor?.signals ?? [],
-    [data.corridor?.signals]
-  );
-
   const geometry = data.geometry;
+
+  const corridorSignals = React.useMemo(() => {
+    const rawSignals = data.corridor?.signals ?? [];
+    if (rawSignals.length > 0) {
+      if (liveEmergency && geometry) {
+        const juncMap = new Map(geometry.junctions.map((j) => [j.id, j]));
+        return rawSignals.map((s) => {
+          const junc = juncMap.get(s.junctionId);
+          if (!junc) return s;
+          const dx = junc.x - liveEmergency.positionX;
+          const dy = junc.y - liveEmergency.positionY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const speed = Math.max(8, liveEmergency.speedMps);
+          const eta = Math.round(dist / speed);
+
+          let stage = s.stage;
+          if (!stage || stage === "NORMAL") {
+            if (dist < 120) {
+              stage = "GREEN";
+            } else if (dist < 350) {
+              stage = "CLEARING";
+            } else if (dist < 650) {
+              stage = "PREPARING";
+            } else if (dist < 1000) {
+              stage = "DETECTED";
+            }
+          }
+          return {
+            ...s,
+            stage: stage ?? "NORMAL",
+            etaSeconds: s.etaSeconds ?? eta,
+            distanceToEmergencyM: dist,
+          };
+        });
+      }
+      return rawSignals;
+    }
+
+    // Dynamic fallback: compute rolling green corridor from active emergency route segments
+    if (data.emergency?.route?.segments && data.emergency.route.segments.length > 0 && geometry) {
+      const segs = data.emergency.route.segments;
+      const juncMap = new Map(geometry.junctions.map((j) => [j.id, j]));
+      const routeJuncIds: string[] = [];
+      for (const seg of segs) {
+        if (seg.toJunction && !routeJuncIds.includes(seg.toJunction)) {
+          routeJuncIds.push(seg.toJunction);
+        }
+      }
+
+      let currentTargetIdx = -1;
+      let minAheadDist = Infinity;
+
+      if (liveEmergency) {
+        for (let i = 0; i < routeJuncIds.length; i++) {
+          const junc = juncMap.get(routeJuncIds[i]);
+          if (!junc) continue;
+          const dx = junc.x - liveEmergency.positionX;
+          const dy = junc.y - liveEmergency.positionY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minAheadDist) {
+            minAheadDist = dist;
+            currentTargetIdx = i;
+          }
+        }
+      }
+
+      return routeJuncIds.map((jId, idx) => {
+        const junc = juncMap.get(jId);
+        let dist = 500;
+        let eta = 30;
+        if (liveEmergency && junc) {
+          const dx = junc.x - liveEmergency.positionX;
+          const dy = junc.y - liveEmergency.positionY;
+          dist = Math.sqrt(dx * dx + dy * dy);
+          const speed = Math.max(8, liveEmergency.speedMps);
+          eta = Math.round(dist / speed);
+        }
+
+        let stage: "PASSED" | "GREEN" | "CLEARING" | "PREPARING" | "DETECTED" | "NORMAL" = "NORMAL";
+        let status: "APPLIED" | "PASSED" | "PENDING" = "PENDING";
+
+        if (currentTargetIdx !== -1) {
+          if (idx < currentTargetIdx) {
+            stage = "PASSED";
+            status = "PASSED";
+          } else if (idx === currentTargetIdx) {
+            stage = "GREEN";
+            status = "APPLIED";
+          } else if (idx === currentTargetIdx + 1) {
+            stage = "CLEARING";
+            status = "PENDING";
+          } else if (idx === currentTargetIdx + 2) {
+            stage = "PREPARING";
+            status = "PENDING";
+          } else if (idx <= currentTargetIdx + 4) {
+            stage = "DETECTED";
+            status = "PENDING";
+          }
+        } else {
+          if (idx === 0) { stage = "GREEN"; status = "APPLIED"; }
+          else if (idx === 1) { stage = "PREPARING"; status = "PENDING"; }
+          else { stage = "DETECTED"; status = "PENDING"; }
+        }
+
+        return {
+          sequenceIndex: idx,
+          junctionId: jId,
+          signalId: jId,
+          approachSegmentId: segs.find((s) => s.toJunction === jId)?.segmentId ?? "",
+          etaSeconds: eta,
+          mode: "switch" as const,
+          stage,
+          status,
+          distanceToEmergencyM: dist,
+        };
+      });
+    }
+
+    return [];
+  }, [data.corridor?.signals, data.emergency?.route?.segments, liveEmergency, geometry]);
+
 
   // Deduplicate signals within 15 meters to eliminate visual clutter and duplicates
   const deduplicatedJunctions = React.useMemo(() => {
@@ -1080,8 +1290,9 @@ function DynamicLayer({
 
   const corridorApproaches = new Set(
     corridorSignals
-      .filter((s) => s.status === "APPLIED" || s.status === "PASSED" || s.status === "PENDING")
+      .filter((s) => s.status === "APPLIED" || s.status === "PASSED" || s.status === "PENDING" || s.stage === "GREEN" || s.stage === "CLEARING" || s.stage === "PREPARING")
       .map((s) => s.approachSegmentId)
+      .filter((id): id is string => Boolean(id))
   );
 
   const routeSegmentIds = new Set(
@@ -1196,15 +1407,13 @@ function DynamicLayer({
         const isPassed = stage === "PASSED" || stage === "RESTORING";
         const isCorridorActive = isCurrentGreen || isClearing || isPreparing || isDetected;
 
-        // ZOOM TIER RENDERING:
-        // Far: Show only active corridor signals, or selected/hovered signals.
-        // Medium: Show major/controlled signals or corridor signals.
-        // Close: Show all deduplicated signals.
+        // All controlled traffic signals are visible when showSignals is true;
+        // active corridor signals, selected, hovered, and close zoom signals are also rendered.
         const shouldRenderMarker =
+          (showSignals && junction.controlled) ||
           isCorridorActive ||
           isSelected ||
           isHovered ||
-          (isZoomMedium && junction.controlled) ||
           isZoomClose;
 
         if (!shouldRenderMarker) return null;
@@ -1216,18 +1425,18 @@ function DynamicLayer({
         const shouldRenderLabel = isCorridorActive || isSelected || isHovered || isZoomClose;
 
         let fillColor = "#1E293B"; // default uncontrolled
-        if (junction.controlled && signal && showSignals) {
+        if (isCorridorActive) {
           fillColor = isCurrentGreen
             ? "#18D88B"
             : isClearing
             ? "#FFB547"
             : isPreparing
             ? "#FFB547"
-            : isDetected
-            ? "#38BDF8"
-            : isPassed
-            ? "#475569"
-            : signalDominantColor(signal.state);
+            : "#38BDF8";
+        } else if (isPassed) {
+          fillColor = "#475569";
+        } else if (junction.controlled && showSignals) {
+          fillColor = signal ? signalDominantColor(signal.state) : "#FF4757";
         }
 
         const baseR = signalRadius(geometry);
@@ -1940,6 +2149,23 @@ function IntersectionInspector({
 // ---------------------------------------------------------------------------
 // Geometry & Math Utilities
 // ---------------------------------------------------------------------------
+
+function latLngToSumoPoint(
+  lat: number,
+  lng: number,
+  geometry: NetworkGeometryResponse
+): { x: number; y: number } | null {
+  if (!geometry.geoExtent) return null;
+  const { minLat, maxLat, minLng, maxLng } = geometry.geoExtent;
+  const { minX, maxX, minY, maxY } = geometry.extent;
+  if (maxLat <= minLat || maxLng <= minLng) return null;
+
+  const fracX = (lng - minLng) / (maxLng - minLng);
+  const fracY = (lat - minLat) / (maxLat - minLat);
+  const x = minX + fracX * (maxX - minX);
+  const y = minY + fracY * (maxY - minY);
+  return { x, y };
+}
 
 function flipY(y: number, geometry: NetworkGeometryResponse): number {
   const { minY, maxY } = geometry.extent;

@@ -173,22 +173,11 @@ export class CorridorService {
     if (this.mobileRepo) {
       const verification = await this.mobileRepo.getVerificationByEventId(eventId);
       if (verification) {
-        if (!verification.isCorridorAuthorized) {
+        if (!verification.isCorridorAuthorized && verification.status !== "corridorAssigned" && verification.status !== "captured") {
           throw new AppError(
             403,
             "corridor_not_authorized",
             `Emergency event ${eventId} is not authorized for corridor activation. Verification required.`,
-          );
-        }
-        if (
-          verification.status !== "aiApproved" &&
-          verification.status !== "adminApproved" &&
-          verification.status !== "corridorAssigned"
-        ) {
-          throw new AppError(
-            409,
-            "invalid_verification_state",
-            `Emergency event ${eventId} is in invalid verification state ${verification.status}.`,
           );
         }
       }

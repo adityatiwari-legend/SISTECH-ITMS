@@ -79,6 +79,7 @@ type Action =
   | { type: "emergency_finish"; payload: { eventId: number; status: "arrived" | "cancelled" } }
   | { type: "emergency_delete"; payload: { eventId: number } }
   | { type: "corridors"; payload: CorridorDetail[] }
+  | { type: "corridor_upsert"; payload: CorridorDetail }
   | { type: "prediction"; payload: PredictionUpdatePayload }
   | { type: "trace"; payload: DecisionEvent }
   | { type: "backend"; payload: ConnectionState }
@@ -253,6 +254,18 @@ function reducer(state: ItmsLiveState, action: Action): ItmsLiveState {
     case "corridors":
       next = { ...state, corridors: action.payload };
       break;
+    case "corridor_upsert": {
+      const incoming = action.payload;
+      const idx = state.corridors.findIndex((c) => c.id === incoming.id || (incoming.eventId && c.eventId === incoming.eventId));
+      let updated: CorridorDetail[];
+      if (idx >= 0) {
+        updated = [...state.corridors];
+        updated[idx] = { ...updated[idx], ...incoming };
+      } else {
+        updated = [incoming, ...state.corridors];
+      }
+      return { ...state, corridors: updated };
+    }
     case "prediction":
       next = { ...state, predictions: action.payload };
       break;
@@ -499,6 +512,9 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
           void safeRest(api.getEmergencies).then((emergencies) => {
             if (emergencies !== null) dispatch({ type: "emergencies", payload: emergencies.emergencies });
           });
+          void safeRest(api.getCorridors).then((corridors) => {
+            if (corridors !== null) dispatch({ type: "corridors", payload: corridors.corridors });
+          });
           break;
         }
         case "emergency:completed":
@@ -650,6 +666,24 @@ export function ItmsProvider({ children }: { children: React.ReactNode }) {
               },
             },
           });
+          const rawId = payload.corridorId ?? payload.id;
+          const corridorId = typeof rawId === "number" ? rawId : Number(rawId);
+          if (Number.isFinite(corridorId)) {
+            const rawStatus = String(payload.status ?? "ACTIVE").toUpperCase();
+            const validStatus = (["ACTIVE", "PLANNING", "COMPLETED", "FAILED", "CANCELLED"].includes(rawStatus)
+              ? rawStatus
+              : "ACTIVE") as CorridorDetail["status"];
+            dispatch({
+              type: "corridor_upsert",
+              payload: {
+                id: corridorId,
+                eventId: Number(payload.eventId ?? payload.emergencyId ?? 0),
+                status: validStatus,
+                signals: signals as any,
+              } as unknown as CorridorDetail,
+            });
+          }
+
           void safeRest(api.getCorridors).then((corridors) => {
             if (corridors !== null) dispatch({ type: "corridors", payload: corridors.corridors });
           });

@@ -942,6 +942,17 @@ export class EmergencyService {
     const lng = live?.lng ?? (event?.last_longitude ? Number(event.last_longitude) : (event?.pickup_longitude ? Number(event.pickup_longitude) : undefined));
     const liveSpeed = live?.speed ?? (event?.last_speed_kmh ? Number(event.last_speed_kmh) / 3.6 : vehicle.last_speed_mps);
 
+    let posX = live?.positionX ?? vehicle.last_position_x;
+    let posY = live?.positionY ?? vehicle.last_position_y;
+    if ((posX === null || posX === 0) && (posY === null || posY === 0)) {
+      const catalog = this.routeEngine.getCatalog();
+      const orig = catalog.junctions.find((j) => j.id === vehicle.origin_junction);
+      if (orig) {
+        posX = orig.x;
+        posY = orig.y;
+      }
+    }
+
     return {
       id: vehicle.id,
       vehicleId: vehicle.vehicle_id,
@@ -950,8 +961,8 @@ export class EmergencyService {
       status: vehicle.status,
       originJunction: vehicle.origin_junction,
       destinationJunction: vehicle.destination_junction,
-      positionX: live?.positionX ?? vehicle.last_position_x,
-      positionY: live?.positionY ?? vehicle.last_position_y,
+      positionX: posX,
+      positionY: posY,
       ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}),
       speedMps: liveSpeed,
       createdAtIso: vehicle.created_at.toISOString(),

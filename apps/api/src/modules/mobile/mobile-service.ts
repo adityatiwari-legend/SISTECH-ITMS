@@ -559,8 +559,8 @@ export class MobileService {
       eventId: detail.id,
       driverId: driver.id,
       vehicleId: vehicle.id,
-      status: "captured",
-      isCorridorAuthorized: false,
+      status: "corridorAssigned",
+      isCorridorAuthorized: true,
     });
 
     await this.mobileRepo.recordAudit(
@@ -577,6 +577,14 @@ export class MobileService {
       },
       ipAddress,
     );
+
+    // Auto-create and activate the authoritative Green Corridor for this emergency!
+    try {
+      await this.corridorService.createCorridor(detail.id);
+      this.logger.info("[CORRIDOR_CREATED] Green corridor activated for mobile emergency", { eventId: detail.id });
+    } catch (err) {
+      this.logger.warn("[CORRIDOR_CREATE_DEFERRED] Green corridor creation deferred", { eventId: detail.id, error: err });
+    }
 
     // Refresh detail with enriched mobile join metadata
     const enriched = await this.emergencyService.getEmergency(detail.id);
@@ -635,24 +643,32 @@ export class MobileService {
       // In SIMULATION mode with active SUMO, SUMO TraCI is authoritative for vehicle movement in Bhopal.
       // Do not corrupt the Bhopal SUMO ambulance position on Web with physical phone GPS from Gwalior!
       if (!isSimRunning || !isOutsideBhopal || this.executionMode === "REAL_GPS") {
-        this.bus.broadcast("vehicle:update", {
-          simTimeSeconds: this.manager?.getStatusSnapshot().simTimeSeconds ?? 0,
-          vehicles: [
-            {
-              id: vehicle.vehicleCode,
-              typeId: vehicle.vehicleType,
-              lat: payload.latitude,
-              lng: payload.longitude,
-              speed: payload.speedMps ?? 0,
-              angle: payload.heading ?? 0,
-              roadId: mapping.segmentId ?? "",
-              laneId: "",
-              lanePosition: 0,
-              positionX: 0,
-              positionY: 0,
-            },
-          ],
-        });
+        const sumoPt = this.geo.latLngToSumo(payload.latitude, payload.longitude);
+        const junc = mapping.junctionId ? this.catalog.junctions.find((j) => j.id === mapping.junctionId) : null;
+        const posX = sumoPt?.x ?? junc?.x ?? 0;
+        const posY = sumoPt?.y ?? junc?.y ?? 0;
+
+        // Only broadcast if mapped into the network
+        if (posX > 0 || posY > 0) {
+          this.bus.broadcast("vehicle:update", {
+            simTimeSeconds: this.manager?.getStatusSnapshot().simTimeSeconds ?? 0,
+            vehicles: [
+              {
+                id: vehicle.vehicleCode,
+                typeId: vehicle.vehicleType,
+                lat: payload.latitude,
+                lng: payload.longitude,
+                speed: payload.speedMps ?? 0,
+                angle: payload.heading ?? 0,
+                roadId: mapping.segmentId ?? "",
+                laneId: "",
+                lanePosition: 0,
+                positionX: posX,
+                positionY: posY,
+              },
+            ],
+          });
+        }
       }
     }
 
@@ -705,6 +721,15 @@ export class MobileService {
       capturedPhotoPath: targetPath,
       scenario: input.scenario,
     });
+
+    if (verification.isCorridorAuthorized) {
+      try {
+        await this.corridorService.createCorridor(input.eventId);
+        this.logger.info("[CORRIDOR_CREATED] Green corridor activated on AI verification", { eventId: input.eventId });
+      } catch (err) {
+        // Already active or planned
+      }
+    }
 
     return { evidenceId, verification };
   }
