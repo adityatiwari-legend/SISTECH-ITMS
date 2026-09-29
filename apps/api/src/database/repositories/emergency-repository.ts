@@ -179,32 +179,42 @@ export class EmergencyRepository {
         ).catch(() => undefined);
       }
 
-      const vehicleResult = await tx.query<EmergencyVehicleRow>(
-        `INSERT INTO emergency_vehicles
-           (vehicle_id, type, priority, status, run_id, origin_junction, destination_junction)
-         VALUES ($1, $2, $3, 'created', $4, $5, $6)
-         ON CONFLICT (vehicle_id) DO UPDATE SET
-           type = EXCLUDED.type,
-           priority = EXCLUDED.priority,
-           status = 'created',
-           run_id = EXCLUDED.run_id,
-           origin_junction = EXCLUDED.origin_junction,
-           destination_junction = EXCLUDED.destination_junction,
-           last_position_x = NULL,
-           last_position_y = NULL,
-           last_speed_mps = NULL,
-           activated_at = NULL,
-           arrived_at = NULL
-         RETURNING *`,
-        [
-          input.vehicleId,
-          input.type,
-          input.priority,
-          input.runId,
-          input.originJunction,
-          input.destinationJunction,
-        ],
-      );
+      let vehicleResult;
+      try {
+        vehicleResult = await tx.query<EmergencyVehicleRow>(
+          `INSERT INTO emergency_vehicles
+             (vehicle_id, type, priority, status, run_id, origin_junction, destination_junction)
+           VALUES ($1, $2, $3, 'created', $4, $5, $6)
+           RETURNING *`,
+          [
+            input.vehicleId,
+            input.type,
+            input.priority,
+            input.runId,
+            input.originJunction,
+            input.destinationJunction,
+          ],
+        );
+      } catch (err: unknown) {
+        if ((err as { code?: string }).code === "23505") {
+          vehicleResult = await tx.query<EmergencyVehicleRow>(
+            `INSERT INTO emergency_vehicles
+               (vehicle_id, type, priority, status, run_id, origin_junction, destination_junction)
+             VALUES ($1, $2, $3, 'created', $4, $5, $6)
+             RETURNING *`,
+            [
+              `${input.vehicleId}-${Date.now()}`,
+              input.type,
+              input.priority,
+              input.runId,
+              input.originJunction,
+              input.destinationJunction,
+            ],
+          );
+        } else {
+          throw err;
+        }
+      }
       const vehicle = vehicleResult.rows[0]!;
 
       const eventResult = await tx.query<EmergencyEventRow>(
@@ -632,7 +642,7 @@ export class EmergencyRepository {
       await tx.query(`DELETE FROM emergency_route_switches WHERE event_id = $1`, [eventId]);
 
       // 5. Delete patient evidence & verifications
-      await tx.query(`DELETE FROM emergency_patient_evidence WHERE event_id = $1`, [eventId]);
+      await tx.query(`DELETE FROM emergency_evidence WHERE event_id = $1`, [eventId]);
       await tx.query(`DELETE FROM emergency_verifications WHERE event_id = $1`, [eventId]);
 
       // 6. Delete route_segments and routes for this event

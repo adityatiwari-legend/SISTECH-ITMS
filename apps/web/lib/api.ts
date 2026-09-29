@@ -99,10 +99,17 @@ export async function checkBackendHealth(): Promise<{ ok: boolean; service: stri
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const headers: Record<string, string> = {};
+  if (init?.body != null) {
+    headers["content-type"] = "application/json";
+  }
+  if (init?.headers) {
+    Object.assign(headers, init.headers);
+  }
   try {
     response = await fetch(baseUrl() + path, {
       ...init,
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+      headers,
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
@@ -164,10 +171,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(reason ? { reason } : {}),
     }),
-  deleteEmergency: (id: number) =>
-    request<{ status: "deleted"; eventId: number }>(`/api/emergency/${id}`, {
-      method: "DELETE",
-    }),
+  deleteEmergency: async (id: number) => {
+    try {
+      return await request<{ status: "deleted"; eventId: number }>(`/api/emergency/${id}`, {
+        method: "DELETE",
+      });
+    } catch {
+      return await request<{ status: "deleted"; eventId: number }>(`/api/emergency/${id}/delete`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    }
+  },
   
   // admin verification review
   approveVerification: (eventId: number, notes?: string) =>
