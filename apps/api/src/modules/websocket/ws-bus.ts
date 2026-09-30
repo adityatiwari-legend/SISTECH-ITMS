@@ -90,6 +90,10 @@ export class WsBus {
           meta.subscribedEventId = msg.eventId;
           if (msg.vehicleCode) meta.subscribedVehicleCode = String(msg.vehicleCode);
           socket.send(JSON.stringify({ type: "subscribed", eventId: msg.eventId }));
+        } else if (msg.type === "unsubscribe") {
+          meta.subscribedEventId = undefined;
+          meta.subscribedVehicleCode = undefined;
+          socket.send(JSON.stringify({ type: "unsubscribed" }));
         } else if (msg.type === "device:connect" && typeof msg.deviceId === "string") {
           meta.isDeviceClient = true;
           meta.deviceId = msg.deviceId.trim();
@@ -216,7 +220,7 @@ export class WsBus {
       return payload;
     }
 
-    // Always allow emergency lifecycle events to driver clients (arrival, completion, route switch, corridors)
+    // Always allow emergency lifecycle events to driver clients if subscribed or matched to vehicle
     if (
       type === "emergency:update" ||
       type === "emergency:completed" ||
@@ -226,14 +230,9 @@ export class WsBus {
       type === "corridor:update"
     ) {
       if (
-        meta.subscribedEventId == null ||
-        targetEventId == null ||
-        String(meta.subscribedEventId) === String(targetEventId) ||
+        (meta.subscribedEventId != null && String(meta.subscribedEventId) === String(targetEventId)) ||
         (meta.subscribedVehicleCode && payloadVehicle === meta.subscribedVehicleCode)
       ) {
-        if (typeof targetEventId === "number" && meta.subscribedEventId == null) {
-          meta.subscribedEventId = targetEventId;
-        }
         return payload;
       }
     }
@@ -291,7 +290,7 @@ export class WsBus {
     }
 
     if (typeof targetEventId === "number") {
-      if (meta.subscribedEventId == null || String(meta.subscribedEventId) === String(targetEventId)) return payload;
+      if (meta.subscribedEventId != null && String(meta.subscribedEventId) === String(targetEventId)) return payload;
       return null;
     }
 
