@@ -396,8 +396,13 @@ export default function EmergenciesPage() {
 
                       <div className="flex flex-col items-end gap-1 font-mono">
                         <div className="flex items-center gap-1.5">
+                          {isPendingApproval && (
+                            <span className="rounded bg-[rgba(255,181,71,0.2)] border border-[#FFB547]/50 px-2 py-0.5 text-[9px] font-bold text-[#FFB547]">
+                              ⏸ ON HOLD
+                            </span>
+                          )}
                           <Badge color={emg.status === "active" ? "#18D88B" : (emg.status === "created" ? "#FFB547" : "#8D9AAA")} solid>
-                            ● {emg.status.toUpperCase()}
+                            ● {isPendingApproval ? "HOLD" : emg.status.toUpperCase()}
                           </Badge>
                           <Badge color="#FF3B4E">
                             {mobile?.severity?.toUpperCase() || emg.priority.toUpperCase()}
@@ -654,14 +659,14 @@ export default function EmergenciesPage() {
                   {isPendingApproval && (
                     <div className="mt-3 flex items-center justify-end gap-2 border-t border-[rgba(255,181,71,0.3)] bg-[rgba(255,181,71,0.08)] -mx-4 -mb-4 p-3 rounded-b-2xl">
                       <span className="text-[11px] text-[#FFB547] font-bold mr-auto flex items-center gap-1.5">
-                        <span className="animate-pulse">🚩</span> FLAGGED • WEBAPP APPROVAL REQUIRED TO START TRIP
+                        <span className="animate-pulse">🚩</span> FLAGGED • SIMULATION ON HOLD (AWAITING ACCEPTANCE)
                       </span>
                       <button
                         onClick={() => void handleApprove(emg.id)}
                         disabled={reviewingId === emg.id || completingId === emg.id}
                         className="rounded-lg bg-[#18D88B] text-black px-4 py-1.5 font-mono text-[11px] font-black hover:bg-[#18D88B]/90 shadow-lg disabled:opacity-50 transition-colors"
                       >
-                        {reviewingId === emg.id ? "Activating..." : "✓ APPROVE & START TRIP"}
+                        {reviewingId === emg.id ? "Starting Simulation..." : "✓ ACCEPT & START SIMULATION"}
                       </button>
                       <button
                         onClick={() => void handleReject(emg.id)}
@@ -859,6 +864,15 @@ export default function EmergenciesPage() {
           emergency
           right={
             <div className="flex flex-wrap items-center gap-2">
+              {detail.mobile && !detail.mobile.isCorridorAuthorized && detail.status !== "completed" && detail.status !== "cancelled" && (
+                <button
+                  onClick={() => void handleApprove(detail.id)}
+                  disabled={reviewingId === detail.id || completingId === detail.id}
+                  className="rounded-lg bg-[#18D88B] text-black px-3.5 py-1 font-mono text-[11px] font-black hover:bg-[#18D88B]/90 shadow-md disabled:opacity-50 transition-colors"
+                >
+                  {reviewingId === detail.id ? "Starting Simulation..." : "✓ ACCEPT & START SIMULATION"}
+                </button>
+              )}
               {(detail.status === "active" || detail.status === "created") && (
                 <>
                   <button
@@ -1187,7 +1201,7 @@ export default function EmergenciesPage() {
               <div className="flex justify-between py-1 text-[11px]">
                 <span className="text-[#5E6B7A]">Verification Status:</span>
                 <span className={`font-bold ${previewImage.verificationStatus === "adminApproved" ? "text-[#18D88B]" : "text-[#FFB547]"}`}>
-                  {previewImage.verificationStatus === "adminApproved" ? "✓ Approved by Operator (Corridor Active)" : "🚩 Flagged - Awaiting Webapp Approval"}
+                  {previewImage.verificationStatus === "adminApproved" ? "✓ Approved by Operator (Corridor Active)" : "🚩 Flagged • Simulation on Hold (Awaiting Acceptance)"}
                 </span>
               </div>
             </div>
@@ -1203,7 +1217,7 @@ export default function EmergenciesPage() {
                     disabled={reviewingId === previewImage.id}
                     className="rounded-lg bg-[#18D88B] text-black px-4 py-1.5 font-mono text-xs font-black hover:bg-[#18D88B]/90 shadow-md transition-colors"
                   >
-                    {reviewingId === previewImage.id ? "Activating..." : "✓ Approve & Start Corridor"}
+                    {reviewingId === previewImage.id ? "Starting Simulation..." : "✓ Accept & Start Simulation"}
                   </button>
                   <button
                     onClick={async () => {

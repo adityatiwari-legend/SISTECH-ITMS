@@ -160,6 +160,8 @@ async function main(): Promise<void> {
     mobileRepo: mobileRepository,
     bus: wsBus,
     corridorService,
+    manager,
+    emergencyService,
   });
 
   const mobileService = new MobileService({

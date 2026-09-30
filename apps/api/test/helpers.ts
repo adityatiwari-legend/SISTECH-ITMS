@@ -325,6 +325,8 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     mobileRepo,
     bus: wsBus,
     corridorService,
+    manager,
+    emergencyService,
   });
   const mobileService = new MobileService({
     mobileRepo,
@@ -335,6 +337,7 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     catalog,
     bus: wsBus,
     aiVerificationService,
+    manager,
   });
   const deviceRepository = new DeviceRepository(db);
   const deviceService = new RoadsideDeviceService({

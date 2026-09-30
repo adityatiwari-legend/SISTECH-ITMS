@@ -4,6 +4,8 @@ import type { MobileRepository } from "../../database/repositories/mobile-reposi
 import type { WsBus } from "../websocket/ws-bus.ts";
 import type { VerificationDetail } from "@itms/types";
 import type { CorridorService } from "../corridor/corridor-service.ts";
+import type { SimulationManager } from "../simulation/simulation-manager.ts";
+import type { EmergencyService } from "../emergency/emergency-service.ts";
 import { AppError } from "../../errors.ts";
 
 export interface VerificationAnalyzeInput {
@@ -23,6 +25,8 @@ export class AiVerificationService {
   private readonly mobileRepo: MobileRepository;
   private readonly bus: WsBus;
   private readonly corridorService?: CorridorService;
+  private readonly manager?: SimulationManager;
+  private readonly emergencyService?: EmergencyService;
 
   constructor(options: {
     config: AppConfig;
@@ -30,12 +34,16 @@ export class AiVerificationService {
     mobileRepo: MobileRepository;
     bus: WsBus;
     corridorService?: CorridorService;
+    manager?: SimulationManager;
+    emergencyService?: EmergencyService;
   }) {
     this.config = options.config;
     this.logger = options.logger;
     this.mobileRepo = options.mobileRepo;
     this.bus = options.bus;
     this.corridorService = options.corridorService;
+    this.manager = options.manager;
+    this.emergencyService = options.emergencyService;
   }
 
   async processVerification(input: VerificationAnalyzeInput): Promise<VerificationDetail> {
@@ -101,6 +109,19 @@ export class AiVerificationService {
     // 4. Update Verification Lifecycle to manualReview with corridor UNAUTHORIZED
     await this.mobileRepo.updateVerificationStatus(verification.id, "manualReview", false);
 
+    // Place SUMO simulation in hold state (paused) until operator accepts the emergency
+    if (this.manager && this.manager.getStatusSnapshot().status === "running") {
+      try {
+        await this.manager.pause();
+        this.logger.info("[SIMULATION_HOLD] SUMO simulation placed on hold pending webapp operator acceptance", {
+          requestId: input.requestId,
+          eventId: input.eventId,
+        });
+      } catch (err) {
+        this.logger.warn("Could not pause simulation on photo flag", { error: err });
+      }
+    }
+
     this.bus.broadcast("emergency:fraud-flagged", {
       requestId: input.requestId,
       eventId: input.eventId,
@@ -162,6 +183,35 @@ export class AiVerificationService {
       }
     }
 
+    // Automatically start / resume the simulation in SUMO upon operator acceptance
+    if (this.manager) {
+      try {
+        const simStatus = this.manager.getStatusSnapshot().status;
+        if (simStatus === "paused") {
+          await this.manager.resume();
+          this.logger.info("[SIMULATION_START] SUMO simulation resumed from hold state upon operator acceptance", {
+            eventId: target.eventId,
+          });
+        } else if (simStatus === "idle" || simStatus === "completed" || simStatus === "error") {
+          await this.manager.start("baseline", { autoRun: true });
+          this.logger.info("[SIMULATION_START] SUMO simulation started upon operator acceptance", {
+            eventId: target.eventId,
+          });
+        }
+      } catch (err) {
+        this.logger.warn("Could not start/resume simulation on admin approve", { error: err });
+      }
+    }
+
+    // Ensure emergency vehicle is spawned in SUMO TraCI
+    if (this.emergencyService) {
+      try {
+        await this.emergencyService.spawnVehicleInSumo(target.eventId);
+      } catch (err) {
+        this.logger.warn("Could not spawn vehicle in SUMO on admin approve", { error: err });
+      }
+    }
+
     await this.mobileRepo.recordAudit(
       "admin_verification_approved",
       reviewerId,
@@ -218,6 +268,22 @@ export class AiVerificationService {
       reviewerName,
       rejectionReason: rejectionReason.trim(),
     });
+
+    // Clean up emergency vehicle from SUMO if it was injected
+    if (this.manager) {
+      try {
+        const vehicle = await this.mobileRepo.getAssignedVehicleForDriver(target.driverId ?? 0);
+        const code = vehicle?.vehicleCode;
+        if (code && (this.manager.getStatusSnapshot().status === "running" || this.manager.getStatusSnapshot().status === "paused")) {
+          await this.manager.removeVehicle(code);
+        }
+        // If simulation was paused waiting for this emergency, resume ambient traffic
+        if (this.manager.getStatusSnapshot().status === "paused") {
+          await this.manager.resume();
+          this.logger.info("[SIMULATION_RESUME] Simulation resumed on verification rejection", { eventId: target.eventId });
+        }
+      } catch {}
+    }
 
     await this.mobileRepo.recordAudit(
       "admin_verification_rejected",

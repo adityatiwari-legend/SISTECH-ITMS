@@ -572,6 +572,18 @@ export class MobileService {
       isCorridorAuthorized: false,
     });
 
+    // Ensure simulation is placed on hold pending evidence photo triage & operator acceptance
+    if (this.manager && this.manager.getStatusSnapshot().status === "running") {
+      try {
+        await this.manager.pause();
+        this.logger.info("[SIMULATION_HOLD] SUMO simulation placed on hold pending evidence photo triage & operator acceptance", {
+          eventId: detail.id,
+        });
+      } catch (err) {
+        this.logger.warn("Could not pause simulation on mobile emergency creation", { error: err });
+      }
+    }
+
     await this.mobileRepo.recordAudit(
       "emergency_created",
       driver.driver_code,
@@ -729,6 +741,15 @@ export class MobileService {
         this.logger.info("[CORRIDOR_CREATED] Green corridor activated on AI verification", { eventId: input.eventId });
       } catch (err) {
         // Already active or planned
+      }
+    } else if (this.manager && this.manager.getStatusSnapshot().status === "running") {
+      try {
+        await this.manager.pause();
+        this.logger.info("[SIMULATION_HOLD] SUMO simulation held pending webapp operator acceptance", {
+          eventId: input.eventId,
+        });
+      } catch (err) {
+        this.logger.warn("Could not pause simulation on photo upload", { error: err });
       }
     }
 

@@ -1,3 +1,24 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import type {
   CreateEmergencyBody,
   EmergencyEta,
@@ -330,6 +351,53 @@ export class EmergencyService {
     return Array.from(this.active.values());
   }
 
+  /**
+   * Spawns or restarts the emergency vehicle in SUMO TraCI upon operator acceptance.
+   */
+  async spawnVehicleInSumo(eventId: number): Promise<boolean> {
+    const emergency = this.active.get(eventId);
+    if (!emergency) return false;
+    const simStatus = this.manager.getStatusSnapshot().status;
+    if (simStatus !== "running" && simStatus !== "paused") return false;
+    if (emergency.routeEdges.length === 0) return false;
+
+    const sumoRouteId = `route-emv-${eventId}`;
+    const vehicleType = this.typeByEvent.get(eventId) ?? "ambulance";
+    const typeId = TYPE_IDS[vehicleType] ?? "emergency.ambulance";
+
+    try {
+      try {
+        await this.manager.removeVehicle(emergency.vehicleId);
+      } catch {
+        // vehicle not in SUMO yet
+      }
+      try {
+        await this.manager.addVehicleRoute(sumoRouteId, emergency.routeEdges);
+      } catch {
+        // route already registered in SUMO
+      }
+      await this.manager.addVehicle({
+        vehicleId: emergency.vehicleId,
+        routeId: sumoRouteId,
+        typeId,
+        departSpeed: "0",
+      });
+      this.logger.info(`[SUMO_SPAWN] Emergency vehicle spawned into SUMO upon operator acceptance`, {
+        eventId,
+        vehicleId: emergency.vehicleId,
+        routeId: sumoRouteId,
+      });
+      return true;
+    } catch (err) {
+      this.logger.error(`[SUMO_SPAWN_FAIL] Emergency vehicle spawn failed upon operator acceptance`, {
+        eventId,
+        vehicleId: emergency.vehicleId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
   // ------------------------------------------------------------------
   // Creation workflow (Phases.md 3.4)
   // ------------------------------------------------------------------
@@ -453,6 +521,19 @@ export class EmergencyService {
           vehicleId,
           routeId: sumoRouteId,
         });
+
+        // If this is a driver emergency requiring photo evidence triage, pause simulation so it stays on hold until accepted
+        if (body.driverId) {
+          try {
+            await this.manager.pause();
+            this.logger.info(`[SUMO_HOLD] Simulation placed on hold pending driver photo upload & operator acceptance`, {
+              emergencyId: persisted.event.id,
+              vehicleId,
+            });
+          } catch (pauseErr) {
+            this.logger.warn("Could not pause simulation on driver emergency creation", { error: pauseErr });
+          }
+        }
       } catch (err) {
         this.logger.error(`[SUMO_INJECT_FAIL] Emergency vehicle spawn failed`, {
           emergencyId: persisted.event.id,
