@@ -127,7 +127,7 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <h2 className="font-mono text-sm font-bold text-neutral-300 tracking-widest uppercase">
-                SISTECH ITMS
+                dhaara ITMS
               </h2>
             </div>
             <h1 className="text-xl sm:text-2xl font-black font-mono text-white mt-1">

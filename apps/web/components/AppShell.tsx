@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm font-black tracking-widest text-[#F4F7FA]">
-                  ITMS
+                  dhaara
                 </span>
                 <span className="rounded bg-[rgba(139,124,255,0.15)] px-1.5 py-0.2 font-mono text-[9px] font-semibold uppercase tracking-wider text-[#8B7CFF] border border-[rgba(139,124,255,0.3)]">
                   OPS CONTROL
@@ -211,7 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <div className="flex h-13 items-center justify-between border-b border-[rgba(255,255,255,0.08)] px-4">
                   <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#F4F7FA]">
-                    ITMS NAVIGATION
+                    dhaara NAVIGATION
                   </span>
                   <button
                     onClick={() => setMobileOpen(false)}

@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ITMS — Intelligent Traffic Management",
+  title: "dhaara — Intelligent Traffic Management",
   description: "AI-powered traffic command center with a predictive rolling green corridor for emergency vehicles.",
 };
 

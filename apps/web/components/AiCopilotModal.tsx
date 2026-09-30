@@ -88,7 +88,7 @@ export function AiCopilotModal({
       };
       setMessages((prev) => [...prev, copilotMsg]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to reach ITMS AI Copilot.");
+      setError(err instanceof Error ? err.message : "Unable to reach dhaara AI Copilot.");
     } finally {
       setLoading(false);
     }
@@ -127,7 +127,7 @@ export function AiCopilotModal({
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#F4F7FA]">
-                    ITMS AI COPILOT
+                    dhaara AI COPILOT
                   </span>
                   <span className="rounded bg-[#8B7CFF]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#8B7CFF]">
                     OPERATOR ASSISTANCE

@@ -2,12 +2,12 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SISTECH CRPD — Connected Roadside Priority Display",
+  title: "dhaara CRPD — Connected Roadside Priority Display",
   description: "Connected Roadside Priority Display (CRPD) for Intelligent Traffic Management System",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "SISTECH CRPD",
+    title: "dhaara CRPD",
   },
 };
 

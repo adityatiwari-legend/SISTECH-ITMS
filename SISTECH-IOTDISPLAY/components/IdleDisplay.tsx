@@ -36,7 +36,7 @@ export function IdleDisplay({ payload, signalName, deviceId }: IdleDisplayProps)
         <div className="flex items-center gap-2.5">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="font-mono text-sm sm:text-base tracking-[0.3em] font-bold text-neutral-300 uppercase">
-            SISTECH ITMS
+            dhaara ITMS
           </span>
         </div>
         <h2 className="text-xs sm:text-sm font-mono tracking-widest text-neutral-300 uppercase">

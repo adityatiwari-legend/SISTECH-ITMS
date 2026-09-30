@@ -1,6 +1,6 @@
 {
-  "name": "SISTECH Roadside Priority Display",
-  "short_name": "SISTECH-CRPD",
+  "name": "dhaara Roadside Priority Display",
+  "short_name": "dhaara-CRPD",
   "description": "Connected Roadside Priority Display for ITMS Green Corridor",
   "start_url": "/",
   "display": "fullscreen",
