@@ -3,6 +3,7 @@ import type { Logger } from "../../logger.ts";
 import type { MobileRepository } from "../../database/repositories/mobile-repository.ts";
 import type { WsBus } from "../websocket/ws-bus.ts";
 import type { VerificationDetail } from "@itms/types";
+import type { CorridorService } from "../corridor/corridor-service.ts";
 import { AppError } from "../../errors.ts";
 
 export interface VerificationAnalyzeInput {
@@ -21,21 +22,24 @@ export class AiVerificationService {
   private readonly logger: Logger;
   private readonly mobileRepo: MobileRepository;
   private readonly bus: WsBus;
+  private readonly corridorService?: CorridorService;
 
   constructor(options: {
     config: AppConfig;
     logger: Logger;
     mobileRepo: MobileRepository;
     bus: WsBus;
+    corridorService?: CorridorService;
   }) {
     this.config = options.config;
     this.logger = options.logger;
     this.mobileRepo = options.mobileRepo;
     this.bus = options.bus;
+    this.corridorService = options.corridorService;
   }
 
   async processVerification(input: VerificationAnalyzeInput): Promise<VerificationDetail> {
-    this.logger.info("Starting AI emergency verification", {
+    this.logger.info("Emergency photo captured; flagging for webapp manual approval", {
       requestId: input.requestId,
       eventId: input.eventId,
       scenario: input.scenario,
@@ -57,104 +61,24 @@ export class AiVerificationService {
       status: "submitted",
     });
 
-    // 2. Transition to Analyzing
-    await this.mobileRepo.createOrUpdateVerification({
-      requestId: input.requestId,
-      eventId: input.eventId,
-      driverId: input.driverId,
-      vehicleId: input.vehicleId,
-      status: "aiAnalyzing",
-      isCorridorAuthorized: false,
-    });
-
-    this.bus.broadcast("emergency:verification:analyzing", {
-      requestId: input.requestId,
-      eventId: input.eventId,
-      status: "aiAnalyzing",
-    });
-
-    // 3. Perform AI Evaluation (Vultr Inference if API key provided, or deterministic grounded rules)
     const verification = await this.mobileRepo.getVerificationByRequestId(input.requestId);
     if (!verification) {
       throw new AppError(500, "verification_lost", "Verification session record disappeared.");
     }
 
-    let verdict: "VERIFIED" | "FRAUD_FLAGGED" | "REVIEW_REQUIRED" = "VERIFIED";
-    let confidenceScore = 0.96;
-    let reason = "Physical emergency evidence patterns verified. Sirens & patient transport indicators confirmed.";
-    let detectedFeatures = [
-      "Real-world emergency vehicle context verified",
-      "Valid physical timestamp & scene illumination",
-      "Direct optical capture (no screen rebroadcast artifact detected)",
-      "Beacon & dispatch telemetry synchronized",
+    // 2. All captured images are flagged for manual review and approval from the webapp
+    const verdict: "VERIFIED" | "FRAUD_FLAGGED" | "REVIEW_REQUIRED" = "REVIEW_REQUIRED";
+    const confidenceScore = 1.0;
+    const reason = "Captured image flagged. Mandatory review & approval required from the ITMS Webapp Control Center before corridor activation and trip start.";
+    const detectedFeatures = [
+      "Evidence image captured and flagged",
+      "Held for webapp operator authorization",
+      "Green corridor held pending manual approval",
     ];
-    let isFlaggedAsFraud = false;
-    let model = "itms_grounded_vision_rules";
+    const isFlaggedAsFraud = true;
+    const model = "manual_supervisor_gating";
 
-    // Handle scenario simulations if specified by the mobile app test harness
-    if (input.scenario === "scenarioB" || input.scenario === "scenarioC") {
-      verdict = "FRAUD_FLAGGED";
-      confidenceScore = 0.84;
-      reason = "Optical anomaly flag: potential non-acute setting. Mandatory human review required before corridor authorization.";
-      detectedFeatures = [
-        "Ambiguous triage scene characteristics",
-        "Potential non-emergency setting detected",
-        "Safety policy triggered: corridor clearance held for human authorization",
-      ];
-      isFlaggedAsFraud = true;
-      model = "itms_safety_policy_gate";
-    } else if (this.config.vultrApiKey) {
-      // If Vultr Serverless Inference is available
-      try {
-        const vultrRes = await fetch("https://api.vultrinference.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${this.config.vultrApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: this.config.vultrModel || "deepseek-v4.1-flash",
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are the ITMS Emergency Verification AI. Analyze the emergency triage metadata and evidence notes to determine if green corridor clearance is warranted or if there is fraud risk. Return JSON with verdict (VERIFIED or FRAUD_FLAGGED), confidence (0.0 to 1.0), reason (short string), and detectedFeatures (array of strings).",
-              },
-              {
-                role: "user",
-                content: `Emergency Event ID: ${input.eventId}\nPatient Condition: ${input.patientCondition ?? "Acute Emergency"}\nNotes: ${input.notes ?? "Urgent transport to trauma facility"}`,
-              },
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1,
-          }),
-          signal: AbortSignal.timeout(6000),
-        });
-
-        if (vultrRes.ok) {
-          const json = (await vultrRes.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          const parsed = JSON.parse(json.choices?.[0]?.message?.content ?? "{}");
-          if (parsed.verdict === "FRAUD_FLAGGED") {
-            verdict = "FRAUD_FLAGGED";
-            isFlaggedAsFraud = true;
-          } else {
-            verdict = "VERIFIED";
-            isFlaggedAsFraud = false;
-          }
-          if (typeof parsed.confidence === "number") confidenceScore = parsed.confidence;
-          if (parsed.reason) reason = parsed.reason;
-          if (Array.isArray(parsed.detectedFeatures)) detectedFeatures = parsed.detectedFeatures;
-          model = this.config.vultrModel || "vultr_serverless_ai";
-        }
-      } catch (err) {
-        this.logger.warn("Vultr AI verification call timed out or failed, falling back to grounded vision rules", {
-          error: String(err),
-        });
-        model = "itms_grounded_fallback";
-      }
-    }
-
-    // 4. Save AI Result
+    // 3. Save flagged result
     await this.mobileRepo.recordAiResult({
       verificationId: verification.id,
       verdict,
@@ -163,58 +87,37 @@ export class AiVerificationService {
       detectedFeatures,
       isFlaggedAsFraud,
       model,
-      source: this.config.vultrApiKey ? "vultr_serverless" : "itms_grounded_engine",
+      source: "manual_supervisor_gating",
     });
 
     await this.mobileRepo.recordAudit(
-      "ai_verification",
+      "photo_captured_flagged",
       String(input.driverId ?? "system"),
       "system",
       input.eventId,
-      { verdict, confidenceScore, model, isFlaggedAsFraud },
+      { verdict, confidenceScore, model, isFlaggedAsFraud, reason },
     );
 
-    // 5. Update Verification Lifecycle & Authorization
-    if (verdict === "VERIFIED" && !isFlaggedAsFraud) {
-      await this.mobileRepo.updateVerificationStatus(verification.id, "aiApproved", true);
+    // 4. Update Verification Lifecycle to manualReview with corridor UNAUTHORIZED
+    await this.mobileRepo.updateVerificationStatus(verification.id, "manualReview", false);
 
-      this.bus.broadcast("emergency:verified", {
-        requestId: input.requestId,
-        eventId: input.eventId,
-        verdict: "VERIFIED",
-        confidence: confidenceScore,
-        isCorridorAuthorized: true,
-      });
+    this.bus.broadcast("emergency:fraud-flagged", {
+      requestId: input.requestId,
+      eventId: input.eventId,
+      verdict: "REVIEW_REQUIRED",
+      confidence: confidenceScore,
+      reason,
+      isCorridorAuthorized: false,
+    });
 
-      this.bus.broadcast("corridor:authorized", {
-        eventId: input.eventId,
-        emergencyId: input.eventId,
-        corridorId: null,
-        requestId: input.requestId,
-        authorizedBy: "AI_VERIFICATION",
-        status: "AUTHORIZED",
-        timestamp: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    } else {
-      await this.mobileRepo.updateVerificationStatus(verification.id, "manualReview", false);
-
-      this.bus.broadcast("emergency:fraud-flagged", {
-        requestId: input.requestId,
-        eventId: input.eventId,
-        verdict: "FRAUD_FLAGGED",
-        confidence: confidenceScore,
-        reason,
-        isCorridorAuthorized: false,
-      });
-
-      this.bus.broadcast("emergency:manual-review", {
-        requestId: input.requestId,
-        eventId: input.eventId,
-        reason,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    this.bus.broadcast("emergency:manual-review", {
+      requestId: input.requestId,
+      eventId: input.eventId,
+      reason,
+      isCorridorAuthorized: false,
+      status: "manualReview",
+      timestamp: new Date().toISOString(),
+    });
 
     const updated = await this.mobileRepo.getVerificationByRequestId(input.requestId);
     return updated!;
@@ -233,7 +136,12 @@ export class AiVerificationService {
       throw new AppError(404, "verification_not_found", `Verification record #${verificationId} not found.`);
     }
 
-    if (target.status !== "manualReview" && target.status !== "submitted" && target.status !== "aiAnalyzing") {
+    if (
+      target.status !== "manualReview" &&
+      target.status !== "submitted" &&
+      target.status !== "aiAnalyzing" &&
+      target.status !== "aiFraudFlagged"
+    ) {
       throw new AppError(409, "invalid_state_transition", `Cannot approve verification in state ${target.status}.`);
     }
 
@@ -241,8 +149,18 @@ export class AiVerificationService {
       verificationId: target.id,
       reviewerId,
       reviewerName,
-      notes: notes ?? "Authorized by Traffic Operations Supervisor.",
+      notes: notes ?? "Authorized by Traffic Operations Supervisor via Webapp.",
     });
+
+    // Automatically activate the Green Corridor upon admin approval
+    if (this.corridorService) {
+      try {
+        await this.corridorService.createCorridor(target.eventId);
+        this.logger.info("[CORRIDOR_CREATED] Green corridor activated on Admin approval from webapp", { eventId: target.eventId });
+      } catch (err) {
+        this.logger.warn("[CORRIDOR_CREATE_DEFERRED] Corridor creation on admin approve deferred", { eventId: target.eventId, error: err });
+      }
+    }
 
     await this.mobileRepo.recordAudit(
       "admin_verification_approved",

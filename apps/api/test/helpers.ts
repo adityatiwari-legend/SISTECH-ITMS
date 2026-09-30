@@ -324,6 +324,7 @@ export async function createTestHarness(overrides: Partial<AppConfig> = {}): Pro
     logger,
     mobileRepo,
     bus: wsBus,
+    corridorService,
   });
   const mobileService = new MobileService({
     mobileRepo,

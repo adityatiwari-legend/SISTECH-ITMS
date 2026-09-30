@@ -90,6 +90,30 @@ test("mobile AI verification: deterministic state machine and corridor authoriza
       lastSavedStatus = status;
       lastAuthFlag = isAuth;
     },
+    listVerifications: async () => [
+      {
+        id: 1,
+        requestId: "VRF-TEST-001",
+        eventId: 10,
+        status: lastSavedStatus,
+        isCorridorAuthorized: lastAuthFlag,
+      },
+      {
+        id: 2,
+        requestId: "VRF-TEST-002",
+        eventId: 11,
+        status: lastSavedStatus,
+        isCorridorAuthorized: lastAuthFlag,
+      },
+    ],
+    adminApproveTransaction: async () => {
+      lastSavedStatus = "adminApproved";
+      lastAuthFlag = true;
+    },
+    adminRejectTransaction: async () => {
+      lastSavedStatus = "adminRejected";
+      lastAuthFlag = false;
+    },
     recordAudit: async () => {},
   };
 
@@ -106,7 +130,7 @@ test("mobile AI verification: deterministic state machine and corridor authoriza
     bus: mockBus,
   });
 
-  // Scenario A: Standard verified triage -> AI Approved & Corridor Authorized
+  // Captured photos are flagged for manual review and webapp approval
   const resultA = await vrfService.processVerification({
     requestId: "VRF-TEST-001",
     eventId: 10,
@@ -114,11 +138,22 @@ test("mobile AI verification: deterministic state machine and corridor authoriza
     scenario: "scenarioA",
   });
 
-  assert.equal(resultA.status, "aiApproved");
-  assert.equal(resultA.isCorridorAuthorized, true);
+  assert.equal(resultA.status, "manualReview");
+  assert.equal(resultA.isCorridorAuthorized, false);
+  assert.equal(lastAuthFlag, false);
+
+  // Admin approves via webapp -> status becomes adminApproved and corridor is authorized
+  const approvedA = await vrfService.adminApprove(
+    resultA.id,
+    "ADM-001",
+    "Admin Operator",
+    "Verified and approved by Control Center.",
+  );
+  assert.equal(approvedA.status, "adminApproved");
+  assert.equal(approvedA.isCorridorAuthorized, true);
   assert.equal(lastAuthFlag, true);
 
-  // Scenario B: Anomalous triage -> AI Fraud Flagged & Corridor Held for Manual Review
+  // Another captured photo -> also flagged for review
   const resultB = await vrfService.processVerification({
     requestId: "VRF-TEST-002",
     eventId: 11,
@@ -128,5 +163,15 @@ test("mobile AI verification: deterministic state machine and corridor authoriza
 
   assert.equal(resultB.status, "manualReview");
   assert.equal(resultB.isCorridorAuthorized, false);
-  assert.equal(lastAuthFlag, false);
+
+  // Admin rejects -> status becomes adminRejected and corridor remains unauthorized
+  const rejectedB = await vrfService.adminReject(
+    resultB.id,
+    "ADM-001",
+    "Admin Operator",
+    "Rejected by supervisor.",
+  );
+  assert.equal(rejectedB.status, "adminRejected");
+  assert.equal(rejectedB.isCorridorAuthorized, false);
 });
+

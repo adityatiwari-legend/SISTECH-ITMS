@@ -347,8 +347,9 @@ export default function EmergenciesPage() {
               const hospitalTitle = mobile?.hospitalName ?? destMeta.fullName;
 
               const isAuthorized = mobile?.isCorridorAuthorized;
-              const isAiApproved = mobile?.verificationStatus === "aiApproved";
+              const isApproved = mobile?.verificationStatus === "adminApproved" || mobile?.verificationStatus === "corridorAssigned";
               const isFraudFlagged = mobile?.verificationStatus === "aiFraudFlagged";
+              const isPendingApproval = !isAuthorized && emg.status !== "completed" && emg.status !== "cancelled";
 
               const liveLat = mobile?.lastLatitude ?? mobile?.pickupLatitude ?? emg.vehicle?.lat;
               const liveLng = mobile?.lastLongitude ?? mobile?.pickupLongitude ?? emg.vehicle?.lng;
@@ -475,50 +476,47 @@ export default function EmergenciesPage() {
                       </div>
                     </div>
 
-                    {/* 4. AI Vision Verification & Patient Photo Evidence */}
+                    {/* 4. Patient Photo Evidence & Webapp Verification */}
                     <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#070A0F] p-3 font-mono text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-1 border-b border-[rgba(255,255,255,0.06)] pb-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm">👁️</span>
+                          <span className="text-sm">📷</span>
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#8D9AAA]">
-                            AI Vision Verification:
+                            Evidence & Approval:
                           </span>
-                          {isAiApproved ? (
+                          {isApproved ? (
                             <span className="rounded bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/40 px-2 py-0.5 text-[10px] font-extrabold text-[#18D88B]">
-                              ✓ VERIFIED & APPROVED
+                              ✓ APPROVED BY OPERATOR
                             </span>
-                          ) : isFraudFlagged ? (
+                          ) : mobile?.verificationStatus === "adminRejected" ? (
                             <span className="rounded bg-[rgba(255,59,78,0.15)] border border-[#FF3B4E]/40 px-2 py-0.5 text-[10px] font-extrabold text-[#FF3B4E]">
-                              ⚠ OPTICAL ANOMALY FLAGGED
+                              ✕ REJECTED BY OPERATOR
                             </span>
                           ) : (
-                            <span className="rounded bg-[rgba(255,181,71,0.15)] border border-[#FFB547]/40 px-2 py-0.5 text-[10px] font-bold text-[#FFB547]">
-                              ⏳ {mobile?.verificationStatus?.toUpperCase() || "AI ANALYZING"}
+                            <span className="rounded bg-[rgba(255,181,71,0.2)] border border-[#FFB547] px-2 py-0.5 text-[10px] font-extrabold text-[#FFB547] flex items-center gap-1">
+                              <span className="animate-pulse">🚩</span> FLAGGED • AWAITING WEBAPP APPROVAL
                             </span>
                           )}
                         </div>
 
                         <div className="flex items-center gap-2 text-[10px]">
-                          <span className="text-[#8D9AAA]">Model: <span className="text-[#F4F7FA]">{mobile?.aiModel || "ITMS Vision Engine"}</span></span>
-                          <span className="font-bold text-[#18D88B]">{confidencePct}% Confidence</span>
+                          <span className="text-[#8D9AAA]">Control: <span className="text-[#F4F7FA]">Webapp Supervisor</span></span>
                         </div>
                       </div>
 
-                      {/* AI Reasoning statement */}
+                      {/* Status / reason statement */}
                       <p className="mt-2 text-[11px] italic text-[#CBD5E1] font-sans">
-                        &quot;{mobile?.aiReason || "Physical emergency evidence patterns verified. Sirens & patient transport indicators confirmed."}&quot;
+                        &quot;{mobile?.aiReason || "Captured image flagged. Mandatory review & approval required from the ITMS Webapp Control Center before corridor activation and trip start."}&quot;
                       </p>
 
-                      {/* Detected features tag pills */}
+                      {/* Status pills */}
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {features.map((feat, idx) => (
-                          <span
-                            key={idx}
-                            className="rounded-full bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] px-2 py-0.5 text-[9px] text-[#94A3B8]"
-                          >
-                            ✓ {feat}
-                          </span>
-                        ))}
+                        <span className="rounded-full bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] px-2 py-0.5 text-[9px] text-[#94A3B8]">
+                          🚩 Optical Evidence Flagged
+                        </span>
+                        <span className="rounded-full bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] px-2 py-0.5 text-[9px] text-[#94A3B8]">
+                          {isAuthorized ? "✓ Green Wave Corridor Active" : "⏳ Green Wave Held for Approval"}
+                        </span>
                       </div>
 
                       {/* Patient Evidence Photo Preview Strip */}
@@ -652,21 +650,23 @@ export default function EmergenciesPage() {
                     </div>
                   </div>
                   
-                  {/* Manual Review Actions */}
-                  {(isFraudFlagged || mobile?.verificationStatus === "manualReview") && emg.status !== "completed" && emg.status !== "cancelled" && (
-                    <div className="mt-3 flex items-center justify-end gap-2 border-t border-[rgba(255,181,71,0.2)] pt-3">
-                      <span className="text-[10px] text-[#FFB547] font-bold mr-auto">⚠ MANUAL REVIEW REQUIRED</span>
+                  {/* Manual Approval Actions */}
+                  {isPendingApproval && (
+                    <div className="mt-3 flex items-center justify-end gap-2 border-t border-[rgba(255,181,71,0.3)] bg-[rgba(255,181,71,0.08)] -mx-4 -mb-4 p-3 rounded-b-2xl">
+                      <span className="text-[11px] text-[#FFB547] font-bold mr-auto flex items-center gap-1.5">
+                        <span className="animate-pulse">🚩</span> FLAGGED • WEBAPP APPROVAL REQUIRED TO START TRIP
+                      </span>
                       <button
                         onClick={() => void handleApprove(emg.id)}
                         disabled={reviewingId === emg.id || completingId === emg.id}
-                        className="rounded-lg bg-[rgba(24,216,139,0.15)] border border-[#18D88B]/40 px-4 py-1.5 font-mono text-[11px] font-bold text-[#18D88B] hover:bg-[rgba(24,216,139,0.25)] disabled:opacity-50 transition-colors"
+                        className="rounded-lg bg-[#18D88B] text-black px-4 py-1.5 font-mono text-[11px] font-black hover:bg-[#18D88B]/90 shadow-lg disabled:opacity-50 transition-colors"
                       >
-                        {reviewingId === emg.id ? "Processing..." : "✓ APPROVE VERIFICATION"}
+                        {reviewingId === emg.id ? "Activating..." : "✓ APPROVE & START TRIP"}
                       </button>
                       <button
                         onClick={() => void handleReject(emg.id)}
                         disabled={reviewingId === emg.id || completingId === emg.id}
-                        className="rounded-lg bg-[rgba(255,59,78,0.12)] border border-[#FF3B4E]/40 px-4 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.22)] disabled:opacity-50 transition-colors"
+                        className="rounded-lg bg-[rgba(255,59,78,0.15)] border border-[#FF3B4E]/60 px-3 py-1.5 font-mono text-[11px] font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.28)] disabled:opacity-50 transition-colors"
                       >
                         {reviewingId === emg.id ? "Processing..." : "✕ REJECT"}
                       </button>
@@ -1185,14 +1185,38 @@ export default function EmergenciesPage() {
                 <span className="font-semibold text-[#FF3B4E]">{previewImage.condition || "Emergency Condition"}</span>
               </div>
               <div className="flex justify-between py-1 text-[11px]">
-                <span className="text-[#5E6B7A]">AI Verification:</span>
-                <span className="font-bold text-[#18D88B]">
-                  {previewImage.verificationStatus === "aiApproved" ? "✓ AI Verified & Approved" : (previewImage.verificationStatus || "Pending")}
+                <span className="text-[#5E6B7A]">Verification Status:</span>
+                <span className={`font-bold ${previewImage.verificationStatus === "adminApproved" ? "text-[#18D88B]" : "text-[#FFB547]"}`}>
+                  {previewImage.verificationStatus === "adminApproved" ? "✓ Approved by Operator (Corridor Active)" : "🚩 Flagged - Awaiting Webapp Approval"}
                 </span>
               </div>
             </div>
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex items-center justify-end gap-2">
+              {previewImage.verificationStatus !== "adminApproved" && (
+                <>
+                  <button
+                    onClick={async () => {
+                      await handleApprove(previewImage.id);
+                      setPreviewImage(null);
+                    }}
+                    disabled={reviewingId === previewImage.id}
+                    className="rounded-lg bg-[#18D88B] text-black px-4 py-1.5 font-mono text-xs font-black hover:bg-[#18D88B]/90 shadow-md transition-colors"
+                  >
+                    {reviewingId === previewImage.id ? "Activating..." : "✓ Approve & Start Corridor"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await handleReject(previewImage.id);
+                      setPreviewImage(null);
+                    }}
+                    disabled={reviewingId === previewImage.id}
+                    className="rounded-lg bg-[rgba(255,59,78,0.15)] border border-[#FF3B4E]/60 px-3 py-1.5 font-mono text-xs font-bold text-[#FF3B4E] hover:bg-[rgba(255,59,78,0.25)] transition-colors"
+                  >
+                    ✕ Reject
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setPreviewImage(null)}
                 className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[#121A24] px-4 py-1.5 font-mono text-xs font-semibold text-[#F4F7FA] hover:bg-[#1A2534]"

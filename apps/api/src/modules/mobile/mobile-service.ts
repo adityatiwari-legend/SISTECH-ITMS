@@ -133,6 +133,15 @@ export class MobileService {
 
     const sumoPoint = this.geo.latLngToSumo(latitude, longitude);
     if (sumoPoint === null) {
+      if (!this.geo.geoReferenced) {
+        const juncs = this.catalog.junctions.map((j) => j.id);
+        return {
+          candidateJunctions: role === "origin" ? [juncs[0] ?? "I1"] : [juncs[juncs.length - 1] ?? "I6"],
+          nearestSegmentId: this.catalog.segments[0]?.id ?? null,
+          distanceM: 0,
+          snappedLatLng: { lat: latitude, lng: longitude },
+        };
+      }
       throw new AppError(
         400,
         "projection_error",
@@ -552,15 +561,15 @@ export class MobileService {
     await this.mobileRepo.updateVehicleStatus(vehicle.id, "in_emergency", detail.id);
     await this.mobileRepo.updateDriverStatus(driver.id, "in_emergency");
 
-    // Initialize emergency verification record for this session
+    // Initialize emergency verification record for this session (unauthorized, awaiting photo and webapp approval)
     const requestId = `VRF-${Date.now()}-${driver.driver_code}`;
     await this.mobileRepo.createOrUpdateVerification({
       requestId,
       eventId: detail.id,
       driverId: driver.id,
       vehicleId: vehicle.id,
-      status: "corridorAssigned",
-      isCorridorAuthorized: true,
+      status: "submitted",
+      isCorridorAuthorized: false,
     });
 
     await this.mobileRepo.recordAudit(
@@ -577,14 +586,6 @@ export class MobileService {
       },
       ipAddress,
     );
-
-    // Auto-create and activate the authoritative Green Corridor for this emergency!
-    try {
-      await this.corridorService.createCorridor(detail.id);
-      this.logger.info("[CORRIDOR_CREATED] Green corridor activated for mobile emergency", { eventId: detail.id });
-    } catch (err) {
-      this.logger.warn("[CORRIDOR_CREATE_DEFERRED] Green corridor creation deferred", { eventId: detail.id, error: err });
-    }
 
     // Refresh detail with enriched mobile join metadata
     const enriched = await this.emergencyService.getEmergency(detail.id);

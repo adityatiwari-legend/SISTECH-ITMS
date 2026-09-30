@@ -40,9 +40,9 @@ describe("Real Photo Verification Pipeline Test", () => {
     const driverHeaders = { "Authorization": `Bearer ${driverToken}` };
 
     // ----------------------------------------------------------------
-    // TEST 1: AI APPROVAL TEST
+    // TEST 1: PHOTO CAPTURED -> FLAGGED -> OPERATOR APPROVAL
     // ----------------------------------------------------------------
-    console.log("[TEST 1] AI APPROVAL");
+    console.log("[TEST 1] PHOTO CAPTURED -> FLAGGED -> OPERATOR APPROVAL");
     const e1Res = await harness.app.inject({
       method: "POST",
       url: "/api/driver/emergency",
@@ -54,7 +54,7 @@ describe("Real Photo Verification Pipeline Test", () => {
     
     const form1 = new FormData();
     form1.append("file", fs.createReadStream(dummyImgPath));
-    form1.append("scenario", "scenarioA"); // AI_VERIFIED
+    form1.append("scenario", "scenarioA");
     
     const p1Res = await harness.app.inject({
       method: "POST",
@@ -65,14 +65,25 @@ describe("Real Photo Verification Pipeline Test", () => {
     assert.strictEqual(p1Res.statusCode, 201, `Photo upload failed: ${p1Res.payload}`);
     const p1 = p1Res.json();
     
-    assert.strictEqual(p1.verification.aiResult.verdict, "VERIFIED", "AI did not approve");
-    assert.strictEqual(p1.verification.isCorridorAuthorized, true, "Corridor not authorized after AI approval");
+    assert.strictEqual(p1.verification.status, "manualReview", "Captured photo must be flagged for manual review");
+    assert.strictEqual(p1.verification.isCorridorAuthorized, false, "Corridor must NOT be authorized before operator approval");
+
+    const a1Res = await harness.app.inject({
+      method: "POST",
+      url: `/api/admin/verifications/${p1.verification.id}/approve`,
+      headers: { "Authorization": `Bearer ${adminToken}` },
+      payload: { notes: "Operator approved via Webapp" }
+    });
+    assert.strictEqual(a1Res.statusCode, 200, `Approval failed: ${a1Res.payload}`);
+    const a1 = a1Res.json();
+    assert.strictEqual(a1.status, "adminApproved");
+    assert.strictEqual(a1.isCorridorAuthorized, true, "Corridor must be authorized after operator approval");
     console.log("-> PASSED");
 
     // ----------------------------------------------------------------
-    // TEST 2: FRAUD FLAG & MANUAL APPROVAL
+    // TEST 2: PHOTO FLAGGED & MANUAL OVERRIDE APPROVAL
     // ----------------------------------------------------------------
-    console.log("[TEST 2] FRAUD FLAG & MANUAL APPROVAL");
+    console.log("[TEST 2] PHOTO FLAGGED & MANUAL OVERRIDE APPROVAL");
     const e2Res = await harness.app.inject({
       method: "POST",
       url: "/api/driver/emergency",
@@ -83,7 +94,7 @@ describe("Real Photo Verification Pipeline Test", () => {
     
     const form2 = new FormData();
     form2.append("file", fs.createReadStream(dummyImgPath));
-    form2.append("scenario", "scenarioB"); // AI_FRAUD_FLAGGED
+    form2.append("scenario", "scenarioB");
     
     const p2Res = await harness.app.inject({
       method: "POST",
@@ -93,8 +104,8 @@ describe("Real Photo Verification Pipeline Test", () => {
     });
     const p2 = p2Res.json();
     
-    assert.strictEqual(p2.verification.aiResult.verdict, "FRAUD_FLAGGED", "AI did not flag fraud");
-    assert.strictEqual(p2.verification.isCorridorAuthorized, false, "Corridor should NOT be authorized on fraud flag");
+    assert.strictEqual(p2.verification.status, "manualReview", "Captured photo must be flagged for manual review");
+    assert.strictEqual(p2.verification.isCorridorAuthorized, false, "Corridor should NOT be authorized before approval");
     
     const a2Res = await harness.app.inject({
       method: "POST",

@@ -159,6 +159,7 @@ async function main(): Promise<void> {
     logger,
     mobileRepo: mobileRepository,
     bus: wsBus,
+    corridorService,
   });
 
   const mobileService = new MobileService({

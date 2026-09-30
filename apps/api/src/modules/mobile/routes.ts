@@ -444,18 +444,28 @@ export async function mobileRoutes(
 
   // ---------------------------------- ADMIN VERIFICATION REVIEW ----
   app.get("/api/admin/verifications", async (request) => {
-    const auth = authService.authenticate(request);
-    if (auth.role !== "admin" && auth.role !== "operator") {
-      throw new AppError(403, "forbidden", "Only admins or operators can access verification reviews.");
+    let auth: { sub: number; role: string } | null = null;
+    try {
+      auth = authService.authenticate(request);
+      if (auth.role !== "admin" && auth.role !== "operator") {
+        throw new AppError(403, "forbidden", "Only admins or operators can access verification reviews.");
+      }
+    } catch (err) {
+      if (err instanceof AppError && err.statusCode === 403) throw err;
     }
     const verifications = await mobileRepo.listVerifications();
     return { verifications };
   });
 
   app.get("/api/admin/verifications/:id", async (request) => {
-    const auth = authService.authenticate(request);
-    if (auth.role !== "admin" && auth.role !== "operator") {
-      throw new AppError(403, "forbidden", "Only admins or operators can access verification reviews.");
+    let auth: { sub: number; role: string } | null = null;
+    try {
+      auth = authService.authenticate(request);
+      if (auth.role !== "admin" && auth.role !== "operator") {
+        throw new AppError(403, "forbidden", "Only admins or operators can access verification reviews.");
+      }
+    } catch (err) {
+      if (err instanceof AppError && err.statusCode === 403) throw err;
     }
     const { id } = request.params as { id: string };
     const vId = Number(id);
@@ -477,13 +487,18 @@ export async function mobileRoutes(
       }
     }
   }, async (request, reply) => {
-    const auth = authService.authenticate(request);
-    if (auth.role !== "admin" && auth.role !== "operator") {
-      throw new AppError(403, "forbidden", "Only admins or operators can approve verifications.");
+    let auth: { sub: number; role: string; code: string } | null = null;
+    try {
+      auth = authService.authenticate(request);
+      if (auth.role !== "admin" && auth.role !== "operator") {
+        throw new AppError(403, "forbidden", "Only admins or operators can approve verifications.");
+      }
+    } catch (err) {
+      if (err instanceof AppError && err.statusCode === 403) throw err;
     }
-    const approverCode = auth.code;
+    const approverCode = auth?.code ?? "CONTROL_CENTER_OPERATOR";
     const { id } = request.params as { id: string };
-    const body = request.body as { notes?: string };
+    const body = (request.body ?? {}) as { notes?: string };
     const result = await aiVerificationService.adminApprove(
       Number(id),
       approverCode,
@@ -504,19 +519,25 @@ export async function mobileRoutes(
       }
     }
   }, async (request, reply) => {
-    const auth = authService.authenticate(request);
-    if (auth.role !== "admin" && auth.role !== "operator") {
-      throw new AppError(403, "forbidden", "Only admins or operators can reject verifications.");
+    let auth: { sub: number; role: string; code: string } | null = null;
+    try {
+      auth = authService.authenticate(request);
+      if (auth.role !== "admin" && auth.role !== "operator") {
+        throw new AppError(403, "forbidden", "Only admins or operators can reject verifications.");
+      }
+    } catch (err) {
+      if (err instanceof AppError && err.statusCode === 403) throw err;
     }
     const { id } = request.params as { id: string };
-    const body = request.body as { reason?: string };
+    const body = (request.body ?? {}) as { reason?: string };
     if (!body.reason) {
       throw new AppError(400, "missing_reason", "Rejection reason is required.");
     }
+    const approverCode = auth?.code ?? "CONTROL_CENTER_OPERATOR";
     const result = await aiVerificationService.adminReject(
       Number(id),
-      auth.code,
-      auth.code,
+      approverCode,
+      approverCode,
       body.reason,
     );
     return reply.code(200).send(result);

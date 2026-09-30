@@ -124,8 +124,14 @@ export function ActiveEmergencyPanel({
                 <span className="flex items-center gap-1.5 font-bold text-[#18D88B]">
                   <span>📱 DRIVER:</span> {emergency.mobile.driverName || "Field Responder"} ({emergency.mobile.driverCode || "DRV-802"})
                 </span>
-                <span className="rounded bg-[rgba(24,216,139,0.2)] px-1.5 py-0.5 text-[9px] font-bold text-[#18D88B]">
-                  {emergency.mobile.verificationStatus === "aiApproved" ? "✓ AI VERIFIED" : (emergency.mobile.verificationStatus?.toUpperCase() || "AI ANALYZING")}
+                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${
+                  emergency.mobile.verificationStatus === "adminApproved" || emergency.mobile.verificationStatus === "corridorAssigned"
+                    ? "bg-[rgba(24,216,139,0.2)] text-[#18D88B]"
+                    : "bg-[rgba(255,181,71,0.2)] text-[#FFB547]"
+                }`}>
+                  {emergency.mobile.verificationStatus === "adminApproved" || emergency.mobile.verificationStatus === "corridorAssigned"
+                    ? "✓ OPERATOR APPROVED"
+                    : "🚩 FLAGGED • PENDING APPROVAL"}
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-[#8D9AAA]">
