@@ -42,6 +42,11 @@ export function IdleDisplay({ payload, signalName, deviceId }: IdleDisplayProps)
         <h2 className="text-xs sm:text-sm font-mono tracking-widest text-neutral-300 uppercase">
           CONNECTED ROADSIDE PRIORITY DISPLAY (CRPD)
         </h2>
+        {/* High visibility Screen Number Banner */}
+        <div className="mt-2 px-5 py-1.5 rounded-full bg-cyan-950/80 border border-cyan-400/60 text-cyan-300 font-mono text-xs sm:text-sm font-bold tracking-widest shadow-[0_0_15px_rgba(6,182,212,0.3)] flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          <span>SCREEN #{deviceId.replace(/^CRPD-I0?(\d+).*/i, "$1") || "1"}: {payload?.signalName || signalName || "Link Road Commercial Hub"}</span>
+        </div>
       </div>
 
       {/* Main Calm State */}

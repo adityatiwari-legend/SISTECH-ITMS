@@ -63,7 +63,7 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
 
   // Curated and discovered signals for clear selection
   const signalOptions = React.useMemo(() => {
-    const list: Array<{ signalId: string; deviceId: string; name: string }> = [];
+    const list: Array<{ signalId: string; deviceId: string; name: string; screenNum: string }> = [];
     const seen = new Set<string>();
 
     // Canonical priority signals (Link Road and Hospital Junction) first
@@ -71,6 +71,7 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
       signalId: "315577777",
       deviceId: "CRPD-I01-01",
       name: "Link Road Commercial Hub",
+      screenNum: "1",
     });
     seen.add("315577777");
 
@@ -78,6 +79,7 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
       signalId: "315577785",
       deviceId: "CRPD-I03-01",
       name: "Hospital Junction",
+      screenNum: "3",
     });
     seen.add("315577785");
 
@@ -85,10 +87,13 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
     for (const dev of registeredDevices) {
       if (!seen.has(dev.signalId)) {
         seen.add(dev.signalId);
+        const match = dev.deviceId.match(/CRPD-I0?(\d+)/i);
+        const screenNum = match ? match[1] : (dev.signalId.replace(/[^0-9]/g, "") || "1");
         list.push({
           signalId: dev.signalId,
           deviceId: dev.deviceId,
           name: dev.deviceName || `Signal ${dev.signalId} Roadside Display`,
+          screenNum,
         });
       }
     }
@@ -98,10 +103,12 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
       if (!seen.has(sig.id)) {
         seen.add(sig.id);
         const clean = sig.id.replace(/[^A-Za-z0-9]/g, "");
+        const num = sig.id.replace(/[^0-9]/g, "") || "1";
         list.push({
           signalId: sig.id,
           deviceId: `CRPD-${clean}-01`,
           name: `Intersection ${sig.id} (Program: ${sig.program})`,
+          screenNum: num,
         });
       }
     }
@@ -220,7 +227,7 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
                 </option>
                 {signalOptions.map((opt) => (
                   <option key={opt.signalId} value={opt.signalId}>
-                    {opt.name} · Signal ID: {opt.signalId} ({opt.deviceId})
+                    {`[SCREEN #${opt.screenNum}] ${opt.name} · Signal: ${opt.signalId} (${opt.deviceId})`}
                   </option>
                 ))}
               </select>

@@ -30,6 +30,11 @@ export function ConnectionIndicator({
     setAudioAlertEnabled(next);
   };
 
+  const screenNum = React.useMemo(() => {
+    const m = deviceId.match(/CRPD-I0?(\d+)/i);
+    return m ? m[1] : "1";
+  }, [deviceId]);
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2.5 bg-black/60 backdrop-blur-md border-b border-white/10 select-none">
       <div className="flex items-center gap-3">
@@ -55,6 +60,12 @@ export function ConnectionIndicator({
         </div>
 
         <span className="text-neutral-600 font-mono text-xs">|</span>
+
+        {/* High visibility Screen Number Badge */}
+        <span className="px-2 py-0.5 rounded bg-cyan-950/90 border border-cyan-400/70 text-cyan-300 font-mono text-xs font-black tracking-wider shadow-[0_0_12px_rgba(6,182,212,0.4)] flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          SCREEN #{screenNum}
+        </span>
 
         <span className="font-mono text-xs font-bold text-neutral-200 tracking-wider">
           {deviceId}

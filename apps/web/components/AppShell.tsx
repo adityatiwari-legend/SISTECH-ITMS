@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useItms } from "@/lib/store";
+import { api } from "@/lib/api";
 import { formatSpeed, simClock } from "@/lib/format";
 import { StatusDot, StatusChip, Icons } from "./ui";
 
@@ -69,6 +70,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     (e) => e.status === "active" || e.status === "created"
   );
   const activeCorridor = state.corridors.find((c) => c.status === "ACTIVE");
+
+  const [onlineDisplays, setOnlineDisplays] = React.useState<number>(0);
+  const [onlineDisplayNames, setOnlineDisplayNames] = React.useState<string>("");
+
+  React.useEffect(() => {
+    let mounted = true;
+    const fetchDisplays = async () => {
+      try {
+        const res = await api.getRoadsideDevices();
+        if (!mounted) return;
+        const connected = (res.devices || []).filter((d) => d.connected);
+        setOnlineDisplays(connected.length);
+        if (connected.length > 0) {
+          const names = connected
+            .map((d) => {
+              const num = d.deviceId.replace(/^CRPD-I0?(\d+).*/i, "$1") || "1";
+              return `Screen ${num}`;
+            })
+            .join(", ");
+          setOnlineDisplayNames(names);
+        } else {
+          setOnlineDisplayNames("");
+        }
+      } catch {
+        // quiet
+      }
+    };
+    void fetchDisplays();
+    const interval = setInterval(fetchDisplays, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#05070B] text-[#F4F7FA]">
@@ -284,6 +319,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           value={hasActiveEmergency ? "PRIORITY ACTIVE" : "NONE"}
           color={hasActiveEmergency ? "#FF3B4E" : "#5E6B7A"}
           pulse={hasActiveEmergency}
+        />
+        <KpiCell
+          label="ROADSIDE DISPLAYS"
+          value={onlineDisplays > 0 ? `${onlineDisplays} ONLINE (${onlineDisplayNames})` : "STANDBY"}
+          color={onlineDisplays > 0 ? "#00E5FF" : "#5E6B7A"}
+          pulse={onlineDisplays > 0}
         />
       </footer>
     </div>

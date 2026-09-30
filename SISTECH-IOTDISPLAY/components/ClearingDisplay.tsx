@@ -14,9 +14,14 @@ export function ClearingDisplay({ payload }: ClearingDisplayProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-4 sm:p-8 select-none text-center bg-gradient-to-b from-neutral-950 via-rose-950/40 to-neutral-950 border-4 border-rose-500 shadow-[inset_0_0_80px_rgba(244,63,94,0.3)] animate-pulse">
       {/* Top Urgent Alert Banner */}
-      <div className="mt-8 sm:mt-10 px-8 py-2.5 rounded-full bg-rose-600/30 border-2 border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.6)]">
-        <span className="font-mono text-base sm:text-lg font-black text-rose-300 tracking-[0.25em] uppercase">
-          🚨 CLEAR INTERSECTION NOW
+      <div className="mt-8 sm:mt-10 flex flex-col items-center gap-1.5">
+        <div className="px-8 py-2.5 rounded-full bg-rose-600/30 border-2 border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.6)]">
+          <span className="font-mono text-base sm:text-lg font-black text-rose-300 tracking-[0.25em] uppercase">
+            🚨 CLEAR INTERSECTION NOW
+          </span>
+        </div>
+        <span className="font-mono text-xs text-rose-400 font-bold uppercase tracking-wider">
+          SCREEN #{payload.deviceId.replace(/^CRPD-I0?(\d+).*/i, "$1") || "1"} · {payload.signalName || payload.deviceId} (SIGNAL: {payload.signalId})
         </span>
       </div>
 

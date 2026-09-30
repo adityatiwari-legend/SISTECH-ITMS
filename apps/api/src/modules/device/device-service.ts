@@ -50,6 +50,9 @@ export class RoadsideDeviceService {
   /** Device record cache */
   private deviceCache = new Map<string, RoadsideDeviceRecord>();
 
+  /** Sim-time when each emergency vehicle was first seen (for 3s delay threshold) */
+  private emergencyFirstSeen = new Map<string, number>();
+
   private stepUnsubscribe: (() => void) | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private isInitialized = false;
@@ -233,6 +236,11 @@ export class RoadsideDeviceService {
       connectedClients: this.deviceSockets.get(device.deviceId)?.size ?? 1,
     });
 
+    const simTime = typeof this.manager?.getStatusSnapshot === "function"
+      ? (this.manager.getStatusSnapshot()?.simTimeSeconds ?? 0)
+      : 0;
+    this.evaluateDeviceState(device, simTime);
+
     const snapshot = this.getDeviceSnapshot(device.deviceId);
     if (snapshot) {
       // Send immediate snapshot back on connection
@@ -347,6 +355,128 @@ export class RoadsideDeviceService {
   // Step Loop & Authoritative State Derivation
   // ---------------------------------------------------------------------------
 
+  private detectActiveEmergencyVehicle(): {
+    vehicleId: string;
+    type: EmergencyType;
+    priority: "CRITICAL" | "HIGH" | "NORMAL";
+    speedMps: number;
+    positionX: number;
+    positionY: number;
+    destinationJunction?: string;
+    eventId?: number;
+  } | null {
+    // 1. Check emergencyService active sessions
+    const activeEmergencies = typeof this.emergencyService?.getActiveEmergencies === "function"
+      ? this.emergencyService.getActiveEmergencies()
+      : [];
+
+    for (const ae of activeEmergencies) {
+      const snap = this.emergencyService.getEmergencyRuntime(ae.eventId);
+      if (snap && snap.live) {
+        return {
+          vehicleId: snap.vehicleId,
+          type: snap.type ?? "ambulance",
+          priority: (snap.priority?.toUpperCase() as any) ?? "HIGH",
+          speedMps: snap.live.speedMps,
+          positionX: snap.live.positionX,
+          positionY: snap.live.positionY,
+          destinationJunction: snap.destinationJunction,
+          eventId: snap.eventId,
+        };
+      }
+    }
+
+    // 2. Direct fallback: check simulation manager vehicles for any emergency/ambulance
+    if (typeof this.manager?.getVehicles === "function") {
+      const vehicles = this.manager.getVehicles();
+      const ev = vehicles.find(
+        (v) =>
+          v.typeId === "emergency" ||
+          v.id.startsWith("AMB") ||
+          v.id.toLowerCase().includes("amb") ||
+          v.id.toLowerCase().includes("emerg")
+      );
+      if (ev) {
+        return {
+          vehicleId: ev.id,
+          type: "ambulance",
+          priority: "HIGH",
+          speedMps: ev.speed,
+          positionX: ev.positionX,
+          positionY: ev.positionY,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  evaluateDeviceState(
+    device: RoadsideDeviceRecord,
+    simTime: number,
+    activeJunctionMap?: Map<string, { corridor: CorridorRuntime; junction: CorridorRuntime["junctions"][0] }>,
+    activeEmergencyVehicle?: ReturnType<typeof this.detectActiveEmergencyVehicle>
+  ): void {
+    let juncMap = activeJunctionMap;
+    if (!juncMap) {
+      juncMap = new Map();
+      const activeCorridors = this.corridorService.getActiveRuntimes();
+      for (const corridor of activeCorridors) {
+        if (
+          corridor.status !== "ACTIVE" &&
+          corridor.status !== "REPLANNING" &&
+          corridor.status !== "PLANNING" &&
+          corridor.status !== "VALIDATING"
+        ) {
+          continue;
+        }
+        for (const junction of corridor.junctions) {
+          const meta = getJunctionMeta(junction.junctionId);
+          const sigMeta = getJunctionMeta(junction.signalId);
+
+          juncMap.set(junction.junctionId, { corridor, junction });
+          juncMap.set(junction.signalId, { corridor, junction });
+          juncMap.set(meta.code, { corridor, junction });
+          juncMap.set(meta.code.replace(/[^A-Za-z0-9]/g, ""), { corridor, junction });
+          juncMap.set(meta.rawId, { corridor, junction });
+          juncMap.set(sigMeta.code, { corridor, junction });
+          juncMap.set(sigMeta.code.replace(/[^A-Za-z0-9]/g, ""), { corridor, junction });
+          juncMap.set(sigMeta.rawId, { corridor, junction });
+        }
+      }
+    }
+
+    const ev = activeEmergencyVehicle !== undefined ? activeEmergencyVehicle : this.detectActiveEmergencyVehicle();
+
+    const meta = getJunctionMeta(device.signalId);
+    const activeMatch =
+      juncMap.get(device.signalId) ??
+      juncMap.get(meta.code) ??
+      juncMap.get(meta.code.replace(/[^A-Za-z0-9]/g, "")) ??
+      juncMap.get(meta.rawId) ??
+      juncMap.get(device.deviceId);
+
+    if (activeMatch) {
+      // Device IS part of active green corridor -> authoritative corridor stage!
+      const { corridor, junction } = activeMatch;
+      this.transitionToCorridorStage(device, corridor, junction, simTime);
+    } else if (ev) {
+      // Emergency vehicle active in the network: check duration threshold
+      const firstSeen = this.emergencyFirstSeen.get(ev.vehicleId) ?? simTime;
+      const elapsedSeconds = simTime - firstSeen;
+
+      // User requirement: after 3-5 seconds of starting emergency, any display shows alert and stats
+      if (elapsedSeconds >= 3) {
+        this.transitionToCitywideEmergencyAlert(device, ev, simTime);
+      } else {
+        this.transitionToIdle(device);
+      }
+    } else {
+      // No active corridor, no emergency vehicle -> IDLE
+      this.transitionToIdle(device);
+    }
+  }
+
   private processStep(simTime: number): void {
     const activeCorridors = this.corridorService.getActiveRuntimes();
 
@@ -383,25 +513,98 @@ export class RoadsideDeviceService {
       }
     }
 
+    const activeEmergencyVehicle = this.detectActiveEmergencyVehicle();
+    if (activeEmergencyVehicle) {
+      if (!this.emergencyFirstSeen.has(activeEmergencyVehicle.vehicleId)) {
+        this.emergencyFirstSeen.set(activeEmergencyVehicle.vehicleId, simTime);
+      }
+    } else {
+      this.emergencyFirstSeen.clear();
+    }
+
     // Process all devices
     for (const [deviceId, device] of this.deviceCache.entries()) {
-      const meta = getJunctionMeta(device.signalId);
-      const activeMatch =
-        activeJunctionMap.get(device.signalId) ??
-        activeJunctionMap.get(meta.code) ??
-        activeJunctionMap.get(meta.code.replace(/[^A-Za-z0-9]/g, "")) ??
-        activeJunctionMap.get(meta.rawId) ??
-        activeJunctionMap.get(device.deviceId);
-
-      if (!activeMatch) {
-        // Device is NOT in an active green corridor -> IDLE
-        this.transitionToIdle(device);
-      } else {
-        // Device IS part of active green corridor -> derive stage!
-        const { corridor, junction } = activeMatch;
-        this.transitionToCorridorStage(device, corridor, junction, simTime);
-      }
+      this.evaluateDeviceState(device, simTime, activeJunctionMap, activeEmergencyVehicle);
     }
+  }
+
+  private transitionToCitywideEmergencyAlert(
+    device: RoadsideDeviceRecord,
+    emergency: {
+      vehicleId: string;
+      type: EmergencyType;
+      priority: "CRITICAL" | "HIGH" | "NORMAL";
+      speedMps: number;
+      positionX: number;
+      positionY: number;
+      destinationJunction?: string;
+      eventId?: number;
+    },
+    simTime: number
+  ): void {
+    const meta = getJunctionMeta(device.signalId);
+    const junc = this.catalog.junctions.find(
+      (j) =>
+        j.id === device.signalId ||
+        j.id === meta.rawId ||
+        j.id === meta.code ||
+        j.id === meta.code.replace(/[^A-Za-z0-9]/g, "")
+    );
+
+    let distanceMeters = 220;
+    if (junc && typeof junc.x === "number" && typeof junc.y === "number") {
+      const dx = emergency.positionX - junc.x;
+      const dy = emergency.positionY - junc.y;
+      distanceMeters = Math.max(0, Math.round(Math.hypot(dx, dy)));
+    }
+
+    const speedKmh = Math.max(Math.round(emergency.speedMps * 3.6), 35);
+    const effectiveSpeedMps = Math.max(emergency.speedMps, 11); // ~40 km/h minimum for ETA
+    const etaSeconds = Math.max(1, Math.round(distanceMeters / effectiveSpeedMps));
+
+    let displayState: DeviceDisplayState = "PREPARING";
+    let message = `PRIORITY CORRIDOR ACTIVE · ${emergency.vehicleId} EN ROUTE`;
+
+    if (distanceMeters <= 35 || etaSeconds <= 3) {
+      displayState = "PASSING";
+      message = "HIGH PRIORITY VEHICLE PASSING NOW · KEEP CLEAR";
+    } else if (distanceMeters <= 180 || etaSeconds <= 15) {
+      displayState = "GREEN";
+      message = "EMERGENCY CORRIDOR GREEN · YIELD ALL LANES";
+    } else if (distanceMeters <= 450 || etaSeconds <= 35) {
+      displayState = "CLEARING";
+      message = "CLEAR INTERSECTION · EMERGENCY VEHICLE APPROACHING";
+    } else {
+      displayState = "PREPARING";
+      message = `EMERGENCY VEHICLE IN TRANSIT · BE PREPARED TO CLEAR`;
+    }
+
+    const currentSignal = typeof this.manager?.getSignal === "function"
+      ? this.manager.getSignal(device.signalId)
+      : null;
+    const signalState = currentSignal?.state ?? (displayState === "GREEN" || displayState === "PASSING" ? "G" : "r");
+
+    const payload: DeviceDisplayPayload = {
+      type: "device:display",
+      deviceId: device.deviceId,
+      signalId: device.signalId,
+      signalName: device.deviceName,
+      displayState,
+      priority: emergency.priority,
+      vehicle: {
+        id: emergency.vehicleId,
+        type: emergency.type,
+        speedKmh,
+        distanceMeters,
+        etaSeconds,
+      },
+      corridor: null,
+      message,
+      signalState,
+      timestamp: new Date().toISOString(),
+    };
+
+    this.updateAndBroadcast(device, payload, undefined, emergency.eventId);
   }
 
   private transitionToIdle(device: RoadsideDeviceRecord): void {

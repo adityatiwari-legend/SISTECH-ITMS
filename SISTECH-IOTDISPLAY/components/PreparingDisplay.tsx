@@ -18,9 +18,14 @@ export function PreparingDisplay({ payload }: PreparingDisplayProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-4 sm:p-8 select-none text-center bg-gradient-to-b from-neutral-950 via-amber-950/30 to-neutral-950 border-4 border-amber-500 shadow-[inset_0_0_60px_rgba(245,158,11,0.2)]">
       {/* Top Banner */}
-      <div className="mt-8 sm:mt-10 px-8 py-2.5 rounded-full bg-amber-500/20 border-2 border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.4)] animate-pulse">
-        <span className="font-mono text-sm sm:text-base font-black text-amber-300 tracking-[0.25em] uppercase">
-          ⚠ HIGH PRIORITY VEHICLE
+      <div className="mt-8 sm:mt-10 flex flex-col items-center gap-1.5">
+        <div className="px-8 py-2.5 rounded-full bg-amber-500/20 border-2 border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.4)] animate-pulse">
+          <span className="font-mono text-sm sm:text-base font-black text-amber-300 tracking-[0.25em] uppercase">
+            ⚠ HIGH PRIORITY VEHICLE APPROACHING
+          </span>
+        </div>
+        <span className="font-mono text-xs text-amber-400 font-bold uppercase tracking-wider">
+          SCREEN #{payload.deviceId.replace(/^CRPD-I0?(\d+).*/i, "$1") || "1"} · {payload.signalName || payload.deviceId} (SIGNAL: {payload.signalId})
         </span>
       </div>
 

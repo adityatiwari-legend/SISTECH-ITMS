@@ -20,11 +20,9 @@ export function PassingDisplay({ payload }: PassingDisplayProps) {
             🚨 HIGH PRIORITY VEHICLE CROSSING NOW
           </span>
         </div>
-        {payload.signalName && (
-          <span className="font-mono text-xs text-amber-300 font-bold uppercase tracking-wider">
-            {payload.signalName} (SIGNAL: {payload.signalId})
-          </span>
-        )}
+        <span className="font-mono text-xs text-amber-300 font-bold uppercase tracking-wider">
+          SCREEN #{payload.deviceId.replace(/^CRPD-I0?(\d+).*/i, "$1") || "1"} · {payload.signalName || payload.deviceId} (SIGNAL: {payload.signalId})
+        </span>
       </div>
 
       {/* Main Urgent Passing Banner */}

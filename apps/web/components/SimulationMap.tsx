@@ -1124,6 +1124,11 @@ function DynamicLayer({
     if (roadsideDevices) {
       for (const d of roadsideDevices) {
         m.set(d.signalId, d);
+        const meta = getJunctionMeta(d.signalId);
+        m.set(meta.code, d);
+        m.set(meta.rawId, d);
+        m.set(meta.code.replace(/[^A-Za-z0-9]/g, ""), d);
+        m.set(d.deviceId, d);
       }
     }
     return m;
@@ -1383,8 +1388,8 @@ function DynamicLayer({
       {deduplicatedJunctions.map((junction) => {
         const signal = signalById.get(junction.id);
         const corrSignal = corridorSignals.find((s) => s.junctionId === junction.id);
-        const roadsideDev = deviceBySignal.get(junction.id);
         const meta = getJunctionMeta(junction.id);
+        const roadsideDev = deviceBySignal.get(junction.id) ?? deviceBySignal.get(meta.code) ?? deviceBySignal.get(meta.rawId);
         const isSelected = selectedJunctionId === junction.id;
         const isHovered = hoveredJunctionId === junction.id;
 
@@ -1407,9 +1412,10 @@ function DynamicLayer({
         const isCorridorActive = isCurrentGreen || isClearing || isPreparing || isDetected;
 
         // All controlled traffic signals are visible when showSignals is true;
-        // active corridor signals, selected, hovered, and close zoom signals are also rendered.
+        // active corridor signals, online roadside displays, selected, hovered, and close zoom signals are also rendered.
         const shouldRenderMarker =
           (showSignals && junction.controlled) ||
+          (roadsideDev && roadsideDev.connected) ||
           isCorridorActive ||
           isSelected ||
           isHovered ||
@@ -1527,23 +1533,52 @@ function DynamicLayer({
             />
 
             {/* IoT Roadside Priority Display (CRPD) Indicator */}
-            {roadsideDev && junction.controlled && showSignals && (
+            {roadsideDev && (
               <g transform={`translate(${junction.x + r * 0.72}, ${cy - r * 0.72})`}>
                 <circle
-                  r={baseR * 0.38}
+                  r={baseR * 0.45}
                   fill={isCorridorActive && roadsideDev.connected ? "#FF3B4E" : roadsideDev.connected ? "#18D88B" : "#5E6B7A"}
                   stroke="#05070B"
                   strokeWidth={1}
                 />
                 {isCorridorActive && roadsideDev.connected && (
                   <circle
-                    r={baseR * 0.38}
+                    r={baseR * 0.45}
                     fill="#FF3B4E"
                     stroke="#05070B"
                     strokeWidth={1}
                     className="animate-ping opacity-75"
                   />
                 )}
+              </g>
+            )}
+
+            {/* IoT Roadside Priority Display (CRPD) Screen Indicator Badge */}
+            {roadsideDev && roadsideDev.connected && (
+              <g transform={`translate(${junction.x}, ${cy - r - (isCorridorActive ? 28 : 14)})`} className="pointer-events-none">
+                <rect
+                  x={-44}
+                  y={-9}
+                  width={88}
+                  height={18}
+                  rx={4}
+                  fill="#06121E"
+                  stroke="#00E5FF"
+                  strokeWidth={1.5}
+                  filter="drop-shadow(0 0 6px rgba(0,229,255,0.7))"
+                />
+                <circle cx={-34} cy={0} r={3} fill="#00E5FF" className="animate-pulse" />
+                <text
+                  x={-26}
+                  y={3.5}
+                  fill="#E0F7FA"
+                  fontSize={8.5}
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                  letterSpacing="0.05em"
+                >
+                  {`SCREEN ${roadsideDev.deviceId.replace(/^CRPD-I0?(\d+).*/i, "$1") || "1"} ON`}
+                </text>
               </g>
             )}
 

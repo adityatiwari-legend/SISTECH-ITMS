@@ -419,4 +419,82 @@ test("Connected Roadside Priority Display (CRPD) - Unit and Integration Tests", 
       });
     });
   });
+
+  await suite.test("6. Citywide Emergency Alert Synchronization (Standby Corridor / Any Display Connected)", async () => {
+    const repo = new MockDeviceRepository();
+    const wsBus = new WsBus(logger);
+
+    const mockCatalog: any = {
+      signals: [{ id: "315577777", programId: "0" }],
+      junctions: [{ id: "315577777", x: 100, y: 100, kind: "traffic_light" }],
+    };
+
+    const mockCorridorService: any = {
+      getActiveRuntimes: () => [], // Corridor in STANDBY / no active corridor for this junction
+    };
+
+    const liveEmergency = {
+      eventId: 99,
+      vehicleId: "AMB-001",
+      type: "ambulance",
+      priority: "CRITICAL",
+      destinationJunction: "AIIMS Bhopal",
+      live: {
+        simTimeSeconds: 10,
+        positionX: 150,
+        positionY: 100,
+        speedMps: 15, // 54 km/h
+        roadId: "seg_1",
+        laneId: "seg_1_0",
+        routeIndex: 0,
+      },
+    };
+
+    const mockEmergencyService: any = {
+      getActiveEmergencies: () => [{ eventId: 99, vehicleId: "AMB-001" }],
+      getEmergencyRuntime: () => liveEmergency,
+      getEtas: () => [],
+    };
+
+    let stepListener: ((e: { simTimeSeconds: number }) => void) | null = null;
+    const mockManager: any = {
+      onStep: (cb: any) => {
+        stepListener = cb;
+        return () => {};
+      },
+      getSignal: () => ({ id: "315577777", state: "G" }),
+      getStatusSnapshot: () => ({ simTimeSeconds: 10 }),
+    };
+
+    const deviceService = new RoadsideDeviceService({
+      deviceRepo: repo as any,
+      catalog: mockCatalog,
+      corridorService: mockCorridorService,
+      emergencyService: mockEmergencyService,
+      manager: mockManager,
+      bus: wsBus,
+      logger,
+    });
+
+    await deviceService.init();
+
+    // Sim step at t=0: emergency vehicle first seen
+    stepListener!({ simTimeSeconds: 0 });
+    const snapT0 = deviceService.getDeviceSnapshot("CRPD-I01-01");
+    // Under 3s threshold: remains IDLE
+    assert.equal(snapT0?.display.displayState, "IDLE");
+
+    // Sim step at t=4s (elapsed >= 3s): alerts and ambulance stats must trigger!
+    stepListener!({ simTimeSeconds: 4 });
+    const snapT4 = deviceService.getDeviceSnapshot("CRPD-I01-01");
+    assert.ok(snapT4);
+    assert.notEqual(snapT4?.display.displayState, "IDLE");
+    assert.equal(snapT4?.display.vehicle?.id, "AMB-001");
+    assert.equal(snapT4?.display.vehicle?.type, "ambulance");
+    assert.equal(snapT4?.display.vehicle?.speedKmh, 54);
+    assert.equal(snapT4?.display.vehicle?.distanceMeters, 50); // distance from (150,100) to (100,100)
+    assert.ok((snapT4?.display.vehicle?.etaSeconds ?? 0) > 0);
+
+    deviceService.dispose();
+  });
 });
