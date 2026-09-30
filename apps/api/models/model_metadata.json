@@ -1,0 +1,22 @@
+{
+  "model_name": "efficientnet_b0_patient_classifier",
+  "classes": [
+    "patient",
+    "people"
+  ],
+  "class_to_idx": {
+    "patient": 0,
+    "people": 1
+  },
+  "img_size": 224,
+  "normalization_mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "normalization_std": [
+    0.229,
+    0.224,
+    0.225
+  ]
+}
