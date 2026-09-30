@@ -45,16 +45,11 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
           setSelectedSignalId(currentDevice.signalId);
           setCustomDeviceId(currentDevice.deviceId);
           setCustomName(currentDevice.deviceName);
-        } else if (loadedDevices.length > 0 && loadedDevices[0]) {
-          const first = loadedDevices[0];
-          setSelectedSignalId(first.signalId);
-          setCustomDeviceId(first.deviceId);
-          setCustomName(first.deviceName);
-        } else if (loadedSignals.length > 0 && loadedSignals[0]) {
-          const first = loadedSignals[0];
-          setSelectedSignalId(first.id);
-          setCustomDeviceId(`CRPD-${first.id}-01`);
-          setCustomName(`Intersection ${first.id} Display`);
+        } else {
+          // Default to Link Road Commercial Hub
+          setSelectedSignalId("315577777");
+          setCustomDeviceId("CRPD-I01-01");
+          setCustomName("Link Road Commercial Hub Roadside Priority Display");
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load signals from backend");
@@ -66,14 +61,64 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
     void loadData();
   }, [currentDevice]);
 
+  // Curated and discovered signals for clear selection
+  const signalOptions = React.useMemo(() => {
+    const list: Array<{ signalId: string; deviceId: string; name: string }> = [];
+    const seen = new Set<string>();
+
+    // Canonical priority signals (Link Road and Hospital Junction) first
+    list.push({
+      signalId: "315577777",
+      deviceId: "CRPD-I01-01",
+      name: "Link Road Commercial Hub",
+    });
+    seen.add("315577777");
+
+    list.push({
+      signalId: "315577785",
+      deviceId: "CRPD-I03-01",
+      name: "Hospital Junction",
+    });
+    seen.add("315577785");
+
+    // Existing registered devices from server
+    for (const dev of registeredDevices) {
+      if (!seen.has(dev.signalId)) {
+        seen.add(dev.signalId);
+        list.push({
+          signalId: dev.signalId,
+          deviceId: dev.deviceId,
+          name: dev.deviceName || `Signal ${dev.signalId} Roadside Display`,
+        });
+      }
+    }
+
+    // Any other signals from /api/signals
+    for (const sig of signals) {
+      if (!seen.has(sig.id)) {
+        seen.add(sig.id);
+        const clean = sig.id.replace(/[^A-Za-z0-9]/g, "");
+        list.push({
+          signalId: sig.id,
+          deviceId: `CRPD-${clean}-01`,
+          name: `Intersection ${sig.id} (Program: ${sig.program})`,
+        });
+      }
+    }
+
+    return list;
+  }, [registeredDevices, signals]);
+
   // When signal changes, auto-fill matching device or generate ID
   const handleSignalChange = (sigId: string) => {
     setSelectedSignalId(sigId);
 
-    const existingMatch = registeredDevices.find((d) => d.signalId === sigId);
-    if (existingMatch) {
-      setCustomDeviceId(existingMatch.deviceId);
-      setCustomName(existingMatch.deviceName);
+    const opt = signalOptions.find((o) => o.signalId === sigId);
+    if (opt) {
+      setCustomDeviceId(opt.deviceId);
+      setCustomName(
+        opt.name.includes("Display") ? opt.name : `${opt.name} Roadside Priority Display`
+      );
     } else {
       const clean = sigId.replace(/[^A-Za-z0-9]/g, "");
       setCustomDeviceId(`CRPD-${clean}-01`);
@@ -173,17 +218,11 @@ export function DeviceSetup({ currentDevice, onConfigured, onCancel }: DeviceSet
                 <option value="" disabled>
                   -- Select a Controlled Traffic Signal --
                 </option>
-                {registeredDevices.length > 0
-                  ? registeredDevices.map((dev) => (
-                      <option key={dev.deviceId} value={dev.signalId}>
-                        {dev.deviceName} ({dev.deviceId})
-                      </option>
-                    ))
-                  : signals.map((sig) => (
-                      <option key={sig.id} value={sig.id}>
-                        Signal {sig.id} (Program: {sig.program})
-                      </option>
-                    ))}
+                {signalOptions.map((opt) => (
+                  <option key={opt.signalId} value={opt.signalId}>
+                    {opt.name} · Signal ID: {opt.signalId} ({opt.deviceId})
+                  </option>
+                ))}
               </select>
               <p className="mt-1.5 text-[11px] font-mono text-neutral-500">
                 Matches the authoritative signals loaded in Bhopal / ITMS simulation.

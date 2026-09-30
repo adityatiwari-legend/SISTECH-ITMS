@@ -39,7 +39,8 @@ export function clearStoredDevice(): void {
 
 export function isAudioAlertEnabled(): boolean {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem(AUDIO_KEY) === "true";
+  const val = localStorage.getItem(AUDIO_KEY);
+  return val === null ? true : val === "true";
 }
 
 export function setAudioAlertEnabled(enabled: boolean): void {

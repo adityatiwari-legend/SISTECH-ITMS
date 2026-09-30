@@ -262,11 +262,11 @@ export default function RoadsideDevicesPage() {
                           {device.deviceType}
                         </span>
                       </div>
-                      <h3 className="mt-1 text-xs font-semibold text-[#8D9AAA] line-clamp-1">
-                        {meta.name || device.deviceName}
+                      <h3 className="mt-1 text-xs font-semibold text-[#8D9AAA] line-clamp-1" title={device.deviceName || snap?.display?.signalName || meta.name}>
+                        {device.deviceName || snap?.display?.signalName || meta.name}
                       </h3>
                       <p className="text-[10px] text-[#5E6B7A]">
-                        Signal ID: <span className="text-[#8D9AAA]">{device.signalId}</span>
+                        Signal: <span className="text-[#8D9AAA]">{meta.fullName}</span> ({device.signalId})
                       </p>
                     </div>
 

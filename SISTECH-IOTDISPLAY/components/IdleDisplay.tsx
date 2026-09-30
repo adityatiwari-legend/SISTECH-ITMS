@@ -54,11 +54,28 @@ export function IdleDisplay({ payload, signalName, deviceId }: IdleDisplayProps)
           NORMAL TRAFFIC
         </h1>
 
-        <div className="mt-4 flex items-center gap-3 px-4 py-1.5 rounded-full bg-neutral-900 border border-neutral-800">
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span className="font-mono text-xs sm:text-sm text-neutral-300 font-semibold tracking-wider uppercase">
-            PRIORITY RADAR STANDBY
-          </span>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-900 border border-neutral-800">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-mono text-xs text-neutral-300 font-semibold tracking-wider uppercase">
+              PRIORITY RADAR ACTIVE
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-900 border border-neutral-800">
+            <span className="font-mono text-xs text-neutral-400 tracking-wider uppercase">
+              SIGNAL:
+            </span>
+            <span className="font-mono text-xs font-bold text-emerald-400">
+              {payload.signalState
+                ? /[gG]/.test(payload.signalState)
+                  ? "🟢 GREEN PHASE"
+                  : /[yY]/.test(payload.signalState)
+                  ? "🟡 YELLOW TRANSITION"
+                  : "🔴 RED PHASE"
+                : "🟢 NORMAL CYCLE"}
+            </span>
+          </div>
         </div>
 
         {timeStr && (

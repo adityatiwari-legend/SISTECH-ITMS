@@ -42,6 +42,8 @@ const GRID_JUNCTIONS: Record<string, { code: string; name: string }> = {
   N1: { code: "N-01", name: "North Ring Entry" },
   N2: { code: "N-02", name: "North Transit Hub" },
   N3: { code: "N-03", name: "Northeast Arterial" },
+  "315577777": { code: "I-01", name: "Link Road Commercial Hub" },
+  "315577785": { code: "I-03", name: "Hospital Junction" },
 };
 
 // Realistic municipal street names for deterministic assignment to OSM city nodes

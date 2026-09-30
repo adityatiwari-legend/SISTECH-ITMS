@@ -18,10 +18,17 @@ export function GreenDisplay({ payload }: GreenDisplayProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-4 sm:p-8 select-none text-center bg-gradient-to-b from-neutral-950 via-emerald-950/40 to-neutral-950 border-4 sm:border-8 border-emerald-400 shadow-[inset_0_0_100px_rgba(16,185,129,0.35)]">
       {/* Top Emerald Header */}
-      <div className="mt-8 sm:mt-10 px-8 py-3 rounded-full bg-emerald-500/30 border-2 border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.7)] animate-pulse">
-        <span className="font-mono text-base sm:text-xl font-black text-emerald-200 tracking-[0.25em] uppercase">
-          🟢 GREEN CORRIDOR ACTIVE
-        </span>
+      <div className="mt-8 sm:mt-10 flex flex-col items-center gap-2">
+        <div className="px-8 py-3 rounded-full bg-emerald-500/30 border-2 border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.7)] animate-pulse">
+          <span className="font-mono text-base sm:text-xl font-black text-emerald-200 tracking-[0.25em] uppercase">
+            🟢 GREEN CORRIDOR ACTIVE
+          </span>
+        </div>
+        {payload.signalName && (
+          <span className="font-mono text-xs text-emerald-300 font-bold uppercase tracking-wider">
+            {payload.signalName} (SIGNAL: {payload.signalId})
+          </span>
+        )}
       </div>
 
       {/* Main Vehicle & Countdown Body */}

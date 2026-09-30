@@ -961,6 +961,7 @@ export interface DeviceDisplayPayload {
     totalSignals: number;
   } | null;
   message: string;
+  signalState?: string;
   timestamp: string;
 }
 

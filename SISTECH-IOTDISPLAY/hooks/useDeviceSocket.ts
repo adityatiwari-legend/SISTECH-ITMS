@@ -150,16 +150,26 @@ export function useDeviceSocket({ deviceId, signalId, deviceName }: UseDeviceSoc
             return;
           }
 
-          if (msg.type === "device:display") {
-            const payload = msg as DeviceDisplayPayload;
-            if (!payload.deviceId || payload.deviceId === deviceId) {
-              setDisplayPayload(payload);
+          if (msg.type === "device:display" || msg.displayState || (msg.payload && msg.payload.displayState)) {
+            const rawPayload = (msg.payload && typeof msg.payload === "object" ? msg.payload : msg) as DeviceDisplayPayload;
+            const targetDev = rawPayload.deviceId;
+            const targetSig = rawPayload.signalId;
+
+            // Match if addressed to this device or signal or general display frame
+            const isMatch =
+              !targetDev ||
+              targetDev === deviceId ||
+              (signalId && targetSig === signalId) ||
+              (deviceId && targetDev.toLowerCase() === deviceId.toLowerCase());
+
+            if (isMatch) {
+              setDisplayPayload(rawPayload);
 
               // Sound alert on state transition if audio enabled
-              const newState = payload.displayState;
+              const newState = rawPayload.displayState;
               const oldState = prevStateRef.current;
               if (oldState !== newState && isAudioAlertEnabled()) {
-                if (newState === "PREPARING" || newState === "CLEARING") {
+                if (newState === "PREPARING" || newState === "CLEARING" || newState === "GREEN") {
                   playWarningTone();
                 } else if (newState === "PASSING") {
                   playPassingAlert();

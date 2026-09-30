@@ -13,10 +13,17 @@ export function RestoringDisplay({ payload }: RestoringDisplayProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-6 sm:p-10 select-none text-center bg-gradient-to-b from-neutral-950 via-neutral-900 to-neutral-950 border-4 border-neutral-700/60 animate-fadeIn">
       {/* Top Banner */}
-      <div className="mt-8 sm:mt-12 px-6 py-2 rounded-full bg-neutral-900 border border-neutral-700">
-        <span className="font-mono text-xs sm:text-sm font-semibold text-neutral-400 tracking-[0.25em] uppercase">
-          {isCancelled ? "CORRIDOR CANCELLED" : "INTERSECTION CLEAR"}
-        </span>
+      <div className="mt-8 sm:mt-12 flex flex-col items-center gap-2">
+        <div className="px-6 py-2 rounded-full bg-neutral-900 border border-neutral-700">
+          <span className="font-mono text-xs sm:text-sm font-semibold text-neutral-400 tracking-[0.25em] uppercase">
+            {isCancelled ? "CORRIDOR CANCELLED" : "INTERSECTION CLEAR · VEHICLE PASSED"}
+          </span>
+        </div>
+        {payload.signalName && (
+          <span className="font-mono text-xs text-neutral-400 font-bold uppercase tracking-wider">
+            {payload.signalName} (SIGNAL: {payload.signalId})
+          </span>
+        )}
       </div>
 
       {/* Main Restoring Body */}

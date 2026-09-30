@@ -14,10 +14,17 @@ export function PassingDisplay({ payload }: PassingDisplayProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-4 sm:p-8 select-none text-center bg-gradient-to-b from-neutral-950 via-amber-950/60 to-neutral-950 border-4 sm:border-8 border-amber-400 shadow-[inset_0_0_120px_rgba(251,191,36,0.4)] animate-pulse">
       {/* Top Banner */}
-      <div className="mt-8 sm:mt-10 px-8 py-2.5 rounded-full bg-amber-500/30 border-2 border-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.8)]">
-        <span className="font-mono text-base sm:text-xl font-black text-amber-200 tracking-[0.25em] uppercase">
-          🚨 HIGH PRIORITY VEHICLE
-        </span>
+      <div className="mt-8 sm:mt-10 flex flex-col items-center gap-2">
+        <div className="px-8 py-2.5 rounded-full bg-amber-500/30 border-2 border-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.8)]">
+          <span className="font-mono text-base sm:text-xl font-black text-amber-200 tracking-[0.25em] uppercase">
+            🚨 HIGH PRIORITY VEHICLE CROSSING NOW
+          </span>
+        </div>
+        {payload.signalName && (
+          <span className="font-mono text-xs text-amber-300 font-bold uppercase tracking-wider">
+            {payload.signalName} (SIGNAL: {payload.signalId})
+          </span>
+        )}
       </div>
 
       {/* Main Urgent Passing Banner */}

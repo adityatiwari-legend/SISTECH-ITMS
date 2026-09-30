@@ -360,16 +360,38 @@ export class RoadsideDeviceService {
     >();
 
     for (const corridor of activeCorridors) {
-      if (corridor.status !== "ACTIVE" && corridor.status !== "REPLANNING") continue;
+      if (
+        corridor.status !== "ACTIVE" &&
+        corridor.status !== "REPLANNING" &&
+        corridor.status !== "PLANNING" &&
+        corridor.status !== "VALIDATING"
+      ) {
+        continue;
+      }
       for (const junction of corridor.junctions) {
+        const meta = getJunctionMeta(junction.junctionId);
+        const sigMeta = getJunctionMeta(junction.signalId);
+
         activeJunctionMap.set(junction.junctionId, { corridor, junction });
         activeJunctionMap.set(junction.signalId, { corridor, junction });
+        activeJunctionMap.set(meta.code, { corridor, junction });
+        activeJunctionMap.set(meta.code.replace(/[^A-Za-z0-9]/g, ""), { corridor, junction });
+        activeJunctionMap.set(meta.rawId, { corridor, junction });
+        activeJunctionMap.set(sigMeta.code, { corridor, junction });
+        activeJunctionMap.set(sigMeta.code.replace(/[^A-Za-z0-9]/g, ""), { corridor, junction });
+        activeJunctionMap.set(sigMeta.rawId, { corridor, junction });
       }
     }
 
     // Process all devices
     for (const [deviceId, device] of this.deviceCache.entries()) {
-      const activeMatch = activeJunctionMap.get(device.signalId);
+      const meta = getJunctionMeta(device.signalId);
+      const activeMatch =
+        activeJunctionMap.get(device.signalId) ??
+        activeJunctionMap.get(meta.code) ??
+        activeJunctionMap.get(meta.code.replace(/[^A-Za-z0-9]/g, "")) ??
+        activeJunctionMap.get(meta.rawId) ??
+        activeJunctionMap.get(device.deviceId);
 
       if (!activeMatch) {
         // Device is NOT in an active green corridor -> IDLE
@@ -386,7 +408,7 @@ export class RoadsideDeviceService {
     const prev = this.currentDisplayState.get(device.deviceId);
     if (prev && prev.displayState === "IDLE") return; // already idle
 
-    // If it was just passed or cancelling, give 3 seconds restore message
+    // If it was just passed or cancelling, give 5 seconds restore message
     if (prev && (prev.displayState === "PASSING" || prev.displayState === "GREEN")) {
       const restoringPayload: DeviceDisplayPayload = {
         type: "device:display",
@@ -413,45 +435,55 @@ export class RoadsideDeviceService {
   ): void {
     const emergency = this.emergencyService.getEmergencyRuntime(corridor.eventId);
     const etas = emergency ? this.emergencyService.getEtas(corridor.eventId) : null;
-    const eta = etas?.find((e) => e.junctionId === junction.junctionId || e.junctionId === junction.signalId);
+    const meta = getJunctionMeta(junction.junctionId);
+    const eta = etas?.find(
+      (e) =>
+        e.junctionId === junction.junctionId ||
+        e.junctionId === junction.signalId ||
+        e.junctionId === meta.code ||
+        e.junctionId === meta.rawId ||
+        e.junctionId === device.signalId
+    );
 
-    const etaSeconds = eta ? Math.max(0, Math.round(eta.etaSeconds)) : 0;
-    const distanceMeters = eta ? Math.max(0, Math.round(eta.distanceM)) : 0;
+    const etaSeconds = eta !== undefined && eta.etaSeconds != null ? Math.max(0, Math.round(eta.etaSeconds)) : null;
+    const distanceMeters = eta !== undefined && eta.distanceM != null ? Math.max(0, Math.round(eta.distanceM)) : null;
     const speedKmh = emergency?.live ? Math.round(emergency.live.speedMps * 3.6) : 0;
     const vehicleType: EmergencyType = emergency?.type ?? "ambulance";
     const priority = (emergency?.priority?.toUpperCase() as "CRITICAL" | "HIGH" | "NORMAL") ?? "HIGH";
+
+    const currentSignal = typeof this.manager?.getSignal === "function"
+      ? (this.manager.getSignal(device.signalId) ?? this.manager.getSignal(junction.signalId))
+      : null;
+    const signalState = currentSignal?.state ?? (junction.status === "APPLIED" ? "G" : "r");
+
+    const isPassingNow =
+      (distanceMeters !== null && distanceMeters <= 35) ||
+      (etaSeconds !== null && etaSeconds <= 2) ||
+      (emergency?.live != null && junction.routeEdgeIndex >= 0 && emergency.live.routeIndex === junction.routeEdgeIndex);
 
     let displayState: DeviceDisplayState = "IDLE";
     let message = "NORMAL TRAFFIC";
 
     if (junction.status === "PASSED") {
       const timeSincePassed = junction.passedAtSimTimeS !== null ? simTime - junction.passedAtSimTimeS : 0;
-      if (timeSincePassed < 5) {
+      if (timeSincePassed < 6) {
         displayState = "RESTORING";
         message = "VEHICLE PASSED · NORMAL TRAFFIC RESUMING";
       } else {
         displayState = "IDLE";
         message = "NORMAL TRAFFIC";
       }
+    } else if (isPassingNow) {
+      displayState = "PASSING";
+      message = "HIGH PRIORITY VEHICLE PASSING NOW · KEEP CLEAR";
     } else if (junction.status === "APPLIED") {
-      // Vehicle is at or crossing junction?
-      const isPassingNow =
-        (emergency?.live && junction.routeEdgeIndex >= 0 && emergency.live.routeIndex === junction.routeEdgeIndex) ||
-        distanceMeters <= 35 ||
-        etaSeconds <= 2;
-
-      if (isPassingNow) {
-        displayState = "PASSING";
-        message = "HIGH PRIORITY VEHICLE PASSING NOW · KEEP CLEAR";
-      } else {
-        displayState = "GREEN";
-        message = "GREEN CORRIDOR ACTIVE · PLEASE GIVE WAY";
-      }
+      displayState = "GREEN";
+      message = "GREEN CORRIDOR ACTIVE · PLEASE GIVE WAY";
     } else if (junction.clearanceAppliedAtS !== null) {
       displayState = "CLEARING";
       message = "EMERGENCY APPROACHING · CLEAR INTERSECTION";
-    } else if (junction.status === "PENDING") {
-      if (etaSeconds <= 25) {
+    } else if (junction.status === "PENDING" || corridor.status === "PLANNING" || corridor.status === "VALIDATING") {
+      if (etaSeconds !== null && etaSeconds <= 25) {
         displayState = "PREPARING";
         message = "AMBULANCE APPROACHING · PREPARE TO GIVE WAY";
       } else {
@@ -471,8 +503,8 @@ export class RoadsideDeviceService {
         id: emergency?.vehicleId ?? corridor.vehicleId,
         type: vehicleType,
         speedKmh,
-        distanceMeters,
-        etaSeconds,
+        distanceMeters: distanceMeters ?? 0,
+        etaSeconds: etaSeconds ?? 0,
       },
       corridor: {
         id: corridor.corridorId,
@@ -481,6 +513,7 @@ export class RoadsideDeviceService {
         totalSignals: corridor.junctions.length,
       },
       message,
+      signalState,
       timestamp: new Date().toISOString(),
     };
 
@@ -539,6 +572,7 @@ export class RoadsideDeviceService {
   }
 
   private createIdleDisplay(device: RoadsideDeviceRecord): DeviceDisplayPayload {
+    const liveSig = typeof this.manager?.getSignal === "function" ? this.manager.getSignal(device.signalId) : null;
     return {
       type: "device:display",
       deviceId: device.deviceId,
@@ -548,6 +582,7 @@ export class RoadsideDeviceService {
       message: "NORMAL TRAFFIC",
       vehicle: null,
       corridor: null,
+      signalState: liveSig?.state ?? "G",
       timestamp: new Date().toISOString(),
     };
   }
